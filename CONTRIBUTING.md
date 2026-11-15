@@ -9,6 +9,9 @@ make -j
 make check
 ```
 
+`make check` includes a lightweight Markdown check (`scripts/check_docs.py`) for
+relative links, fenced code blocks and GitHub-compatible math delimiters.
+
 The Make build is the quickest loop. If CMake is available, also run:
 
 ```bash

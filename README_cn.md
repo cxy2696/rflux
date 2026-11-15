@@ -19,6 +19,18 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 
 滚动波动、z-score、相关、beta、斜率和 R² 使用可合并的 Welford 块矩，不会因为价格水平很大而丢掉窗口内的微小波动。所有随机过程接收显式 seed，同一版本、同一平台的结果可复现。
 
+## 使用案例
+
+可以直接运行的脚本和命令汇总在 [examples/README.md](examples/README.md)。
+
+| 场景 | 入口 |
+| --- | --- |
+| 多因子选股、行业中性化、IC 和多空回测 | [python_factor_screen.py](examples/python_factor_screen.py) |
+| HMM 滚动拟合、样本外评分、状态对齐 | [python_hmm_walkforward.py](examples/python_hmm_walkforward.py) |
+| 相关网络、渗流扫描和风险扩散 | [python_end_to_end.py](examples/python_end_to_end.py) |
+| akshare / yfinance 真实数据 | [python_real_data.py](examples/python_real_data.py) |
+| C ABI / C++ 研究管线 | [c_basic.c](examples/c_basic.c) · [cpp_research.cpp](examples/cpp_research.cpp) |
+
 ## 构建
 
 需要 C11 编译器、C++17 编译器和 GNU Make。Python 绑定需要 Python 3.10+ 与 NumPy。
@@ -37,7 +49,7 @@ make check
 - `build/test_capi`、`build/test_cpp`
 - `build/example_c_basic`、`build/example_cpp_research`
 
-`make check` 运行 C ABI 测试、C++ 测试和 Python 测试。
+`make check` 运行 C ABI 测试、C++ 测试、Python 测试和 Markdown 文档检查。
 
 CMake：
 
@@ -267,7 +279,8 @@ include/rflux/         C ABI 与 C++ 公共头
 src/                   C++ 实现和 C ABI 包装
 python/rflux/          ctypes 绑定、数据适配和上层工具
 tests/                 C、C++、Python 测试
-examples/              最小示例和 walk-forward 示例
+examples/              因子、HMM 走步、网络、真实数据和 C/C++ 示例
+scripts/               Markdown 链接、代码围栏和公式分隔符检查
 docs/                  ABI、方法和扩展说明
 ```
 
@@ -277,9 +290,9 @@ docs/                  ABI、方法和扩展说明
 make check
 ```
 
-测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法、渗流端点、扩散边界和 Python 回测。
+测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法、渗流端点、扩散边界和 Python 回测。`make check` 还会检查 Markdown 链接、代码围栏和 GitHub 公式分隔符。
 
-GitHub Actions 在 Linux 和 macOS 上运行 Make 测试，并在 Ubuntu 上额外运行 CMake/CTest。
+GitHub Actions 在 Linux 和 macOS 上运行 Make、CMake/CTest 测试，并在 Linux 上实际运行因子、HMM walk-forward、网络和 C/C++ 示例。
 
 ## 限制
 

@@ -41,7 +41,7 @@ RPATH := -Wl,-rpath,$(abspath $(BUILD))
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
 TESTS    := $(BUILD)/test_capi $(BUILD)/test_cpp
 
-.PHONY: all libs shared examples check c-test cpp-test python-test python-lib clean
+.PHONY: all libs shared examples check c-test cpp-test python-test python-lib docs-check clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -92,7 +92,10 @@ python-lib: $(SHARED_LIB)
 	cp $(SHARED_LIB) python/rflux/_lib/
 	@echo "copied $(SHARED_LIB) -> python/rflux/_lib/"
 
-check: c-test cpp-test python-test
+docs-check:
+	$(PYTHON) scripts/check_docs.py
+
+check: c-test cpp-test python-test docs-check
 
 clean:
 	rm -rf $(BUILD)

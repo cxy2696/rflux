@@ -3,6 +3,15 @@
 Notable changes are listed here. Numerical definitions, missing-value rules and
 causal semantics are called out explicitly when they change.
 
+## Unreleased
+
+- Added a cross-sectional factor-screening example and an examples index covering
+  factor research, walk-forward HMM, network risk and real data.
+- Added visible use-case sections to the Chinese and English guides.
+- Fixed GitHub Markdown math rendering by using `$...$` / `$$...$$` delimiters
+  with whitespace boundaries.
+- Added `make docs-check` and a CI example-run step.
+
 ## 0.2.0 — 2026-11-15
 
 - Added rolling OLS beta through C++ (`qflux::rolling_beta`), the C ABI

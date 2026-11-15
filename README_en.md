@@ -17,6 +17,18 @@ The current release is `0.2.0`; the C ABI version is `1`.
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
 
+## Use cases
+
+Runnable scripts and commands are indexed in [examples/README.md](examples/README.md).
+
+| Scenario | Entry point |
+| --- | --- |
+| Cross-sectional factor screening, sector neutralization, IC and long-short backtest | [python_factor_screen.py](examples/python_factor_screen.py) |
+| Rolling HMM fitting, out-of-sample scoring and state alignment | [python_hmm_walkforward.py](examples/python_hmm_walkforward.py) |
+| Correlation network, percolation scan and risk diffusion | [python_end_to_end.py](examples/python_end_to_end.py) |
+| akshare / yfinance data | [python_real_data.py](examples/python_real_data.py) |
+| C ABI / C++ research pipeline | [c_basic.c](examples/c_basic.c) · [cpp_research.cpp](examples/cpp_research.cpp) |
+
 ## Build and test
 
 You need a C11 compiler, a C++17 compiler and GNU Make. The Python bindings need Python 3.10+ and NumPy.
@@ -262,7 +274,8 @@ include/rflux/       C ABI and C++ headers
 src/                 C++ implementation and C wrapper
 python/rflux/        ctypes bindings, adapters and research tools
 tests/               C, C++ and Python tests
-examples/            minimal and walk-forward examples
+examples/            factors, walk-forward HMM, networks, real data and C/C++ examples
+scripts/             Markdown link, fence and math-delimiter checks
 docs/                ABI, methods and extension notes
 ```
 
@@ -272,9 +285,9 @@ docs/                ABI, methods and extension notes
 make check
 ```
 
-The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms, percolation endpoints, diffusion bounds and the Python backtest helpers.
+The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms, percolation endpoints, diffusion bounds and the Python backtest helpers. `make check` also verifies Markdown links, code fences and GitHub math delimiters.
 
-GitHub Actions runs Make tests on Linux and macOS and an additional CMake/CTest job on Ubuntu.
+GitHub Actions runs Make and CMake/CTest tests on Linux and macOS, and executes the factor, walk-forward HMM, network and C/C++ examples on Linux.
 
 ## Limits
 

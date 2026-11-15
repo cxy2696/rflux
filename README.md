@@ -36,12 +36,13 @@ print(filtered[-1])
 model.close()
 ```
 
-Build and test:
+Build, test and try an example:
 
 ```bash
 git clone https://github.com/cxy2696/rflux.git
 cd rflux
 make -j && make check
+PYTHONPATH=python python examples/python_factor_screen.py
 ```
 
 The shared library is written to `build/`. Python finds it automatically when run from the repository, or you can set `RFLUX_LIBRARY=/path/to/librflux.dylib` / `.so`.
@@ -50,6 +51,7 @@ The shared library is written to `build/`. Python finds it automatically when ru
 
 - [中文说明](README_cn.md): build, Python/C/C++ usage, data adapters and HMM guidance.
 - [English guide](README_en.md): same scope in English.
+- [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk and real data.
 - [C ABI rules](docs/ABI.md): ownership, status codes, buffer lengths and compatibility (Chinese; the public header is documented in English).
 - [Detailed methods](docs/METHODS.md): formulas and statistical definitions (Chinese; formulas are language-neutral).
 - [Extension guide](docs/EXTENDING.md): add a kernel, a C ABI function or a Python entry point.
