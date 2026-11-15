@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  make:
+    name: make (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip numpy pandas
+      - name: Build and test
+        run: |
+          make -j2
+          make check
+      - name: Verify the editable Python package
+        run: |
+          make python-lib
+          python -m pip install --no-deps -e ./python
+          cd /tmp
+          python -c "import rflux, numpy as np; print(rflux.native_version(), rflux.qflux.sma(np.arange(5.0), 2))"
+
+  cmake:
+    name: cmake (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build/cmake -j2
+      - name: Test
+        run: ctest --test-dir build/cmake --output-on-failure
+      - name: Install
+        run: cmake --install build/cmake --prefix "${RUNNER_TEMP}/rflux-install"
