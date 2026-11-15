@@ -6,7 +6,7 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 
 这样分层的目的很实际：Python 调用不需要为每个解释器版本重新编译扩展；C++ 代码可以被单独复用；其他语言只依赖 `rflux.h`，不需要理解 C++ 类型。
 
-当前版本 `0.2.0`，C ABI 版本为 1。
+当前版本 `0.4.2`，C ABI 版本为 1。
 
 ## 内容
 
@@ -18,6 +18,40 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 | Python 工具 | akshare / yfinance / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测 |
 
 滚动波动、z-score、相关、beta、斜率和 R² 使用可合并的 Welford 块矩，不会因为价格水平很大而丢掉窗口内的微小波动。所有随机过程接收显式 seed，同一版本、同一平台的结果可复现。
+
+## 直接使用
+
+仓库里已经包含一个可以直接分析的示例价格表。构建后从终端运行：
+
+```bash
+make -j
+PYTHONPATH=python python -m rflux version
+PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
+```
+
+安装编辑版之后，命令简化为 `rflux analyze ...`：
+
+```bash
+make python-lib
+python -m pip install -e python
+rflux doctor
+rflux analyze examples/data/sample_prices.csv --no-hmm --format json
+```
+
+`analyze` 会读取带表头的宽表 CSV，自动识别 `date`/`日期` 列，计算每个资产的年度收益、波动、Sharpe、最大回撤、RSI，以及等权市场组合、相关矩阵摘要、相关网络和 3 状态 HMM。非数值列会被丢弃；日期会排序；重复日期和某列中混合文本/数字会直接报错，不会静默处理。
+
+也可以直接从 Python 调用：
+
+```python
+import numpy as np
+from rflux import analyze_prices
+
+prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
+report = analyze_prices(prices, names=["AAA", "BBB"])
+print(report["market"]["annualized_return"])
+```
+
+完整参数见 `python -m rflux analyze --help`。命令行只依赖 NumPy 和标准库；需要 pandas 的数据适配器是另一条路径。
 
 ## 使用案例
 

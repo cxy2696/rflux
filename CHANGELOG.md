@@ -3,17 +3,27 @@
 Notable changes are listed here. Numerical definitions, missing-value rules and
 causal semantics are called out explicitly when they change.
 
-## Unreleased
+## 0.4.2 — 2026-11-15
 
-- Added a cross-sectional factor-screening example and an examples index covering
-  factor research, walk-forward HMM, network risk and real data.
-- Added visible use-case sections to the Chinese and English guides.
-- Fixed GitHub Markdown math rendering by using `$...$` / `$$...$$` delimiters
-  with whitespace boundaries.
-- Added `make docs-check` and a CI example-run step.
+- Added a direct command-line interface: `rflux version`, `rflux doctor` and
+  `rflux analyze FILE`. The `analyze` command reads a wide price CSV, computes
+  per-asset and equal-weight statistics, a correlation network and an optional
+  HMM, and can emit JSON.
+- Added the high-level `rflux.analyze_prices()` API and top-level shortcuts such
+  as `rflux.sma`, `rflux.returns`, `rflux.fit_hmm`,
+  `rflux.correlation_network` and `rflux.performance_summary`.
+- Added `examples/data/sample_prices.csv` so the CLI can be tried immediately.
 - Split the methods and extension guides into Chinese and English files
   (`METHODS_cn.md`, `METHODS_en.md`, `EXTENDING_cn.md`, `EXTENDING_en.md`) and
   rewrote them for readability.
+- Added a cross-sectional factor-screening example and an examples index covering
+  factor research, walk-forward HMM, network risk and real data.
+- Added visible use-case and direct-use sections to the Chinese and English
+  guides.
+- Fixed GitHub Markdown math rendering by using `$...$` / `$$...$$` delimiters
+  with whitespace boundaries.
+- Added `make docs-check` and CI checks for the CLI, examples and Markdown.
+- No C ABI break: version 0.4.2 still uses ABI version 1.
 
 ## 0.2.0 — 2026-11-15
 

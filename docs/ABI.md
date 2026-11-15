@@ -7,8 +7,8 @@
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 2
-#define RFLUX_VERSION_PATCH 0
+#define RFLUX_VERSION_MINOR 4
+#define RFLUX_VERSION_PATCH 2
 ```
 
 运行时：
@@ -27,6 +27,7 @@ const char* rflux_version_string(void);
 - 删除函数、改变参数/返回类型、改变错误语义、扩张 ABI-v1 options 结构，必须提升 ABI 版本。
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
 - 0.2.0 新增 `rflux_rolling_beta` 与 `rflux_hmm_score`，ABI 仍为 1。
+- 0.4.2 仍使用 ABI 1；新增的 Python 高层分析和 CLI 不改变 C 接口。
 
 ## 2. 状态码与异常
 

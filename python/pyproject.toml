@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rflux"
-version = "0.2.0"
+version = "0.4.2"
 description = "Stable C ABI + C++17 + Python quantitative research algorithms"
 readme = {text = "rflux: factors, Gaussian HMM regimes, correlation graphs, percolation and risk diffusion. C ABI + C++17 core + Python.", content-type = "text/plain"}
 requires-python = ">=3.10"
@@ -31,6 +31,9 @@ Homepage = "https://github.com/cxy2696/rflux"
 Documentation = "https://github.com/cxy2696/rflux#documentation"
 Repository = "https://github.com/cxy2696/rflux"
 Issues = "https://github.com/cxy2696/rflux/issues"
+
+[project.scripts]
+rflux = "rflux.cli:main"
 
 [project.optional-dependencies]
 data = ["pandas>=1.5"]

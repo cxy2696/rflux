@@ -10,6 +10,23 @@ export PYTHONPATH="$PWD/python"
 
 在仓库内运行时，Python 加载器会自动查找 `build/librflux.dylib` 或 `build/librflux.so`；也可以显式设置 `RFLUX_LIBRARY`。`make python-lib` 只在需要把包安装到别处时使用。
 
+## 0. 命令行直接分析
+
+```bash
+PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
+PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv --format json
+```
+
+`analyze` 读取宽表 CSV，自动识别日期列，计算资产统计、等权市场、相关网络和 3 状态 HMM。`--no-hmm`、`--no-network` 可以关掉较慢的部分；`--format json` 适合接入脚本。安装为包之后命令简写为 `rflux ...`。
+
+Python 里可以直接调用同一套分析：
+
+```python
+from rflux import analyze_prices
+
+report = analyze_prices(prices, names=["AAA", "BBB"])
+```
+
 ## 1. 选股因子截面筛选
 
 ```bash
@@ -103,6 +120,7 @@ C 用户只需要 `include/rflux/rflux.h`；C++ 用户可包含 `include/rflux/r
 
 | 文件 | 场景 | 主要 API |
 | --- | --- | --- |
+| [data/sample_prices.csv](data/sample_prices.csv) | 命令行和直接分析的示例价格表 | CLI 示例输入 |
 | [python_factor_screen.py](python_factor_screen.py) | 选股因子、行业中性和多空回测 | `qflux.winsorize/zscore/neutralize`, `backtest.factor_ic/long_short_backtest` |
 | [python_hmm_walkforward.py](python_hmm_walkforward.py) | HMM 滚动拟合、OOS 评分、状态对齐 | `regimelab.fit_hmm/score/match_states/align_labels` |
 | [python_end_to_end.py](python_end_to_end.py) | 状态 + 网络 + 渗流 + 回测 | `regimelab`, `percolab`, `backtest` |

@@ -12,9 +12,10 @@ shared-library path, or build it into ``build/`` / ``python/rflux/_lib/``.
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+from ._version import __version__
 
 from . import backtest, data, metrics, percolab, qflux, regimelab  # noqa: E402
+from .analysis import analyze_prices  # noqa: E402
 from ._ffi import (  # noqa: E402
     ABI_VERSION,
     ABIError,
@@ -23,6 +24,10 @@ from ._ffi import (  # noqa: E402
     abi_version,
     native_version,
 )
+from .metrics import performance_summary  # noqa: E402
+from .percolab import correlation_network  # noqa: E402
+from .qflux import returns, sma  # noqa: E402
+from .regimelab import fit_hmm  # noqa: E402
 
 __all__ = [
     "ABIError",
@@ -31,11 +36,17 @@ __all__ = [
     "RFluxError",
     "__version__",
     "abi_version",
+    "analyze_prices",
     "backtest",
+    "correlation_network",
     "data",
+    "fit_hmm",
     "metrics",
     "native_version",
+    "performance_summary",
     "percolab",
     "qflux",
     "regimelab",
+    "returns",
+    "sma",
 ]

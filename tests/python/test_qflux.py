@@ -10,8 +10,8 @@ from rflux._ffi import RFluxError
 class TestLibraryAndIndicators(unittest.TestCase):
     def test_native_identity(self):
         self.assertEqual(rflux.abi_version(), 1)
-        self.assertEqual(rflux.native_version(), "0.2.0")
-        self.assertEqual(rflux.__version__, "0.2.0")
+        self.assertEqual(rflux.native_version(), "0.4.2")
+        self.assertEqual(rflux.__version__, "0.4.2")
 
     def test_returns_and_sma(self):
         prices = np.arange(1.0, 11.0)

@@ -35,6 +35,10 @@ jobs:
           python -m pip install --no-deps -e ./python
           cd /tmp
           python -c "import rflux, numpy as np; print(rflux.native_version(), rflux.qflux.sma(np.arange(5.0), 2))"
+          cd "$GITHUB_WORKSPACE"
+          rflux version
+          rflux analyze examples/data/sample_prices.csv --no-hmm --format json > /tmp/rflux-report.json
+          python -c "import json; report=json.load(open('/tmp/rflux-report.json')); print(report['input']['assets'], report['errors'])"
       - name: Run examples
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         env:
@@ -44,6 +48,7 @@ jobs:
           python examples/python_factor_screen.py
           python examples/python_hmm_walkforward.py
           python examples/python_end_to_end.py
+          python -m rflux analyze examples/data/sample_prices.csv --no-hmm --no-network
           ./build/example_c_basic
           ./build/example_cpp_research
 

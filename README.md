@@ -8,13 +8,9 @@
 
 **Language:** [中文说明](README_cn.md) · [English guide](README_en.md)
 
-rflux is a quantitative research library with three layers:
+rflux is a quantitative research library. The calculations live in C++17, a stable C ABI keeps them callable from other languages, and the Python package adds data loading, backtests and a command-line interface for quick inspection.
 
-- a stable C ABI for bindings and long-lived integrations;
-- a C++17 core for factors, Gaussian HMM regimes, correlation graphs, percolation and risk diffusion;
-- a Python package for data loading, research workflows and walk-forward evaluation.
-
-Version `0.2.0` keeps ABI version 1 and adds rolling beta, HMM out-of-sample scoring and HMM state alignment.
+Version `0.4.2` keeps ABI version 1 and adds a direct analysis API plus the `rflux` command.
 
 ```python
 import numpy as np
@@ -36,13 +32,25 @@ print(filtered[-1])
 model.close()
 ```
 
-Build, test and try an example:
+Build, test and try it directly:
 
 ```bash
 git clone https://github.com/cxy2696/rflux.git
 cd rflux
-make -j && make check
-PYTHONPATH=python python examples/python_factor_screen.py
+make -j
+PYTHONPATH=python python -m rflux version
+PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
+```
+
+Once the package is installed (`make python-lib && pip install -e python`), the same command is available as `rflux`.
+
+```python
+import numpy as np
+from rflux import analyze_prices
+
+prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
+report = analyze_prices(prices, names=["AAA", "BBB"])
+print(report["market"]["sharpe"])
 ```
 
 The shared library is written to `build/`. Python finds it automatically when run from the repository, or you can set `RFLUX_LIBRARY=/path/to/librflux.dylib` / `.so`.
@@ -51,7 +59,7 @@ The shared library is written to `build/`. Python finds it automatically when ru
 
 - [中文说明](README_cn.md): build, Python/C/C++ usage, data adapters and HMM guidance.
 - [English guide](README_en.md): same scope in English.
-- [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk and real data.
+- [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk, real data and command-line analysis.
 - [C ABI rules](docs/ABI.md): ownership, status codes, buffer lengths and compatibility (Chinese; the public header is documented in English).
 - Methods and conventions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md).
 - Extension guide: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md).

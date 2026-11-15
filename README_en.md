@@ -4,7 +4,7 @@
 
 rflux is a quantitative research library with a stable C ABI, a C++17 calculation core and a Python research layer. Python calls the shared library through `ctypes`, so the same binary serves every supported Python version. Other languages can use the C header without dealing with C++ types or exceptions.
 
-The current release is `0.2.0`; the C ABI version is `1`.
+The current release is `0.4.2`; the C ABI version is `1`.
 
 ## What is included
 
@@ -16,6 +16,40 @@ The current release is `0.2.0`; the C ABI version is `1`.
 | Python tools | Optional akshare/yfinance/CSV adapters, performance and risk summaries, factor IC, quantile portfolios and a simple cost-aware long-short backtest |
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
+
+## Direct use
+
+The repository includes a small price panel for a first run. After building:
+
+```bash
+make -j
+PYTHONPATH=python python -m rflux version
+PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
+```
+
+After an editable install, the command is just `rflux`:
+
+```bash
+make python-lib
+python -m pip install -e python
+rflux doctor
+rflux analyze examples/data/sample_prices.csv --no-hmm --format json
+```
+
+`analyze` reads a wide CSV with a header, detects a `date`/`日期` column, and reports per-asset annual return, volatility, Sharpe, maximum drawdown and RSI, plus the equal-weight market, correlation summary, network and a 3-state HMM. Non-numeric columns are dropped, dates are sorted, and duplicate dates or mixed text/number columns are errors rather than silent gaps.
+
+From Python:
+
+```python
+import numpy as np
+from rflux import analyze_prices
+
+prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
+report = analyze_prices(prices, names=["AAA", "BBB"])
+print(report["market"]["annualized_return"])
+```
+
+See `python -m rflux analyze --help` for all options. The CLI uses only NumPy and the standard library; pandas remains optional for the provider adapters.
 
 ## Use cases
 
