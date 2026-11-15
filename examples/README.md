@@ -1,6 +1,6 @@
 # rflux 使用案例
 
-这些示例都可以从仓库根目录直接运行。Python 示例只依赖 NumPy；`python_real_data.py` 还需要 pandas 和一个可选数据源。
+这些示例都可以从仓库根目录直接运行。Python 示例只依赖 NumPy；`python_real_data.py` 还需要 pandas 和一个可选数据源。计算口径见 [METHODS_cn.md](../docs/METHODS_cn.md)，英文版见 [METHODS_en.md](../docs/METHODS_en.md)。
 
 ```bash
 make -j

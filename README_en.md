@@ -214,7 +214,7 @@ result = backtest.long_short_backtest(
 print(backtest.summarize_ic(ic), result.metrics)
 ```
 
-`factor[t]` must be known at the start of the holding period and `forward_returns[t]` is realised afterwards. The library does not repair misalignment. Turnover and cost conventions are documented in [METHODS](docs/METHODS.md), section 7 (technical notes are in Chinese; the formulas are language-neutral).
+`factor[t]` must be known at the start of the holding period and `forward_returns[t]` is realised afterwards. The library does not repair misalignment. Turnover and cost conventions are documented in [METHODS_en.md](docs/METHODS_en.md), section 7.
 
 By default `performance_summary()` annualises over the full input length, so internal NaN gaps do not shorten the clock; pass `periods=` to choose another horizon. A long-short book can lose more than its initial capital. In that case geometric annual return and Calmar are NaN, while the remaining risk statistics are still reported.
 
@@ -278,6 +278,12 @@ examples/            factors, walk-forward HMM, networks, real data and C/C++ ex
 scripts/             Markdown link, fence and math-delimiter checks
 docs/                ABI, methods and extension notes
 ```
+
+## Documentation
+
+- Methods and boundary conditions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
+- Extension steps and release checks: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
+- C ABI ownership, buffer and compatibility rules: [docs/ABI.md](docs/ABI.md) (Chinese)
 
 ## Tests and CI
 

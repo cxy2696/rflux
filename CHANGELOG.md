@@ -11,6 +11,9 @@ causal semantics are called out explicitly when they change.
 - Fixed GitHub Markdown math rendering by using `$...$` / `$$...$$` delimiters
   with whitespace boundaries.
 - Added `make docs-check` and a CI example-run step.
+- Split the methods and extension guides into Chinese and English files
+  (`METHODS_cn.md`, `METHODS_en.md`, `EXTENDING_cn.md`, `EXTENDING_en.md`) and
+  rewrote them for readability.
 
 ## 0.2.0 — 2026-11-15
 

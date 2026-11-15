@@ -53,8 +53,8 @@ The shared library is written to `build/`. Python finds it automatically when ru
 - [English guide](README_en.md): same scope in English.
 - [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk and real data.
 - [C ABI rules](docs/ABI.md): ownership, status codes, buffer lengths and compatibility (Chinese; the public header is documented in English).
-- [Detailed methods](docs/METHODS.md): formulas and statistical definitions (Chinese; formulas are language-neutral).
-- [Extension guide](docs/EXTENDING.md): add a kernel, a C ABI function or a Python entry point.
+- Methods and conventions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md).
+- Extension guide: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md).
 - [Changelog](CHANGELOG.md) and [contributing notes](CONTRIBUTING.md).
 
 ## Scope

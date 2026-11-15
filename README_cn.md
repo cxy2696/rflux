@@ -219,7 +219,7 @@ result = backtest.long_short_backtest(
 print(backtest.summarize_ic(ic), result.metrics)
 ```
 
-`factor[t]` 必须是 t 时刻已知的值，`forward_returns[t]` 是随后一个持有期的收益。库不会自动修正错位。回测换手率口径和成本假设写在 [METHODS](docs/METHODS.md) 第 7 节。
+`factor[t]` 必须是 t 时刻已知的值，`forward_returns[t]` 是随后一个持有期的收益。库不会自动修正错位。回测换手率口径和成本假设写在 [METHODS_cn.md](docs/METHODS_cn.md) 第 7 节。
 
 `performance_summary()` 默认按输入总长度年化，NaN 缺失不会缩短年化时钟；可用 `periods=` 显式指定时间格数。多空组合可以亏损超过 100%，此时几何年化收益和 Calmar 为 NaN，其他风险指标仍会返回。
 
@@ -283,6 +283,12 @@ examples/              因子、HMM 走步、网络、真实数据和 C/C++ 示�
 scripts/               Markdown 链接、代码围栏和公式分隔符检查
 docs/                  ABI、方法和扩展说明
 ```
+
+## 文档
+
+- 计算口径和边界条件：[中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
+- 扩展步骤和发布检查：[中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
+- C ABI 的缓冲区、所有权和兼容性规则：[docs/ABI.md](docs/ABI.md)
 
 ## 测试与 CI
 
