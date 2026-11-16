@@ -134,6 +134,13 @@ static int test_indicators(void) {
         CHECK(rflux_rolling_beta(asset, benchmark, 10, 5, out) == RFLUX_OK);
         CHECK(approx(out[4], 2.0, 1e-12));
         CHECK(approx(out[9], 2.0, 1e-12));
+        CHECK(rflux_rolling_cov(benchmark, asset, 10, 5, 0, out) == RFLUX_OK);
+        CHECK(approx(out[4], 4.0, 1e-12));
+        CHECK(approx(out[9], 4.0, 1e-12));
+        CHECK(rflux_rolling_cov(benchmark, asset, 10, 5, 1, out) == RFLUX_OK);
+        CHECK(approx(out[4], 5.0, 1e-12));
+        CHECK(rflux_rolling_cov(benchmark, asset, 10, 5, 5, out) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
     CHECK(rflux_rolling_slope(x, 10, 5, out) == RFLUX_OK);
     CHECK(approx(out[9], 1.0, 1e-12));
@@ -517,6 +524,20 @@ static int test_graphs(void) {
             CHECK(u[i] < 4 && v[i] < 4 && u[i] != v[i]);
             CHECK(isfinite(w[i]) && w[i] >= 0.0);
         }
+    }
+
+    {
+        const double cycle[9] = {
+            0, 1, 0,
+            0, 0, 1,
+            1, 0, 0};
+        double ranks[3];
+        CHECK(rflux_pagerank(cycle, 3, 0.85, 100, 1e-12, ranks) == RFLUX_OK);
+        CHECK(approx(ranks[0], 1.0 / 3.0, 1e-10));
+        CHECK(approx(ranks[1], 1.0 / 3.0, 1e-10));
+        CHECK(approx(ranks[2], 1.0 / 3.0, 1e-10));
+        CHECK(rflux_pagerank(cycle, 3, 1.0, 100, 1e-12, ranks) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
 
     {

@@ -28,21 +28,21 @@ from ._common import (
 from ._ffi import check, get_lib
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MACDResult:
     macd: np.ndarray
     signal: np.ndarray
     histogram: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BollingerBands:
     middle: np.ndarray
     upper: np.ndarray
     lower: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Moments:
     mean: float
     variance: float
@@ -52,7 +52,7 @@ class Moments:
     n_valid: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TailRisk:
     var: float
     cvar: float
@@ -211,6 +211,20 @@ def rolling_corr(x: Any, y: Any, window: int) -> np.ndarray:
     return call_vector(
         "rflux_rolling_corr", xa.size, get_lib().rflux_rolling_corr,
         double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"))
+
+
+def rolling_cov(
+    x: Any, y: Any, window: int, ddof: int = 0
+) -> np.ndarray:
+    """Rolling covariance over complete windows; ``ddof`` defaults to 0."""
+    xa = _one_input(x, "x")
+    ya = _one_input(y, "y")
+    if xa.size != ya.size:
+        raise ValueError("x and y must have equal lengths")
+    return call_vector(
+        "rflux_rolling_cov", xa.size, get_lib().rflux_rolling_cov,
+        double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"),
+        as_size(ddof, "ddof", minimum=0))
 
 
 def rolling_beta(asset: Any, benchmark: Any, window: int) -> np.ndarray:
@@ -398,6 +412,7 @@ __all__ = [
     "returns",
     "rolling_beta",
     "rolling_corr",
+    "rolling_cov",
     "rolling_max",
     "rolling_mean",
     "rolling_min",

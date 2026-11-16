@@ -68,6 +68,13 @@ class TestLibraryAndIndicators(unittest.TestCase):
         np.testing.assert_allclose(r2[4:], 1.0)
         beta = qflux.rolling_beta(2.0 * prices + 3.0, prices, 5)
         np.testing.assert_allclose(beta[4:], 2.0)
+        covariance = qflux.rolling_cov(prices, 2.0 * prices + 3.0, 5, ddof=0)
+        np.testing.assert_allclose(covariance[4:], 4.0)
+        sample_covariance = qflux.rolling_cov(
+            prices, 2.0 * prices + 3.0, 5, ddof=1
+        )
+        np.testing.assert_allclose(sample_covariance[4:], 5.0)
+        self.assertTrue(np.isnan(covariance[3]))
         beta_missing = qflux.rolling_beta(
             np.array([1.0, 2.0, np.nan, 4.0, 5.0]),
             np.array([1.0, 2.0, 3.0, 4.0, 5.0]),

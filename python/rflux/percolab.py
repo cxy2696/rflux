@@ -29,7 +29,7 @@ from ._ffi import check, get_lib
 from . import qflux
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GraphComponents:
     labels: np.ndarray
     n_components: int
@@ -43,7 +43,7 @@ class GraphComponents:
         return self.largest_size / self.labels.size
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MSTResult:
     u: np.ndarray
     v: np.ndarray
@@ -54,7 +54,7 @@ class MSTResult:
         return np.column_stack((self.u, self.v, self.weight))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PercolationScan:
     probabilities: np.ndarray
     giant_mean: np.ndarray
@@ -62,7 +62,7 @@ class PercolationScan:
     susceptibility: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DiffusionResult:
     mean_affected: np.ndarray
     infection_frequency: np.ndarray
@@ -71,7 +71,7 @@ class DiffusionResult:
         return float(self.mean_affected[-1])
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CorrelationNetwork:
     correlation: np.ndarray
     adjacency: np.ndarray
@@ -157,6 +157,20 @@ def clustering(adjacency: Any) -> np.ndarray:
     return call_vector(
         "rflux_network_clustering", matrix.shape[0],
         get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
+
+
+def pagerank(
+    adjacency: Any,
+    damping: float = 0.85,
+    max_iter: int = 100,
+    tol: float = 1e-8,
+) -> np.ndarray:
+    """Directed weighted PageRank; dangling rows use uniform teleportation."""
+    matrix = as_square(adjacency, "adjacency")
+    return call_vector(
+        "rflux_pagerank", matrix.shape[0], get_lib().rflux_pagerank,
+        double_ptr(matrix), matrix.shape[0], float(damping),
+        as_size(max_iter, "max_iter"), float(tol))
 
 
 def mst_from_distance(distance: Any) -> MSTResult:
@@ -415,6 +429,7 @@ __all__ = [
     "mst_from_distance",
     "network_from_correlation",
     "network_strength",
+    "pagerank",
     "risk_diffusion",
     "site_percolation",
     "threshold_components",

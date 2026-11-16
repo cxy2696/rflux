@@ -69,6 +69,9 @@ int test_qflux() {
         asset.data(), benchmark.data(), asset.size(), 5);
     CHECK(approx(beta[4], 2.0));
     CHECK(approx(beta.back(), 2.0));
+    const std::vector<double> cov = rflux::qflux::rolling_cov(
+        asset.data(), benchmark.data(), asset.size(), 5, 0);
+    CHECK(approx(cov[4], 2.0 * 2.0, 1e-12));
     const std::vector<double> r2 =
         rflux::qflux::rolling_r2(prices.data(), prices.size(), 5);
     CHECK(approx(r2.back(), 1.0));
@@ -325,6 +328,29 @@ int test_graphs() {
         for (std::size_t i = 1; i < 4; ++i) {
             CHECK(approx(star_centrality[i], 0.40824829046, 1e-8));
         }
+    }
+
+    {
+        const std::vector<double> cycle = {
+            0, 1, 0,
+            0, 0, 1,
+            1, 0, 0};
+        const std::vector<double> ranks =
+            rflux::percolab::pagerank(cycle.data(), 3, 0.85, 100, 1e-12);
+        CHECK(approx(ranks[0], 1.0 / 3.0, 1e-10));
+        CHECK(approx(ranks[1], 1.0 / 3.0, 1e-10));
+        CHECK(approx(ranks[2], 1.0 / 3.0, 1e-10));
+
+        const std::vector<double> chain = {
+            0, 1, 0,
+            0, 0, 1,
+            0, 0, 0};
+        const std::vector<double> chain_ranks =
+            rflux::percolab::pagerank(chain.data(), 3, 0.85, 100, 1e-12);
+        CHECK(chain_ranks[2] > chain_ranks[1]);
+        CHECK(chain_ranks[1] > chain_ranks[0]);
+        CHECK(approx(chain_ranks[0] + chain_ranks[1] + chain_ranks[2], 1.0,
+                     1e-12));
     }
 
     const std::vector<double> path = {

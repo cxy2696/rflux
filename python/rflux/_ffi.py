@@ -153,6 +153,8 @@ def _configure(lib: ctypes.CDLL) -> None:
     bind("rflux_drawdown", ctypes.c_int, [c_double_p, size_t, c_double_p])
     bind("rflux_rolling_corr", ctypes.c_int,
          [c_double_p, c_double_p, size_t, size_t, c_double_p])
+    bind("rflux_rolling_cov", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, c_double_p])
     bind("rflux_rolling_beta", ctypes.c_int,
          [c_double_p, c_double_p, size_t, size_t, c_double_p])
     bind("rflux_rolling_slope", ctypes.c_int,
@@ -237,6 +239,8 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, uint32, c_double_p])
     bind("rflux_network_clustering", ctypes.c_int,
          [c_double_p, size_t, c_double_p])
+    bind("rflux_pagerank", ctypes.c_int,
+         [c_double_p, size_t, double, size_t, double, c_double_p])
     bind("rflux_network_mst", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, c_uint32_p, c_double_p, c_size_p])
     bind("rflux_bond_percolation", ctypes.c_int,

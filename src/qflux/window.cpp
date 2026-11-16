@@ -215,6 +215,24 @@ std::vector<double> rolling_corr(const double* x, const double* y, std::size_t n
     return out;
 }
 
+std::vector<double> rolling_cov(const double* x, const double* y, std::size_t n,
+                                std::size_t window, std::size_t ddof) {
+    require_pointer(x, "x must not be NULL");
+    require_pointer(y, "y must not be NULL");
+    require(n > 0, "n must be positive");
+    require(window >= 2 && window <= n, "window must be in [2, n]");
+    require(ddof < window, "ddof must be smaller than window");
+
+    std::vector<double> out(n, kNaN);
+    for_each_pair_window(x, y, n, window,
+                         [&](std::size_t i, const rflux::detail::Moments2& block) {
+                             out[i] = static_cast<double>(
+                                 block.co_moment /
+                                 static_cast<long double>(window - ddof));
+                         });
+    return out;
+}
+
 std::vector<double> rolling_beta(const double* y, const double* x, std::size_t n,
                                 std::size_t window) {
     require_pointer(y, "y must not be NULL");

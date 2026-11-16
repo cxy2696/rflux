@@ -26,7 +26,7 @@ _MISSING = {"", "na", "n/a", "nan", "null", "none", "-"}
 _DATE_FORMATS = ("%Y%m%d", "%Y/%m/%d", "%d/%m/%Y")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PriceFile:
     prices: np.ndarray
     names: list[str]

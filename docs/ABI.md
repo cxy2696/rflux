@@ -92,7 +92,7 @@ void rflux_clear_error(void);
 | `rflux_sma` / `rflux_rolling_sum` | n |
 | `rflux_rolling_std` / `rflux_rolling_min` / `rflux_rolling_max` / `rflux_rolling_zscore` | n |
 | `rflux_ema` / `rflux_rsi` / `rflux_atr` / `rflux_drawdown` | n |
-| `rflux_rolling_corr` / `rflux_rolling_beta` / `rflux_rolling_slope` / `rflux_rolling_r2` | n |
+| `rflux_rolling_corr` / `rflux_rolling_cov` / `rflux_rolling_beta` / `rflux_rolling_slope` / `rflux_rolling_r2` | n |
 | `rflux_macd` | 三个长度为 n 的数组（macd、signal、histogram） |
 | `rflux_bollinger` | 三个长度为 n 的数组（middle、upper、lower） |
 
@@ -126,7 +126,7 @@ void rflux_clear_error(void);
 | --- | --- |
 | `rflux_corr_to_distance` | n² |
 | `rflux_graph_components` | labels n + components + largest |
-| `rflux_network_strength` / `rflux_network_centrality` / `rflux_network_clustering` | n |
+| `rflux_network_strength` / `rflux_network_centrality` / `rflux_network_clustering` / `rflux_pagerank` | n |
 | `rflux_network_mst` | 至少 n-1 的三组边数组 + n_edges |
 | `rflux_bond_percolation` / `rflux_site_percolation` | 每组 p 的 giant_mean、giant_std、susceptibility，共 n_probabilities |
 | `rflux_risk_diffusion` | mean_affected 长度 steps+1，infection_frequency 长度 n |

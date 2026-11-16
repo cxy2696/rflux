@@ -143,6 +143,14 @@ $$
 
 Missing windows and zero benchmark variance return NaN. The calculation uses raw returns; it does not subtract a risk-free rate or add a lag.
 
+Rolling covariance uses the same bivariate window moments:
+
+$$
+\operatorname{Cov}_{w,d}(x,y)=rac{\sum_{i=t-w+1}^{t}(x_i-ar x_t)(y_i-ar y_t)}{w-d}
+$$
+
+`ddof=d` must be smaller than the window. A window with a missing value returns NaN. `ddof=0` is the population covariance and `ddof=1` the sample covariance.
+
 ## 2. qflux statistics
 
 ### 2.1 Descriptive statistics
@@ -378,8 +386,17 @@ The MST uses Kruskal's algorithm and returns n-1 edges. The distance matrix must
 - Strength: $\sum_{j\ne i}w_{ij}$ on a non-negative symmetric adjacency.
 - Eigenvector centrality: L2-normalised power iteration on $A+I$ . Adding the identity does not change eigenvectors; it shifts the spectrum and prevents period-2 oscillation on bipartite graphs. An all-zero graph returns zeros. Non-convergence raises a numerical error.
 - Local clustering coefficient: actual neighbour-neighbour edges divided by possible edges. Degree below 2 gives NaN.
+- PageRank: power iteration on a non-negative weighted directed adjacency with damping $d\in[0,1)$ . A dangling row (zero outgoing weight) spreads its current mass uniformly across all nodes, and each step adds the $(1-d)/n$ teleport term. Non-convergence raises a numerical error.
 
-Graph functions require a symmetric matrix and ignore the diagonal.
+$$
+p^{(t+1)}=\frac{1-d}{n}\mathbf 1
++d\left(P^\top p^{(t)}+\frac{\sum_{j\in D}p_j^{(t)}}{n}\mathbf 1\right),
+\qquad P_{ij}=\frac{A_{ij}}{\sum_k A_{ik}}
+$$
+
+$D$ is the set of dangling rows; rows with zero sum do not contribute to $P$. The final vector is normalised to sum to one.
+
+Except for PageRank, graph functions require a symmetric matrix and ignore the diagonal. PageRank uses directed adjacency, where a row lists outgoing edges.
 
 ### 6.3 Bond and site percolation
 

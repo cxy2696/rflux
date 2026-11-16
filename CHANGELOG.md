@@ -13,6 +13,12 @@ causal semantics are called out explicitly when they change.
   validation order through a separate prepare callback.
 - Shared C++ graph adjacency validation and the rolling pair-window scan used by
   correlation and beta; no polynomial or statistical definition changed.
+- Added `rolling_cov` through C++, the C ABI and Python, with explicit `ddof`
+  and missing-window semantics.
+- Added directed weighted PageRank with dangling-node handling through C++,
+  the C ABI and Python.
+- Switched public Python result dataclasses to `slots=True` to reduce per-result
+  memory and attribute overhead.
 - Added `rflux.portfolio_risk` with complete-case sample covariance, annualized
   volatility, diversification, gross/net exposure and Euler volatility
   contributions.

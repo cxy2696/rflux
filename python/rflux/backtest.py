@@ -17,7 +17,7 @@ from ._common import as_f64_1d, as_f64_2d, as_size
 from .metrics import PerformanceMetrics, performance_summary
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BacktestResult:
     gross_returns: np.ndarray
     costs: np.ndarray
@@ -28,7 +28,7 @@ class BacktestResult:
     metrics: PerformanceMetrics | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ICSummary:
     """Per-period IC summary; ``information_ratio`` is mean/std, not annualised."""
 

@@ -72,6 +72,25 @@ class TestGraphs(unittest.TestCase):
                 np.array([[1.0, 0.5], [0.1, 1.0]]), 0.2
             )
 
+    def test_pagerank_directed_and_dangling(self):
+        cycle = np.array(
+            [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]
+        )
+        np.testing.assert_allclose(
+            percolab.pagerank(cycle), [1.0 / 3.0] * 3, atol=1e-10
+        )
+        chain = np.array(
+            [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]]
+        )
+        ranks = percolab.pagerank(chain)
+        self.assertAlmostEqual(float(ranks.sum()), 1.0, places=12)
+        self.assertGreater(ranks[2], ranks[1])
+        self.assertGreater(ranks[1], ranks[0])
+        with self.assertRaises(RFluxError):
+            percolab.pagerank(cycle, damping=1.0)
+        with self.assertRaises(RFluxError):
+            percolab.pagerank(np.array([[-1.0, 0.0], [0.0, 0.0]]))
+
     def test_mst_single_node(self):
         tree = percolab.mst_from_distance(np.array([[0.0]]))
         self.assertEqual(tree.u.size, 0)

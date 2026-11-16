@@ -30,6 +30,14 @@ std::vector<double> eigenvector_centrality(const double* weights, std::size_t n)
 std::vector<double> clustering_coefficients(const double* weights,
                                             std::size_t n);
 
+/*
+ * PageRank on a directed non-negative weighted graph.  Dangling rows
+ * distribute their mass uniformly.  damping must be in [0, 1), max_iter and
+ * tol must be positive; non-convergence is a NumericalError.
+ */
+std::vector<double> pagerank(const double* adjacency, std::size_t n,
+                             double damping, std::size_t max_iter, double tol);
+
 /* Minimum spanning tree of a complete finite symmetric distance matrix. */
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,
                                            std::size_t n);

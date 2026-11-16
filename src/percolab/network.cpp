@@ -20,6 +20,8 @@ using rflux::detail::kNaN;
 using rflux::detail::mix_seed;
 using rflux::detail::require;
 using rflux::detail::require_adjacency;
+using rflux::detail::require_finite;
+using rflux::detail::require_nonnegative_weights;
 using rflux::detail::require_pointer;
 using rflux::detail::Rng;
 using rflux::detail::UnionFind;
@@ -176,6 +178,79 @@ std::vector<double> clustering_coefficients(const double* weights,
                   static_cast<double>(degree - 1));
     }
     return out;
+}
+
+std::vector<double> pagerank(const double* adjacency, std::size_t n,
+                             double damping, std::size_t max_iter, double tol) {
+    require_pointer(adjacency, "adjacency must not be NULL");
+    require(n > 0, "n must be positive");
+    require_finite(adjacency, checked_mul(n, n, "n*n overflows size_t"),
+                   "adjacency");
+    require_nonnegative_weights(adjacency, n, "adjacency");
+    require(std::isfinite(damping) && damping >= 0.0 && damping < 1.0,
+            "damping must be in [0, 1)");
+    require(max_iter > 0, "max_iter must be positive");
+    require(std::isfinite(tol) && tol > 0.0,
+            "tol must be finite and positive");
+
+    std::vector<long double> row_sum(n, 0.0L);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            row_sum[i] += static_cast<long double>(adjacency[i * n + j]);
+        }
+    }
+
+    std::vector<double> rank(n, 1.0 / static_cast<double>(n));
+    std::vector<double> next(n, 0.0);
+    bool converged = false;
+    const long double teleport =
+        (1.0L - static_cast<long double>(damping)) /
+        static_cast<long double>(n);
+    for (std::size_t iteration = 0; iteration < max_iter; ++iteration) {
+        long double dangling = 0.0L;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (row_sum[i] == 0.0L) {
+                dangling += static_cast<long double>(rank[i]);
+            }
+        }
+        for (std::size_t j = 0; j < n; ++j) {
+            long double incoming = 0.0L;
+            for (std::size_t i = 0; i < n; ++i) {
+                if (row_sum[i] > 0.0L) {
+                    incoming +=
+                        static_cast<long double>(rank[i]) *
+                        static_cast<long double>(adjacency[i * n + j]) /
+                        row_sum[i];
+                }
+            }
+            next[j] = static_cast<double>(
+                teleport +
+                static_cast<long double>(damping) *
+                    (incoming + dangling / static_cast<long double>(n)));
+        }
+        long double difference = 0.0L;
+        for (std::size_t i = 0; i < n; ++i) {
+            difference += std::abs(static_cast<long double>(next[i]) -
+                                   static_cast<long double>(rank[i]));
+        }
+        rank.swap(next);
+        if (difference <= static_cast<long double>(tol)) {
+            converged = true;
+            break;
+        }
+    }
+    if (!converged) {
+        throw NumericalError("PageRank did not converge");
+    }
+    long double total = 0.0L;
+    for (double value : rank) total += static_cast<long double>(value);
+    if (!(total > 0.0L)) {
+        throw NumericalError("PageRank lost probability mass");
+    }
+    for (double& value : rank) {
+        value = static_cast<double>(static_cast<long double>(value) / total);
+    }
+    return rank;
 }
 
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,

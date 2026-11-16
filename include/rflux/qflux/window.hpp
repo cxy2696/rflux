@@ -25,6 +25,8 @@ std::vector<double> rolling_zscore(const double* values, std::size_t n,
                                    std::size_t window, std::size_t ddof);
 std::vector<double> rolling_corr(const double* x, const double* y, std::size_t n,
                                  std::size_t window);
+std::vector<double> rolling_cov(const double* x, const double* y, std::size_t n,
+                                std::size_t window, std::size_t ddof);
 std::vector<double> rolling_beta(const double* y, const double* x, std::size_t n,
                                  std::size_t window);
 std::vector<double> rolling_slope(const double* values, std::size_t n,

@@ -11,7 +11,7 @@ from . import qflux
 from ._common import as_f64_1d, as_size
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PerformanceMetrics:
     n_periods: int
     elapsed_periods: int

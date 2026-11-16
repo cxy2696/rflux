@@ -178,6 +178,15 @@ RFLUX_API rflux_status rflux_rolling_corr(const double* x, const double* y,
                                           double* out);
 
 /*
+ * Rolling covariance over complete windows:
+ *   Cov_window(x, y) = sum((x - mean_x)(y - mean_y)) / (window - ddof).
+ * ddof must be smaller than window.  Missing values invalidate the window.
+ */
+RFLUX_API rflux_status rflux_rolling_cov(const double* x, const double* y,
+                                         size_t n, size_t window, size_t ddof,
+                                         double* out);
+
+/*
  * Rolling OLS beta of y on x:
  *   beta_t = Cov_window(x, y) / Var_window(x).
  * out has length n, requires window >= 2, and is NAN when the window has
@@ -516,6 +525,15 @@ RFLUX_API rflux_status rflux_network_centrality(const double* weights, size_t n,
  */
 RFLUX_API rflux_status rflux_network_clustering(const double* weights, size_t n,
                                                 double* out);
+
+/*
+ * PageRank on a directed non-negative weighted graph.  Rows are outgoing
+ * edges; dangling rows distribute their mass uniformly.  damping must be in
+ * [0, 1), max_iter and tol must be positive.  out has length n and sums to 1.
+ */
+RFLUX_API rflux_status rflux_pagerank(const double* adjacency, size_t n,
+                                      double damping, size_t max_iter,
+                                      double tol, double* out);
 
 /*
  * Minimum spanning tree of a complete symmetric distance matrix.  Edges are

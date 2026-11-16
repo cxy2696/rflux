@@ -72,9 +72,9 @@ The shared library is written to `build/`. Python finds it automatically when ru
 
 The library covers:
 
-- **qflux**: returns, moving averages, RSI, MACD, Bollinger bands, ATR, drawdown, rolling statistics, beta, cross-sectional ranking, winsorization, z-scores, neutralization, correlation matrices, Sharpe/Sortino and historical VaR/CVaR.
+- **qflux**: returns, moving averages, RSI, MACD, Bollinger bands, ATR, drawdown, rolling statistics, covariance, beta, cross-sectional ranking, winsorization, z-scores, neutralization, correlation matrices, Sharpe/Sortino and historical VaR/CVaR.
 - **regimelab**: diagonal Gaussian HMMs with multiple restarts, filtered/smoothed state probabilities, Viterbi paths, state forecasts, out-of-sample scores, state alignment, causal volatility/trend regimes.
-- **percolab**: correlation distance, threshold graphs, connected components, centrality, clustering, minimum spanning trees, bond/site percolation and SIR diffusion.
+- **percolab**: correlation distance, threshold graphs, connected components, centrality, PageRank, clustering, minimum spanning trees, bond/site percolation and SIR diffusion.
 - **Python tools**: optional akshare/yfinance/CSV adapters, performance summaries, IC, quantile portfolios, a cost-aware long-short backtest, portfolio risk contributions and regime attribution.
 
 The code is deterministic for a given input and seed. Random procedures use explicit seeds; nothing is downloaded at import time.

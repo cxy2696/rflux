@@ -32,7 +32,7 @@ from ._common import (
 from ._ffi import HMMOptions, RFluxError, check, get_lib
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HMMParameters:
     start_prob: np.ndarray
     transition: np.ndarray
@@ -40,7 +40,7 @@ class HMMParameters:
     variances: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HMMFitInfo:
     iterations: int
     converged: bool
@@ -49,7 +49,7 @@ class HMMFitInfo:
     bic: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StateAlignment:
     """Result of matching target HMM states to a reference model.
 
@@ -62,13 +62,13 @@ class StateAlignment:
     cost: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class VolatilityRegimeResult:
     volatility: np.ndarray
     labels: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrendRegimeResult:
     fast_ma: np.ndarray
     slow_ma: np.ndarray

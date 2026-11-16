@@ -343,6 +343,13 @@ rflux_status rflux_rolling_corr(const double* x, const double* y, size_t n,
                           [&] { return rflux::qflux::rolling_corr(x, y, n, window); });
 }
 
+rflux_status rflux_rolling_cov(const double* x, const double* y, size_t n,
+                               size_t window, size_t ddof, double* out) {
+    return guarded_vector("rflux_rolling_cov", out, "out", [&] {
+        return rflux::qflux::rolling_cov(x, y, n, window, ddof);
+    });
+}
+
 rflux_status rflux_rolling_beta(const double* y, const double* x, size_t n,
                                 size_t window, double* out) {
     return guarded_vector("rflux_rolling_beta", out, "out",
@@ -719,6 +726,13 @@ rflux_status rflux_network_clustering(const double* weights, size_t n,
                                       double* out) {
     return guarded_vector("rflux_network_clustering", out, "out", [&] {
         return rflux::percolab::clustering_coefficients(weights, n);
+    });
+}
+
+rflux_status rflux_pagerank(const double* adjacency, size_t n, double damping,
+                             size_t max_iter, double tol, double* out) {
+    return guarded_vector("rflux_pagerank", out, "out", [&] {
+        return rflux::percolab::pagerank(adjacency, n, damping, max_iter, tol);
     });
 }
 
