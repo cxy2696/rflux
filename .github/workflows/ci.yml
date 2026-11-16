@@ -38,7 +38,8 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           rflux version
           rflux analyze examples/data/sample_prices.csv --no-hmm --format json > /tmp/rflux-report.json
-          python -c "import json; report=json.load(open('/tmp/rflux-report.json')); print(report['input']['assets'], report['errors'])"
+          rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --format json > /tmp/rflux-risk.json
+          python -c "import json; report=json.load(open('/tmp/rflux-report.json')); risk=json.load(open('/tmp/rflux-risk.json')); print(report['input']['assets'], report['errors'], risk['portfolio']['annualized_volatility'])"
       - name: Run examples
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         env:
@@ -49,6 +50,8 @@ jobs:
           python examples/python_hmm_walkforward.py
           python examples/python_end_to_end.py
           python -m rflux analyze examples/data/sample_prices.csv --no-hmm --no-network
+          python -m rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
+          python examples/python_applications.py
           ./build/example_c_basic
           ./build/example_cpp_research
 

@@ -16,6 +16,7 @@ from ._version import __version__
 
 from . import backtest, data, metrics, percolab, qflux, regimelab  # noqa: E402
 from .analysis import analyze_prices  # noqa: E402
+from .apps import portfolio_risk, regime_attribution  # noqa: E402
 from ._ffi import (  # noqa: E402
     ABI_VERSION,
     ABIError,
@@ -45,7 +46,9 @@ __all__ = [
     "native_version",
     "performance_summary",
     "percolab",
+    "portfolio_risk",
     "qflux",
+    "regime_attribution",
     "regimelab",
     "returns",
     "sma",

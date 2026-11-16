@@ -15,7 +15,7 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 | `qflux` | 收益率、SMA、EMA、RSI、MACD、Bollinger、ATR、回撤；滚动均值、波动率、最小/最大值、z-score、相关系数、beta、斜率、R²；描述统计、分位数、Sharpe、Sortino、VaR/CVaR；排序、percentile、z-score、缩尾、分组中性化、成对相关矩阵 |
 | `regimelab` | 对角高斯 HMM：多起点 EM、filtered/smoothed 状态概率、Viterbi、状态预测、样本外评分、状态对齐；因果波动率、趋势和复合 regime |
 | `percolab` | 相关距离、阈值图、连通分量、加权度、特征向量中心性、聚类系数、最小生成树、bond/site 渗流、SIR 风险扩散 |
-| Python 工具 | akshare / yfinance / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测 |
+| Python 工具 | akshare / yfinance / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测，组合风险贡献和状态归因 |
 
 滚动波动、z-score、相关、beta、斜率和 R² 使用可合并的 Welford 块矩，不会因为价格水平很大而丢掉窗口内的微小波动。所有随机过程接收显式 seed，同一版本、同一平台的结果可复现。
 
@@ -36,22 +36,31 @@ make python-lib
 python -m pip install -e python
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
+rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 ```
 
-`analyze` 会读取带表头的宽表 CSV，自动识别 `date`/`日期` 列，计算每个资产的年度收益、波动、Sharpe、最大回撤、RSI，以及等权市场组合、相关矩阵摘要、相关网络和 3 状态 HMM。非数值列会被丢弃；日期会排序；重复日期和某列中混合文本/数字会直接报错，不会静默处理。
+`analyze` 会读取带表头的宽表 CSV，自动识别 `date`/`日期` 列，计算每个资产的年度收益、波动、Sharpe、最大回撤、RSI，以及等权市场组合、相关矩阵摘要、相关网络和 3 状态 HMM。`risk` 使用同一份价格表，按 `--weights` 计算组合波动和 Euler 风险贡献。非数值列会被丢弃；日期会排序；重复日期和某列中混合文本/数字会直接报错，不会静默处理。
 
 也可以直接从 Python 调用：
 
 ```python
 import numpy as np
+import rflux
 from rflux import analyze_prices
 
 prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
 report = analyze_prices(prices, names=["AAA", "BBB"])
 print(report["market"]["annualized_return"])
+
+risk = rflux.portfolio_risk(
+    np.array([[0.01, 0.02], [0.02, -0.01], [-0.01, 0.01]]),
+    [0.6, 0.4],
+    names=["AAA", "BBB"],
+)
+print(risk["portfolio"]["annualized_volatility"])
 ```
 
-完整参数见 `python -m rflux analyze --help`。命令行只依赖 NumPy 和标准库；需要 pandas 的数据适配器是另一条路径。
+完整参数见 `python -m rflux analyze --help` 和 `python -m rflux risk --help`。命令行只依赖 NumPy 和标准库；需要 pandas 的数据适配器是另一条路径。
 
 ## 使用案例
 
@@ -322,6 +331,7 @@ docs/                  ABI、方法和扩展说明
 
 - 计算口径和边界条件：[中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
 - 扩展步骤和发布检查：[中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
+- 组合风险与状态归因：[中文](docs/APPLICATIONS_cn.md) · [English](docs/APPLICATIONS_en.md)
 - C ABI 的缓冲区、所有权和兼容性规则：[docs/ABI.md](docs/ABI.md)
 
 ## 测试与 CI

@@ -13,7 +13,7 @@ The current release is `0.4.2`; the C ABI version is `1`.
 | `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, correlation, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
 | `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
 | `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector centrality, clustering, minimum spanning trees, bond/site percolation and SIR diffusion |
-| Python tools | Optional akshare/yfinance/CSV adapters, performance and risk summaries, factor IC, quantile portfolios and a simple cost-aware long-short backtest |
+| Python tools | Optional akshare/yfinance/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
 
@@ -34,22 +34,31 @@ make python-lib
 python -m pip install -e python
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
+rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 ```
 
-`analyze` reads a wide CSV with a header, detects a `date`/`日期` column, and reports per-asset annual return, volatility, Sharpe, maximum drawdown and RSI, plus the equal-weight market, correlation summary, network and a 3-state HMM. Non-numeric columns are dropped, dates are sorted, and duplicate dates or mixed text/number columns are errors rather than silent gaps.
+`analyze` reads a wide CSV with a header, detects a `date`/`日期` column, and reports per-asset annual return, volatility, Sharpe, maximum drawdown and RSI, plus the equal-weight market, correlation summary, network and a 3-state HMM. `risk` uses the same price table and `--weights` to compute portfolio volatility and Euler risk contributions. Non-numeric columns are dropped, dates are sorted, and duplicate dates or mixed text/number columns are errors rather than silent gaps.
 
 From Python:
 
 ```python
 import numpy as np
+import rflux
 from rflux import analyze_prices
 
 prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
 report = analyze_prices(prices, names=["AAA", "BBB"])
 print(report["market"]["annualized_return"])
+
+risk = rflux.portfolio_risk(
+    np.array([[0.01, 0.02], [0.02, -0.01], [-0.01, 0.01]]),
+    [0.6, 0.4],
+    names=["AAA", "BBB"],
+)
+print(risk["portfolio"]["annualized_volatility"])
 ```
 
-See `python -m rflux analyze --help` for all options. The CLI uses only NumPy and the standard library; pandas remains optional for the provider adapters.
+See `python -m rflux analyze --help` and `python -m rflux risk --help` for all options. The CLI uses only NumPy and the standard library; pandas remains optional for the provider adapters.
 
 ## Use cases
 
@@ -317,6 +326,7 @@ docs/                ABI, methods and extension notes
 
 - Methods and boundary conditions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
 - Extension steps and release checks: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
+- Portfolio risk and regime attribution: [English](docs/APPLICATIONS_en.md) · [中文](docs/APPLICATIONS_cn.md)
 - C ABI ownership, buffer and compatibility rules: [docs/ABI.md](docs/ABI.md) (Chinese)
 
 ## Tests and CI

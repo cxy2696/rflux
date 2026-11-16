@@ -3,11 +3,27 @@
 from __future__ import annotations
 
 import operator
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
 from ._ffi import c_double_p, c_int32_p, c_uint32_p
+
+
+def asset_names(names: Sequence[str] | str | None, count: int) -> list[str]:
+    if names is None:
+        result = [f"asset_{index}" for index in range(count)]
+    elif isinstance(names, str):
+        result = [names]
+    else:
+        result = [str(name) for name in names]
+    if len(result) != count:
+        raise ValueError(f"expected {count} asset names, got {len(result)}")
+    if any(not name for name in result):
+        raise ValueError("asset names must not be empty")
+    if len(set(result)) != len(result):
+        raise ValueError("asset names must be unique")
+    return result
 
 
 def as_size(value: Any, name: str, *, minimum: int = 1) -> int:

@@ -17,7 +17,9 @@ import numpy as np
 
 from ._ffi import LibraryNotFoundError, RFluxError, abi_version, get_lib, native_version
 from ._version import __version__
+from . import qflux
 from .analysis import analyze_prices
+from .apps import portfolio_risk
 
 _DATE_NAMES = {"date", "datetime", "time", "日期", "时间"}
 _MISSING = {"", "na", "n/a", "nan", "null", "none", "-"}
@@ -214,11 +216,14 @@ def read_price_csv(
     )
 
 
-def _format_value(value: Any, *, percent: bool = False, width: int = 9) -> str:
+def _format_value(
+    value: Any, *, percent: bool = False, width: int = 9, signed: bool = True
+) -> str:
     if value is None or (isinstance(value, float) and not math.isfinite(value)):
         return "n/a".rjust(width)
     if percent:
-        return f"{value * 100:+.2f}%".rjust(width)
+        rendered = f"{value * 100:+.2f}%" if signed else f"{value * 100:.2f}%"
+        return rendered.rjust(width)
     if isinstance(value, float):
         return f"{value:.3f}".rjust(width)
     return str(value).rjust(width)
@@ -240,7 +245,7 @@ def _format_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
         lines.append(
             f"{name[:18]:<18}"
             f"{_format_value(stats.get('annualized_return'), percent=True)}"
-            f"{_format_value(stats.get('annualized_volatility'), percent=True)}"
+            f"{_format_value(stats.get('annualized_volatility'), percent=True, signed=False)}"
             f"{_format_value(stats.get('sharpe'))}"
             f"{_format_value(stats.get('max_drawdown'), percent=True)}"
             f"{_format_value(stats.get('rsi_14'))}"
@@ -249,7 +254,7 @@ def _format_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
     lines.append(
         f"{'equal-weight':<18}"
         f"{_format_value(market.get('annualized_return'), percent=True)}"
-        f"{_format_value(market.get('annualized_volatility'), percent=True)}"
+        f"{_format_value(market.get('annualized_volatility'), percent=True, signed=False)}"
         f"{_format_value(market.get('sharpe'))}"
         f"{_format_value(market.get('max_drawdown'), percent=True)}"
         f"{_format_value(None)}"
@@ -298,6 +303,111 @@ def _format_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
         lines.append("")
         lines.extend(f"note: {message}" for message in report["errors"])
     return "\n".join(lines)
+
+
+def _parse_weights(text: str) -> list[float]:
+    values: list[float] = []
+    for item in str(text).split(","):
+        item = item.strip()
+        if not item:
+            raise ValueError("weights must be a comma-separated non-empty list")
+        try:
+            value = float(item)
+        except ValueError as exc:
+            raise ValueError(f"invalid weight {item!r}") from exc
+        if not math.isfinite(value):
+            raise ValueError("weights must be finite")
+        values.append(value)
+    if not values:
+        raise ValueError("weights must not be empty")
+    return values
+
+
+def _format_risk_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
+    lines = [
+        f"rflux {report['package']['version']} | "
+        f"source: {source}",
+        f"rows: {report['input']['observations']} | "
+        f"complete: {report['input']['complete_observations']} | "
+        f"assets: {report['input']['asset_names']}",
+        f"gross exposure: {report['input']['gross_exposure']:.3f} | "
+        f"net exposure: {report['input']['net_exposure']:.3f}",
+        "",
+        f"{'asset':<18}{'weight':>10}{'ann.vol':>10}{'component':>11}{'share':>9}",
+    ]
+    for name, item in report["asset_risk"].items():
+        lines.append(
+            f"{name[:18]:<18}"
+            f"{item['weight']:>10.3f}"
+            f"{_format_value(item['annualized_volatility'], percent=True, signed=False)}"
+            f"{_format_value(item['component_volatility'], percent=True, width=11)}"
+            f"{_format_value(item['percent_contribution'], percent=True, width=9)}"
+        )
+    portfolio = report["portfolio"]
+    lines.extend(
+        [
+            "",
+            f"portfolio volatility: "
+            f"{_format_value(portfolio['annualized_volatility'], percent=True, signed=False).strip()}",
+            f"diversification ratio: "
+            f"{_format_value(portfolio['diversification_ratio']).strip()}",
+            f"gross HHI: {report['input']['gross_hhi']:.3f}",
+        ]
+    )
+    metrics = portfolio["metrics"]
+    lines.append(
+        f"return: total={_format_value(metrics['total_return'], percent=True).strip()}, "
+        f"ann.return={_format_value(metrics['annualized_return'], percent=True).strip()}, "
+        f"Sharpe={_format_value(metrics['sharpe']).strip()}, "
+        f"maxDD={_format_value(metrics['max_drawdown'], percent=True).strip()}"
+    )
+    if parsed.dates:
+        lines.append(f"date range: {parsed.dates[0]} .. {parsed.dates[-1]}")
+    if parsed.warnings:
+        lines.append("")
+        lines.extend(f"warning: {message}" for message in parsed.warnings)
+    return "\n".join(lines)
+
+
+def _command_risk(args: argparse.Namespace) -> int:
+    parsed = read_price_csv(
+        args.path,
+        date_column=args.date_column,
+        delimiter=args.delimiter,
+    )
+    weights = _parse_weights(args.weights)
+    if len(weights) != len(parsed.names):
+        raise ValueError(
+            f"got {len(weights)} weights for {len(parsed.names)} assets: "
+            f"{parsed.names}"
+        )
+    return_panel = np.column_stack(
+        [qflux.returns(parsed.prices[:, column]) for column in range(parsed.prices.shape[1])]
+    )
+    report = portfolio_risk(
+        return_panel,
+        weights,
+        names=parsed.names,
+        periods_per_year=args.periods_per_year,
+        risk_free=args.risk_free,
+        confidence=args.confidence,
+    )
+    if parsed.dates:
+        report["input"]["date_start"] = parsed.dates[0]
+        report["input"]["date_end"] = parsed.dates[-1]
+    report["input"]["source"] = str(args.path)
+    report["input"]["warnings"] = parsed.warnings
+    output = (
+        json.dumps(report, ensure_ascii=False, indent=2)
+        if args.format == "json"
+        else _format_risk_text(report, str(args.path), parsed)
+    )
+    if args.output:
+        Path(args.output).write_text(output + "\n", encoding="utf-8")
+        print(f"wrote {args.output}")
+    else:
+        print(output)
+    return 0
 
 
 def _doctor_payload() -> tuple[dict[str, Any], bool]:
@@ -428,6 +538,21 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--n-init", type=int, default=3)
     analyze.add_argument("--threshold", type=float, default=0.5)
     analyze.add_argument("--seed", type=int, default=42)
+    risk = subparsers.add_parser(
+        "risk", help="portfolio volatility and Euler risk contributions"
+    )
+    risk.add_argument("path", help="wide price CSV with a header")
+    risk.add_argument(
+        "--weights", required=True,
+        help="comma-separated weights in CSV data-column order"
+    )
+    risk.add_argument("--date-column", default=None)
+    risk.add_argument("--delimiter", default=",")
+    risk.add_argument("--format", choices=("text", "json"), default="text")
+    risk.add_argument("--output", default=None)
+    risk.add_argument("--periods-per-year", type=float, default=252.0)
+    risk.add_argument("--risk-free", type=float, default=0.0)
+    risk.add_argument("--confidence", type=float, default=0.95)
     return parser
 
 
@@ -446,6 +571,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.states < 1 or args.max_iter < 1 or args.n_init < 1:
                 raise ValueError("states, max-iter and n-init must be positive")
             return _command_analyze(args)
+        if args.command == "risk":
+            if args.periods_per_year <= 0.0:
+                raise ValueError("periods-per-year must be positive")
+            return _command_risk(args)
         parser.error(f"unknown command {args.command}")
     except (ValueError, OSError, RFluxError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr)

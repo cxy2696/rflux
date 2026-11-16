@@ -40,6 +40,8 @@ cd rflux
 make -j
 PYTHONPATH=python python -m rflux version
 PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
+PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+  --weights 0.2,0.2,0.2,0.2,0.2
 ```
 
 Once the package is installed (`make python-lib && pip install -e python`), the same command is available as `rflux`.
@@ -60,6 +62,7 @@ The shared library is written to `build/`. Python finds it automatically when ru
 - [中文说明](README_cn.md): build, Python/C/C++ usage, data adapters and HMM guidance.
 - [English guide](README_en.md): same scope in English.
 - [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk, real data and command-line analysis.
+- Applications: [portfolio risk and regime attribution](docs/APPLICATIONS_en.md) ([中文](docs/APPLICATIONS_cn.md)).
 - [C ABI rules](docs/ABI.md): ownership, status codes, buffer lengths and compatibility (Chinese; the public header is documented in English).
 - Methods and conventions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md).
 - Extension guide: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md).
@@ -72,7 +75,7 @@ The library covers:
 - **qflux**: returns, moving averages, RSI, MACD, Bollinger bands, ATR, drawdown, rolling statistics, beta, cross-sectional ranking, winsorization, z-scores, neutralization, correlation matrices, Sharpe/Sortino and historical VaR/CVaR.
 - **regimelab**: diagonal Gaussian HMMs with multiple restarts, filtered/smoothed state probabilities, Viterbi paths, state forecasts, out-of-sample scores, state alignment, causal volatility/trend regimes.
 - **percolab**: correlation distance, threshold graphs, connected components, centrality, clustering, minimum spanning trees, bond/site percolation and SIR diffusion.
-- **Python tools**: optional akshare/yfinance/CSV adapters, performance summaries, IC, quantile portfolios and a simple cost-aware long-short backtest.
+- **Python tools**: optional akshare/yfinance/CSV adapters, performance summaries, IC, quantile portfolios, a cost-aware long-short backtest, portfolio risk contributions and regime attribution.
 
 The code is deterministic for a given input and seed. Random procedures use explicit seeds; nothing is downloaded at import time.
 

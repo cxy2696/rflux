@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import asdict
 from typing import Any, Sequence
 
 import numpy as np
 
 from . import metrics, percolab, qflux, regimelab
+from ._common import asset_names as _asset_names
 from ._ffi import abi_version, native_version
+from ._json import jsonable
 from ._version import __version__
 
 
@@ -20,22 +21,6 @@ def _as_price_panel(prices: Any) -> np.ndarray:
     if array.ndim != 2 or array.shape[0] < 2 or array.shape[1] < 1:
         raise ValueError("prices must be a 2D panel with at least 2 rows and 1 asset")
     return np.ascontiguousarray(array)
-
-
-def _normalise_names(names: Sequence[str] | str | None, n_assets: int) -> list[str]:
-    if names is None:
-        result = [f"asset_{index}" for index in range(n_assets)]
-    elif isinstance(names, str):
-        result = [names]
-    else:
-        result = [str(name) for name in names]
-    if len(result) != n_assets:
-        raise ValueError(f"expected {n_assets} asset names, got {len(result)}")
-    if any(not name for name in result):
-        raise ValueError("asset names must not be empty")
-    if len(set(result)) != len(result):
-        raise ValueError("asset names must be unique")
-    return result
 
 
 def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[str, Any]:
@@ -67,22 +52,6 @@ def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[st
     return result
 
 
-def _jsonable(value: Any) -> Any:
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, np.generic):
-        return _jsonable(value.item())
-    if isinstance(value, np.ndarray):
-        return [_jsonable(item) for item in value.tolist()]
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    return str(value)
-
-
 def analyze_prices(
     prices: Any,
     *,
@@ -112,7 +81,7 @@ def analyze_prices(
     """
     panel = _as_price_panel(prices)
     n_obs, n_assets = panel.shape
-    asset_names = _normalise_names(names, n_assets)
+    asset_names = _asset_names(names, n_assets)
     if not (np.isfinite(periods_per_year) and periods_per_year > 0):
         raise ValueError("periods_per_year must be positive")
     if not np.isfinite(risk_free):
@@ -245,7 +214,7 @@ def analyze_prices(
                 if model is not None:
                     model.close()
 
-    return _jsonable(report)
+    return jsonable(report)
 
 
 __all__ = ["analyze_prices"]

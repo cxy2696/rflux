@@ -5,6 +5,15 @@ causal semantics are called out explicitly when they change.
 
 ## Unreleased
 
+- Added `rflux.portfolio_risk` with complete-case sample covariance, annualized
+  volatility, diversification, gross/net exposure and Euler volatility
+  contributions.
+- Added `rflux.regime_attribution` with per-state return/risk statistics and
+  transition counts, plus explicit arithmetic-contribution semantics.
+- Added `rflux risk` for weighted price-panel analysis and a runnable
+  applications example.
+- Added bilingual application documentation and regression tests with known
+  two-asset and hand-counted regime results.
 - Refactored HMM inference to cache log start/transition probabilities once per
   EM iteration or public inference call instead of recomputing them inside every
   transition loop.
