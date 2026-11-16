@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from ._ffi import c_double_p, c_int32_p, c_uint32_p
+from ._ffi import c_double_p, c_int32_p, c_uint32_p, check
 
 
 def asset_names(names: Sequence[str] | str | None, count: int) -> list[str]:
@@ -102,6 +102,31 @@ def empty_f64(n: int) -> np.ndarray:
 
 def empty_i32(n: int) -> np.ndarray:
     return np.empty(int(n), dtype=np.int32)
+
+
+def call_vector(
+    name: str, size: int, function: Callable[..., int], *args: Any
+) -> np.ndarray:
+    """Run a native function whose final argument is a double output pointer."""
+    out = empty_f64(size)
+    check(function(*args, double_ptr(out)), name)
+    return out
+
+
+def call_i32(
+    name: str, size: int, function: Callable[..., int], *args: Any
+) -> np.ndarray:
+    out = empty_i32(size)
+    check(function(*args, int32_ptr(out)), name)
+    return out
+
+
+def call_scalar(
+    name: str, function: Callable[..., int], *args: Any
+) -> float:
+    out = np.empty(1, dtype=np.float64)
+    check(function(*args, double_ptr(out)), name)
+    return float(out[0])
 
 
 def double_ptr(array: np.ndarray):

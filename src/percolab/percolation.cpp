@@ -17,7 +17,7 @@ namespace {
 using rflux::detail::component_labels;
 using rflux::detail::mix_seed;
 using rflux::detail::require;
-using rflux::detail::require_nonnegative_weights;
+using rflux::detail::require_adjacency;
 using rflux::detail::require_pointer;
 using rflux::detail::Rng;
 using rflux::detail::UnionFind;
@@ -42,8 +42,7 @@ void validate_percolation_inputs(const double* adjacency, std::size_t n,
                                  const double* probabilities,
                                  std::size_t n_probabilities,
                                  std::size_t repetitions) {
-    validate_symmetric_matrix(adjacency, n, "adjacency");
-    require_nonnegative_weights(adjacency, n, "adjacency");
+    require_adjacency(adjacency, n, "adjacency");
     require_pointer(probabilities, "probabilities must not be NULL");
     require(n_probabilities > 0, "n_probabilities must be positive");
     require(repetitions > 0, "repetitions must be positive");

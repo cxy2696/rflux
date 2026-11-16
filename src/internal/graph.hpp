@@ -45,6 +45,12 @@ inline void require_nonnegative_weights(const double* weights, std::size_t n,
     }
 }
 
+inline void require_adjacency(const double* weights, std::size_t n,
+                              const char* what) {
+    validate_symmetric_matrix(weights, n, what);
+    require_nonnegative_weights(weights, n, what);
+}
+
 class UnionFind {
 public:
     explicit UnionFind(std::size_t n) : parent_(n), size_(n, 1) {

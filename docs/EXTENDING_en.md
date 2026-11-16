@@ -43,16 +43,16 @@ Rules:
 
 ### Implementation
 
-Wrap the kernel in `src/rflux_capi.cpp`:
+Wrap the kernel in `src/rflux_capi.cpp`. Use the existing guard for a single array output:
 
 ```cpp
 rflux_status rflux_my_function(const double* input, size_t n, double* output) {
-    return api_guard("rflux_my_function", [&] {
-        require_output(output, "output");
-        copy_out(rflux::qflux::my_function(input, n), output);
-    });
+    return guarded_vector("rflux_my_function", output, "output",
+                          [&] { return rflux::qflux::my_function(input, n); });
 }
 ```
+
+Use `guarded_scalar` for one double output and `guarded_i32` for label arrays. Multi-output functions still use `api_guard` and validate every output before computing. HMM-style functions that must validate the model before the output use the overload with a prepare callback.
 
 - Every operation goes inside `api_guard`, so exceptions become status codes.
 - Validate output pointers before doing work; do not return partial results on failure.

@@ -66,6 +66,32 @@ CenterScale rolling_center_scale(const double* values, std::size_t n,
     return result;
 }
 
+template <typename Emit>
+void for_each_pair_window(const double* x, const double* y, std::size_t n,
+                          std::size_t window, Emit emit) {
+    rflux::detail::SlidingMoments2 moments;
+    std::size_t missing = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const bool valid = std::isfinite(x[i]) && std::isfinite(y[i]);
+        if (valid) {
+            moments.push(x[i], y[i]);
+        } else {
+            ++missing;
+        }
+        if (i >= window) {
+            const std::size_t old = i - window;
+            if (std::isfinite(x[old]) && std::isfinite(y[old])) {
+                moments.pop();
+            } else {
+                --missing;
+            }
+        }
+        if (i + 1 >= window && missing == 0) {
+            emit(i, moments.moments());
+        }
+    }
+}
+
 }  // namespace
 
 std::vector<double> rolling_sum(const double* values, std::size_t n,
@@ -176,33 +202,16 @@ std::vector<double> rolling_corr(const double* x, const double* y, std::size_t n
     require(window >= 2 && window <= n, "window must be in [2, n]");
 
     std::vector<double> out(n, kNaN);
-    rflux::detail::SlidingMoments2 moments;
-    std::size_t missing = 0;
-
-    for (std::size_t i = 0; i < n; ++i) {
-        const bool valid = std::isfinite(x[i]) && std::isfinite(y[i]);
-        if (valid) {
-            moments.push(x[i], y[i]);
-        } else {
-            ++missing;
-        }
-        if (i >= window) {
-            const std::size_t old = i - window;
-            if (std::isfinite(x[old]) && std::isfinite(y[old])) {
-                moments.pop();
-            } else {
-                --missing;
-            }
-        }
-        if (i + 1 < window || missing != 0) continue;
-
-        const rflux::detail::Moments2 block = moments.moments();
-        if (block.m2_x <= 0.0L || block.m2_y <= 0.0L) continue;
-        double corr = static_cast<double>(
-            block.co_moment / std::sqrt(block.m2_x * block.m2_y));
-        corr = std::max(-1.0, std::min(1.0, corr));
-        out[i] = corr;
-    }
+    for_each_pair_window(x, y, n, window,
+                         [&](std::size_t i, const rflux::detail::Moments2& block) {
+                             if (block.m2_x <= 0.0L || block.m2_y <= 0.0L) {
+                                 return;
+                             }
+                             double corr = static_cast<double>(
+                                 block.co_moment /
+                                 std::sqrt(block.m2_x * block.m2_y));
+                             out[i] = std::max(-1.0, std::min(1.0, corr));
+                         });
     return out;
 }
 
@@ -214,30 +223,13 @@ std::vector<double> rolling_beta(const double* y, const double* x, std::size_t n
     require(window >= 2 && window <= n, "window must be in [2, n]");
 
     std::vector<double> out(n, kNaN);
-    rflux::detail::SlidingMoments2 moments;
-    std::size_t missing = 0;
-
-    for (std::size_t i = 0; i < n; ++i) {
-        const bool valid = std::isfinite(x[i]) && std::isfinite(y[i]);
-        if (valid) {
-            moments.push(x[i], y[i]);
-        } else {
-            ++missing;
-        }
-        if (i >= window) {
-            const std::size_t old = i - window;
-            if (std::isfinite(x[old]) && std::isfinite(y[old])) {
-                moments.pop();
-            } else {
-                --missing;
-            }
-        }
-        if (i + 1 < window || missing != 0) continue;
-
-        const rflux::detail::Moments2 block = moments.moments();
-        if (block.m2_x <= 0.0L) continue;
-        out[i] = static_cast<double>(block.co_moment / block.m2_x);
-    }
+    for_each_pair_window(x, y, n, window,
+                         [&](std::size_t i, const rflux::detail::Moments2& block) {
+                             if (block.m2_x > 0.0L) {
+                                 out[i] = static_cast<double>(
+                                     block.co_moment / block.m2_x);
+                             }
+                         });
     return out;
 }
 

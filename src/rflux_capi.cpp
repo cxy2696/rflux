@@ -106,6 +106,76 @@ void copy_out_i32(const Container& values, std::int32_t* out) {
     std::copy(values.begin(), values.end(), out);
 }
 
+template <typename Function>
+rflux_status guarded_vector(const char* name, double* out,
+                            const char* out_name, Function&& function) {
+    return api_guard(name, [&] {
+        require_output(out, out_name);
+        const auto values = function();
+        copy_out(values, out);
+    });
+}
+
+template <typename Function>
+rflux_status guarded_i32(const char* name, std::int32_t* out,
+                         const char* out_name, Function&& function) {
+    return api_guard(name, [&] {
+        require_output(out, out_name);
+        const auto values = function();
+        copy_out_i32(values, out);
+    });
+}
+
+template <typename Function>
+rflux_status guarded_scalar(const char* name, double* out,
+                            const char* out_name, Function&& function) {
+    return api_guard(name, [&] {
+        require_output(out, out_name);
+        *out = function();
+    });
+}
+
+template <typename Function>
+rflux_status guarded_percolation(const char* name, double* giant_mean,
+                                 double* giant_std, double* susceptibility,
+                                 Function&& function) {
+    return api_guard(name, [&] {
+        require_output(giant_mean, "giant_mean");
+        require_output(giant_std, "giant_std");
+        require_output(susceptibility, "susceptibility");
+        const auto points = function();
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            giant_mean[i] = points[i].giant_mean;
+            giant_std[i] = points[i].giant_std;
+            susceptibility[i] = points[i].susceptibility;
+        }
+    });
+}
+
+template <typename Prepare, typename Function>
+rflux_status guarded_vector(const char* name, double* out,
+                            const char* out_name, Prepare&& prepare,
+                            Function&& function) {
+    return api_guard(name, [&] {
+        prepare();
+        require_output(out, out_name);
+        const auto values = function();
+        copy_out(values, out);
+    });
+}
+
+template <typename Prepare, typename Function>
+rflux_status guarded_i32(const char* name, std::int32_t* out,
+                         const char* out_name, Prepare&& prepare,
+                         Function&& function) {
+    return api_guard(name, [&] {
+        prepare();
+        require_output(out, out_name);
+        const auto values = function();
+        copy_out_i32(values, out);
+    });
+}
+
 rflux::regimelab::HmmOptions parse_hmm_options(
     const rflux_hmm_options* options) {
     rflux::regimelab::HmmOptions parsed;
@@ -174,71 +244,55 @@ void rflux_clear_error(void) { clear_error(); }
 
 rflux_status rflux_returns(const double* x, size_t n, int32_t log_returns,
                            double* out) {
-    return api_guard("rflux_returns", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::returns(x, n, log_returns != 0), out);
-    });
+    return guarded_vector("rflux_returns", out, "out",
+                          [&] { return rflux::qflux::returns(x, n, log_returns != 0); });
 }
 
 rflux_status rflux_sma(const double* x, size_t n, size_t window, double* out) {
-    return api_guard("rflux_sma", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::sma(x, n, window), out);
-    });
+    return guarded_vector("rflux_sma", out, "out",
+                          [&] { return rflux::qflux::sma(x, n, window); });
 }
 
 rflux_status rflux_rolling_sum(const double* x, size_t n, size_t window,
                                double* out) {
-    return api_guard("rflux_rolling_sum", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_sum(x, n, window), out);
-    });
+    return guarded_vector("rflux_rolling_sum", out, "out",
+                          [&] { return rflux::qflux::rolling_sum(x, n, window); });
 }
 
 rflux_status rflux_rolling_std(const double* x, size_t n, size_t window,
                                size_t ddof, double* out) {
-    return api_guard("rflux_rolling_std", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_std(x, n, window, ddof), out);
+    return guarded_vector("rflux_rolling_std", out, "out", [&] {
+        return rflux::qflux::rolling_std(x, n, window, ddof);
     });
 }
 
 rflux_status rflux_rolling_min(const double* x, size_t n, size_t window,
                                double* out) {
-    return api_guard("rflux_rolling_min", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_min(x, n, window), out);
-    });
+    return guarded_vector("rflux_rolling_min", out, "out",
+                          [&] { return rflux::qflux::rolling_min(x, n, window); });
 }
 
 rflux_status rflux_rolling_max(const double* x, size_t n, size_t window,
                                double* out) {
-    return api_guard("rflux_rolling_max", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_max(x, n, window), out);
-    });
+    return guarded_vector("rflux_rolling_max", out, "out",
+                          [&] { return rflux::qflux::rolling_max(x, n, window); });
 }
 
 rflux_status rflux_rolling_zscore(const double* x, size_t n, size_t window,
                                   size_t ddof, double* out) {
-    return api_guard("rflux_rolling_zscore", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_zscore(x, n, window, ddof), out);
+    return guarded_vector("rflux_rolling_zscore", out, "out", [&] {
+        return rflux::qflux::rolling_zscore(x, n, window, ddof);
     });
 }
 
 rflux_status rflux_ema(const double* x, size_t n, size_t span, double* out) {
-    return api_guard("rflux_ema", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::ema(x, n, span), out);
-    });
+    return guarded_vector("rflux_ema", out, "out",
+                          [&] { return rflux::qflux::ema(x, n, span); });
 }
 
 rflux_status rflux_rsi(const double* x, size_t n, size_t period, double* out) {
-    return api_guard("rflux_rsi", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rsi(x, n, period), out);
-    });
+    return guarded_vector("rflux_rsi", out, "out",
+                          [&] { return rflux::qflux::rsi(x, n, period); });
 }
 
 rflux_status rflux_macd(const double* x, size_t n, size_t fast, size_t slow,
@@ -274,49 +328,37 @@ rflux_status rflux_bollinger(const double* x, size_t n, size_t window,
 rflux_status rflux_atr(const double* high, const double* low,
                        const double* close, size_t n, size_t period,
                        double* out) {
-    return api_guard("rflux_atr", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::atr(high, low, close, n, period), out);
-    });
+    return guarded_vector("rflux_atr", out, "out",
+                          [&] { return rflux::qflux::atr(high, low, close, n, period); });
 }
 
 rflux_status rflux_drawdown(const double* equity, size_t n, double* out) {
-    return api_guard("rflux_drawdown", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::drawdown(equity, n), out);
-    });
+    return guarded_vector("rflux_drawdown", out, "out",
+                          [&] { return rflux::qflux::drawdown(equity, n); });
 }
 
 rflux_status rflux_rolling_corr(const double* x, const double* y, size_t n,
                                 size_t window, double* out) {
-    return api_guard("rflux_rolling_corr", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_corr(x, y, n, window), out);
-    });
+    return guarded_vector("rflux_rolling_corr", out, "out",
+                          [&] { return rflux::qflux::rolling_corr(x, y, n, window); });
 }
 
 rflux_status rflux_rolling_beta(const double* y, const double* x, size_t n,
                                 size_t window, double* out) {
-    return api_guard("rflux_rolling_beta", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rolling_beta(y, x, n, window), out);
-    });
+    return guarded_vector("rflux_rolling_beta", out, "out",
+                          [&] { return rflux::qflux::rolling_beta(y, x, n, window); });
 }
 
 rflux_status rflux_rolling_slope(const double* x, size_t n, size_t window,
                                  double* slope) {
-    return api_guard("rflux_rolling_slope", [&] {
-        require_output(slope, "slope");
-        copy_out(rflux::qflux::rolling_slope(x, n, window), slope);
-    });
+    return guarded_vector("rflux_rolling_slope", slope, "slope",
+                          [&] { return rflux::qflux::rolling_slope(x, n, window); });
 }
 
 rflux_status rflux_rolling_r2(const double* x, size_t n, size_t window,
                               double* r2) {
-    return api_guard("rflux_rolling_r2", [&] {
-        require_output(r2, "r2");
-        copy_out(rflux::qflux::rolling_r2(x, n, window), r2);
-    });
+    return guarded_vector("rflux_rolling_r2", r2, "r2",
+                          [&] { return rflux::qflux::rolling_r2(x, n, window); });
 }
 
 /* ---------------------------------------------------------------------- */
@@ -344,44 +386,35 @@ rflux_status rflux_describe(const double* x, size_t n, double* mean,
 }
 
 rflux_status rflux_quantile(const double* x, size_t n, double q, double* out) {
-    return api_guard("rflux_quantile", [&] {
-        require_output(out, "out");
-        *out = rflux::qflux::quantile(x, n, q);
-    });
+    return guarded_scalar("rflux_quantile", out, "out",
+                          [&] { return rflux::qflux::quantile(x, n, q); });
 }
 
 rflux_status rflux_pearson(const double* x, const double* y, size_t n,
                            double* out) {
-    return api_guard("rflux_pearson", [&] {
-        require_output(out, "out");
-        *out = rflux::qflux::pearson(x, y, n);
-    });
+    return guarded_scalar("rflux_pearson", out, "out",
+                          [&] { return rflux::qflux::pearson(x, y, n); });
 }
 
 rflux_status rflux_corr_matrix(const double* panel, size_t n_obs,
                                size_t n_assets, double* corr_matrix) {
-    return api_guard("rflux_corr_matrix", [&] {
-        require_output(corr_matrix, "corr_matrix");
-        copy_out(rflux::qflux::correlation_matrix(panel, n_obs, n_assets),
-                 corr_matrix);
-    });
+    return guarded_vector("rflux_corr_matrix", corr_matrix, "corr_matrix",
+                          [&] { return rflux::qflux::correlation_matrix(panel, n_obs, n_assets); });
 }
 
 rflux_status rflux_sharpe(const double* returns, size_t n,
                           double periods_per_year, double risk_free,
                           double* out) {
-    return api_guard("rflux_sharpe", [&] {
-        require_output(out, "out");
-        *out = rflux::qflux::sharpe(returns, n, periods_per_year, risk_free);
+    return guarded_scalar("rflux_sharpe", out, "out", [&] {
+        return rflux::qflux::sharpe(returns, n, periods_per_year, risk_free);
     });
 }
 
 rflux_status rflux_sortino(const double* returns, size_t n,
                            double periods_per_year, double risk_free,
                            double* out) {
-    return api_guard("rflux_sortino", [&] {
-        require_output(out, "out");
-        *out = rflux::qflux::sortino(returns, n, periods_per_year, risk_free);
+    return guarded_scalar("rflux_sortino", out, "out", [&] {
+        return rflux::qflux::sortino(returns, n, periods_per_year, risk_free);
     });
 }
 
@@ -402,42 +435,33 @@ rflux_status rflux_var_cvar(const double* returns, size_t n, double confidence,
 /* ---------------------------------------------------------------------- */
 
 rflux_status rflux_rank(const double* values, size_t n, double* out) {
-    return api_guard("rflux_rank", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::rank(values, n), out);
-    });
+    return guarded_vector("rflux_rank", out, "out",
+                          [&] { return rflux::qflux::rank(values, n); });
 }
 
 rflux_status rflux_percentile_rank(const double* values, size_t n,
                                    double* out) {
-    return api_guard("rflux_percentile_rank", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::percentile_rank(values, n), out);
-    });
+    return guarded_vector("rflux_percentile_rank", out, "out",
+                          [&] { return rflux::qflux::percentile_rank(values, n); });
 }
 
 rflux_status rflux_zscore(const double* values, size_t n, size_t ddof,
                           double* out) {
-    return api_guard("rflux_zscore", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::zscore(values, n, ddof), out);
-    });
+    return guarded_vector("rflux_zscore", out, "out",
+                          [&] { return rflux::qflux::zscore(values, n, ddof); });
 }
 
 rflux_status rflux_winsorize(const double* values, size_t n, double lower_q,
                              double upper_q, double* out) {
-    return api_guard("rflux_winsorize", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::winsorize(values, n, lower_q, upper_q), out);
-    });
+    return guarded_vector("rflux_winsorize", out, "out",
+                          [&] { return rflux::qflux::winsorize(values, n, lower_q, upper_q); });
 }
 
 rflux_status rflux_neutralize(const double* values, size_t n,
                               const int32_t* groups, size_t group_count,
                               double* out) {
-    return api_guard("rflux_neutralize", [&] {
-        require_output(out, "out");
-        copy_out(rflux::qflux::neutralize(values, n, groups, group_count), out);
+    return guarded_vector("rflux_neutralize", out, "out", [&] {
+        return rflux::qflux::neutralize(values, n, groups, group_count);
     });
 }
 
@@ -565,43 +589,40 @@ rflux_status rflux_hmm_set_parameters(rflux_hmm* model,
 rflux_status rflux_hmm_viterbi(const rflux_hmm* model,
                                const double* observations, size_t n_obs,
                                int32_t* states) {
-    return api_guard("rflux_hmm_viterbi", [&] {
-        require_model(model, "model");
-        require_output(states, "states");
-        copy_out_i32(model->model.viterbi(observations, n_obs), states);
-    });
+    return guarded_i32(
+        "rflux_hmm_viterbi", states, "states",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.viterbi(observations, n_obs); });
 }
 
 rflux_status rflux_hmm_filtered(const rflux_hmm* model,
                                 const double* observations, size_t n_obs,
                                 double* probs) {
-    return api_guard("rflux_hmm_filtered", [&] {
-        require_model(model, "model");
-        require_output(probs, "probs");
-        copy_out(model->model.filtered(observations, n_obs), probs);
-    });
+    return guarded_vector(
+        "rflux_hmm_filtered", probs, "probs",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.filtered(observations, n_obs); });
 }
 
 rflux_status rflux_hmm_smoothed(const rflux_hmm* model,
                                 const double* observations, size_t n_obs,
                                 double* probs) {
-    return api_guard("rflux_hmm_smoothed", [&] {
-        require_model(model, "model");
-        require_output(probs, "probs");
-        copy_out(model->model.smoothed(observations, n_obs), probs);
-    });
+    return guarded_vector(
+        "rflux_hmm_smoothed", probs, "probs",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.smoothed(observations, n_obs); });
 }
 
 rflux_status rflux_hmm_forecast(const rflux_hmm* model,
                                 const double* state_probs, size_t horizon,
                                 double* out) {
-    return api_guard("rflux_hmm_forecast", [&] {
-        require_model(model, "model");
-        require_output(out, "out");
-        copy_out(model->model.forecast(state_probs, model->model.n_states(),
-                                       horizon),
-                 out);
-    });
+    return guarded_vector(
+        "rflux_hmm_forecast", out, "out",
+        [&] { require_model(model, "model"); },
+        [&] {
+            return model->model.forecast(state_probs, model->model.n_states(),
+                                         horizon);
+        });
 }
 
 /* ---------------------------------------------------------------------- */
@@ -643,11 +664,8 @@ rflux_status rflux_trend_regime(const double* prices, size_t n,
 rflux_status rflux_composite_regime(const int32_t* vol_labels,
                                     const int32_t* trend_labels, size_t n,
                                     int32_t* out) {
-    return api_guard("rflux_composite_regime", [&] {
-        require_output(out, "out");
-        copy_out_i32(
-            rflux::regimelab::composite_regime(vol_labels, trend_labels, n),
-            out);
+    return guarded_i32("rflux_composite_regime", out, "out", [&] {
+        return rflux::regimelab::composite_regime(vol_labels, trend_labels, n);
     });
 }
 
@@ -656,10 +674,8 @@ rflux_status rflux_composite_regime(const int32_t* vol_labels,
 /* ---------------------------------------------------------------------- */
 
 rflux_status rflux_corr_to_distance(const double* corr, size_t n, double* out) {
-    return api_guard("rflux_corr_to_distance", [&] {
-        require_output(out, "out");
-        copy_out(rflux::percolab::correlation_to_distance(corr, n), out);
-    });
+    return guarded_vector("rflux_corr_to_distance", out, "out",
+                          [&] { return rflux::percolab::correlation_to_distance(corr, n); });
 }
 
 rflux_status rflux_graph_components(const double* weights, size_t n,
@@ -680,33 +696,29 @@ rflux_status rflux_graph_components(const double* weights, size_t n,
 
 rflux_status rflux_network_strength(const double* weights, size_t n,
                                     double* out) {
-    return api_guard("rflux_network_strength", [&] {
-        require_output(out, "out");
-        copy_out(rflux::percolab::strength(weights, n), out);
-    });
+    return guarded_vector("rflux_network_strength", out, "out",
+                          [&] { return rflux::percolab::strength(weights, n); });
 }
 
 rflux_status rflux_network_centrality(const double* weights, size_t n,
                                       uint32_t kind, double* out) {
-    return api_guard("rflux_network_centrality", [&] {
-        require_output(out, "out");
+    return guarded_vector("rflux_network_centrality", out, "out", [&] {
         if (kind == RFLUX_CENTRALITY_DEGREE) {
-            copy_out(rflux::percolab::strength(weights, n), out);
-        } else if (kind == RFLUX_CENTRALITY_EIGENVECTOR) {
-            copy_out(rflux::percolab::eigenvector_centrality(weights, n), out);
-        } else {
-            throw rflux::InvalidArgument(
-                "centrality kind must be RFLUX_CENTRALITY_DEGREE or "
-                "RFLUX_CENTRALITY_EIGENVECTOR");
+            return rflux::percolab::strength(weights, n);
         }
+        if (kind == RFLUX_CENTRALITY_EIGENVECTOR) {
+            return rflux::percolab::eigenvector_centrality(weights, n);
+        }
+        throw rflux::InvalidArgument(
+            "centrality kind must be RFLUX_CENTRALITY_DEGREE or "
+            "RFLUX_CENTRALITY_EIGENVECTOR");
     });
 }
 
 rflux_status rflux_network_clustering(const double* weights, size_t n,
                                       double* out) {
-    return api_guard("rflux_network_clustering", [&] {
-        require_output(out, "out");
-        copy_out(rflux::percolab::clustering_coefficients(weights, n), out);
+    return guarded_vector("rflux_network_clustering", out, "out", [&] {
+        return rflux::percolab::clustering_coefficients(weights, n);
     });
 }
 
@@ -735,40 +747,24 @@ rflux_status rflux_bond_percolation(
     const double* adjacency, size_t n, const double* probabilities,
     size_t n_probabilities, size_t repetitions, uint64_t seed,
     double* giant_mean, double* giant_std, double* susceptibility) {
-    return api_guard("rflux_bond_percolation", [&] {
-        require_output(giant_mean, "giant_mean");
-        require_output(giant_std, "giant_std");
-        require_output(susceptibility, "susceptibility");
-        const std::vector<rflux::percolab::PercolationPoint> points =
-            rflux::percolab::bond_percolation(
+    return guarded_percolation(
+        "rflux_bond_percolation", giant_mean, giant_std, susceptibility, [&] {
+            return rflux::percolab::bond_percolation(
                 adjacency, n, probabilities, n_probabilities, repetitions,
                 seed);
-        for (std::size_t i = 0; i < points.size(); ++i) {
-            giant_mean[i] = points[i].giant_mean;
-            giant_std[i] = points[i].giant_std;
-            susceptibility[i] = points[i].susceptibility;
-        }
-    });
+        });
 }
 
 rflux_status rflux_site_percolation(
     const double* adjacency, size_t n, const double* probabilities,
     size_t n_probabilities, size_t repetitions, uint64_t seed,
     double* giant_mean, double* giant_std, double* susceptibility) {
-    return api_guard("rflux_site_percolation", [&] {
-        require_output(giant_mean, "giant_mean");
-        require_output(giant_std, "giant_std");
-        require_output(susceptibility, "susceptibility");
-        const std::vector<rflux::percolab::PercolationPoint> points =
-            rflux::percolab::site_percolation(
+    return guarded_percolation(
+        "rflux_site_percolation", giant_mean, giant_std, susceptibility, [&] {
+            return rflux::percolab::site_percolation(
                 adjacency, n, probabilities, n_probabilities, repetitions,
                 seed);
-        for (std::size_t i = 0; i < points.size(); ++i) {
-            giant_mean[i] = points[i].giant_mean;
-            giant_std[i] = points[i].giant_std;
-            susceptibility[i] = points[i].susceptibility;
-        }
-    });
+        });
 }
 
 rflux_status rflux_risk_diffusion(

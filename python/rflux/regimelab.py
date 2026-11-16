@@ -21,6 +21,9 @@ from ._common import (
     as_i32_1d,
     as_size,
     as_u64,
+    call_i32,
+    call_scalar,
+    call_vector,
     double_ptr,
     empty_f64,
     empty_i32,
@@ -253,17 +256,9 @@ class GaussianHMM:
         walk-forward or holdout model selection.
         """
         data = _as_observations(observations, self._n_features)
-        out = np.empty(1, dtype=np.float64)
-        check(
-            get_lib().rflux_hmm_score(
-                self._require_handle(),
-                double_ptr(data),
-                data.shape[0],
-                double_ptr(out),
-            ),
-            "rflux_hmm_score",
-        )
-        return float(out[0])
+        return call_scalar(
+            "rflux_hmm_score", get_lib().rflux_hmm_score,
+            self._require_handle(), double_ptr(data), data.shape[0])
 
     def filtered_states(self, observations: Any) -> np.ndarray:
         """Causal state labels from the filtered distribution (argmax)."""
@@ -347,46 +342,26 @@ class GaussianHMM:
     def viterbi(self, observations: Any) -> np.ndarray:
         """Full-sample Viterbi path (non-causal)."""
         data = _as_observations(observations, self._n_features)
-        out = empty_i32(data.shape[0])
-        check(
-            get_lib().rflux_hmm_viterbi(
-                self._require_handle(),
-                double_ptr(data),
-                data.shape[0],
-                int32_ptr(out),
-            ),
-            "rflux_hmm_viterbi",
-        )
-        return out
+        return call_i32(
+            "rflux_hmm_viterbi", data.shape[0], get_lib().rflux_hmm_viterbi,
+            self._require_handle(), double_ptr(data), data.shape[0])
 
     def filtered(self, observations: Any) -> np.ndarray:
         """Causal filtered probabilities, shape (n_obs, n_states)."""
         data = _as_observations(observations, self._n_features)
-        out = empty_f64(data.shape[0] * self._n_states)
-        check(
-            get_lib().rflux_hmm_filtered(
-                self._require_handle(),
-                double_ptr(data),
-                data.shape[0],
-                double_ptr(out),
-            ),
-            "rflux_hmm_filtered",
-        )
+        out = call_vector(
+            "rflux_hmm_filtered", data.shape[0] * self._n_states,
+            get_lib().rflux_hmm_filtered,
+            self._require_handle(), double_ptr(data), data.shape[0])
         return out.reshape(data.shape[0], self._n_states)
 
     def smoothed(self, observations: Any) -> np.ndarray:
         """Full-sample smoothed probabilities, shape (n_obs, n_states)."""
         data = _as_observations(observations, self._n_features)
-        out = empty_f64(data.shape[0] * self._n_states)
-        check(
-            get_lib().rflux_hmm_smoothed(
-                self._require_handle(),
-                double_ptr(data),
-                data.shape[0],
-                double_ptr(out),
-            ),
-            "rflux_hmm_smoothed",
-        )
+        out = call_vector(
+            "rflux_hmm_smoothed", data.shape[0] * self._n_states,
+            get_lib().rflux_hmm_smoothed,
+            self._require_handle(), double_ptr(data), data.shape[0])
         return out.reshape(data.shape[0], self._n_states)
 
     def forecast(self, state_probs: Any, horizon: int = 1) -> np.ndarray:
@@ -397,17 +372,9 @@ class GaussianHMM:
                 f"state_probs must have length {self._n_states}"
             )
         horizon = as_size(horizon, "horizon", minimum=0)
-        out = empty_f64(self._n_states)
-        check(
-            get_lib().rflux_hmm_forecast(
-                self._require_handle(),
-                double_ptr(probabilities),
-                horizon,
-                double_ptr(out),
-            ),
-            "rflux_hmm_forecast",
-        )
-        return out
+        return call_vector(
+            "rflux_hmm_forecast", self._n_states, get_lib().rflux_hmm_forecast,
+            self._require_handle(), double_ptr(probabilities), horizon)
 
     def save(self, path: Any) -> None:
         """Save parameters to a compressed NumPy ``.npz`` file."""
@@ -524,15 +491,10 @@ def composite_regime(volatility_labels: Any, trend_labels: Any) -> np.ndarray:
     trend = as_i32_1d(trend_labels, "trend_labels")
     if volatility.size != trend.size:
         raise ValueError("label arrays must have equal lengths")
-    out = empty_i32(volatility.size)
-    check(
-        get_lib().rflux_composite_regime(
-            int32_ptr(volatility), int32_ptr(trend), volatility.size,
-            int32_ptr(out)
-        ),
-        "rflux_composite_regime",
-    )
-    return out
+    return call_i32(
+        "rflux_composite_regime", volatility.size,
+        get_lib().rflux_composite_regime,
+        int32_ptr(volatility), int32_ptr(trend), volatility.size)
 
 
 def _parameter_arrays(parameters: HMMParameters) -> tuple[np.ndarray, ...]:

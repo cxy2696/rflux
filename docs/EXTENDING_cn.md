@@ -43,16 +43,16 @@ RFLUX_API rflux_status rflux_my_function(
 
 ### 实现
 
-在 `src/rflux_capi.cpp` 中包一层：
+在 `src/rflux_capi.cpp` 中包一层。单输出数组优先用现成的 guard：
 
 ```cpp
 rflux_status rflux_my_function(const double* input, size_t n, double* output) {
-    return api_guard("rflux_my_function", [&] {
-        require_output(output, "output");
-        copy_out(rflux::qflux::my_function(input, n), output);
-    });
+    return guarded_vector("rflux_my_function", output, "output",
+                          [&] { return rflux::qflux::my_function(input, n); });
 }
 ```
+
+`guarded_scalar` 用于单个 double 输出，`guarded_i32` 用于标签数组。多输出函数继续使用 `api_guard`，逐项校验后再计算；HMM 这类需要“先校验模型、再校验输出”的函数使用带 prepare 回调的重载。
 
 - 所有逻辑放进 `api_guard`，异常才能变成状态码。
 - 先校验输出指针，再计算；失败时不要返回部分结果。

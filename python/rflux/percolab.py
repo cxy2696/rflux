@@ -19,6 +19,7 @@ from ._common import (
     as_square,
     as_u32_1d,
     as_u64,
+    call_vector,
     double_ptr,
     empty_f64,
     int32_ptr,
@@ -101,13 +102,9 @@ def correlation_to_distance(correlation: Any) -> np.ndarray:
     """Mantegna distance ``sqrt(2 * (1 - rho))``."""
     matrix = as_square(correlation, "correlation")
     n = matrix.shape[0]
-    out = empty_f64(n * n)
-    check(
-        get_lib().rflux_corr_to_distance(
-            double_ptr(matrix), n, double_ptr(out)
-        ),
-        "rflux_corr_to_distance",
-    )
+    out = call_vector(
+        "rflux_corr_to_distance", n * n, get_lib().rflux_corr_to_distance,
+        double_ptr(matrix), n)
     return out.reshape(n, n)
 
 
@@ -135,14 +132,9 @@ def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
 def network_strength(adjacency: Any) -> np.ndarray:
     """Weighted degree (sum of off-diagonal non-negative weights)."""
     matrix = as_square(adjacency, "adjacency")
-    out = empty_f64(matrix.shape[0])
-    check(
-        get_lib().rflux_network_strength(
-            double_ptr(matrix), matrix.shape[0], double_ptr(out)
-        ),
-        "rflux_network_strength",
-    )
-    return out
+    return call_vector(
+        "rflux_network_strength", matrix.shape[0],
+        get_lib().rflux_network_strength, double_ptr(matrix), matrix.shape[0])
 
 
 def centrality(adjacency: Any, kind: str = "eigenvector") -> np.ndarray:
@@ -153,27 +145,18 @@ def centrality(adjacency: Any, kind: str = "eigenvector") -> np.ndarray:
         value = kinds[str(kind).lower()]
     except KeyError as exc:
         raise ValueError("kind must be 'degree' or 'eigenvector'") from exc
-    out = empty_f64(matrix.shape[0])
-    check(
-        get_lib().rflux_network_centrality(
-            double_ptr(matrix), matrix.shape[0], value, double_ptr(out)
-        ),
-        "rflux_network_centrality",
-    )
-    return out
+    return call_vector(
+        "rflux_network_centrality", matrix.shape[0],
+        get_lib().rflux_network_centrality,
+        double_ptr(matrix), matrix.shape[0], value)
 
 
 def clustering(adjacency: Any) -> np.ndarray:
     """Local unweighted clustering coefficient; NaN when degree < 2."""
     matrix = as_square(adjacency, "adjacency")
-    out = empty_f64(matrix.shape[0])
-    check(
-        get_lib().rflux_network_clustering(
-            double_ptr(matrix), matrix.shape[0], double_ptr(out)
-        ),
-        "rflux_network_clustering",
-    )
-    return out
+    return call_vector(
+        "rflux_network_clustering", matrix.shape[0],
+        get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
 
 
 def mst_from_distance(distance: Any) -> MSTResult:

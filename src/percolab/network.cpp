@@ -19,7 +19,7 @@ using rflux::detail::checked_mul;
 using rflux::detail::kNaN;
 using rflux::detail::mix_seed;
 using rflux::detail::require;
-using rflux::detail::require_nonnegative_weights;
+using rflux::detail::require_adjacency;
 using rflux::detail::require_pointer;
 using rflux::detail::Rng;
 using rflux::detail::UnionFind;
@@ -40,8 +40,7 @@ struct WeightedEdge {
 void validate_diffusion_inputs(const double* adjacency, std::size_t n,
                                double beta, double gamma, std::size_t steps,
                                std::size_t repetitions) {
-    validate_symmetric_matrix(adjacency, n, "adjacency");
-    require_nonnegative_weights(adjacency, n, "adjacency");
+    require_adjacency(adjacency, n, "adjacency");
     require(std::isfinite(beta) && beta >= 0.0,
             "beta must be finite and non-negative");
     rflux::detail::require_probability(gamma, "gamma");
@@ -76,8 +75,7 @@ std::vector<double> correlation_to_distance(const double* corr, std::size_t n) {
 }
 
 std::vector<double> strength(const double* weights, std::size_t n) {
-    validate_symmetric_matrix(weights, n, "weights");
-    require_nonnegative_weights(weights, n, "weights");
+    require_adjacency(weights, n, "weights");
     std::vector<double> out(n, 0.0);
     for (std::size_t i = 0; i < n; ++i) {
         long double sum = 0.0L;
@@ -92,8 +90,7 @@ std::vector<double> strength(const double* weights, std::size_t n) {
 
 std::vector<double> eigenvector_centrality(const double* weights,
                                            std::size_t n) {
-    validate_symmetric_matrix(weights, n, "weights");
-    require_nonnegative_weights(weights, n, "weights");
+    require_adjacency(weights, n, "weights");
 
     bool has_edge = false;
     for (std::size_t i = 0; i < n && !has_edge; ++i) {
@@ -153,8 +150,7 @@ std::vector<double> eigenvector_centrality(const double* weights,
 
 std::vector<double> clustering_coefficients(const double* weights,
                                             std::size_t n) {
-    validate_symmetric_matrix(weights, n, "weights");
-    require_nonnegative_weights(weights, n, "weights");
+    require_adjacency(weights, n, "weights");
     std::vector<double> out(n, kNaN);
     std::vector<std::vector<std::size_t>> neighbors(n);
     for (std::size_t i = 0; i < n; ++i) {
@@ -184,8 +180,7 @@ std::vector<double> clustering_coefficients(const double* weights,
 
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,
                                            std::size_t n) {
-    validate_symmetric_matrix(distance, n, "distance");
-    require_nonnegative_weights(distance, n, "distance");
+    require_adjacency(distance, n, "distance");
     validate_uint32_nodes(n);
     if (n <= 1) return {};
 

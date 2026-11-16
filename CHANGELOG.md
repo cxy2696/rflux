@@ -5,6 +5,14 @@ causal semantics are called out explicitly when they change.
 
 ## Unreleased
 
+- Reduced Python binding boilerplate with shared `call_vector`, `call_i32` and
+  `call_scalar` helpers; qflux, percolab and regimelab wrappers now allocate,
+  call and check through one path.
+- Added C ABI `guarded_vector`, `guarded_i32`, `guarded_scalar` and
+  `guarded_percolation` helpers. HMM wrappers keep their model-before-output
+  validation order through a separate prepare callback.
+- Shared C++ graph adjacency validation and the rolling pair-window scan used by
+  correlation and beta; no polynomial or statistical definition changed.
 - Added `rflux.portfolio_risk` with complete-case sample covariance, annualized
   volatility, diversification, gross/net exposure and Euler volatility
   contributions.
