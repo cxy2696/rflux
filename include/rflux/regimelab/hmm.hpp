@@ -79,6 +79,13 @@ public:
                                  std::size_t n_states,
                                  std::size_t horizon) const;
 
+    /* One causal update: posterior after observation given a prior. */
+    std::vector<double> filter_step(const double* state_probs,
+                                    const double* observation) const;
+
+    /* Long-run distribution of the transition matrix. */
+    std::vector<double> stationary_distribution() const;
+
 private:
     void validate_observations(const double* observations,
                                std::size_t n_obs) const;

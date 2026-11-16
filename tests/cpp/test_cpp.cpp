@@ -171,6 +171,16 @@ int test_hmm() {
     CHECK(approx(forecast[0], 0.6 * 0.9 + 0.4 * 0.2));
     CHECK(approx(forecast[1], 0.6 * 0.1 + 0.4 * 0.8));
 
+    const std::vector<double> prior = {0.6, 0.4};
+    const double neutral_observation = 0.0;
+    const std::vector<double> updated =
+        model.filter_step(prior.data(), &neutral_observation);
+    CHECK(approx(updated[0], 0.62));
+    CHECK(approx(updated[1], 0.38));
+    const std::vector<double> stationary = model.stationary_distribution();
+    CHECK(approx(stationary[0], 2.0 / 3.0, 1e-12));
+    CHECK(approx(stationary[1], 1.0 / 3.0, 1e-12));
+
     const std::vector<double> observations = {-1.2, -0.9, -1.1, 1.0, 1.2, 0.8};
     const std::vector<std::int32_t> path =
         model.viterbi(observations.data(), observations.size());
@@ -381,6 +391,21 @@ int test_graphs() {
                                           probabilities.data(), 2, 20, 5);
     CHECK(approx(site[0].giant_mean, 0.0));
     CHECK(approx(site[1].giant_mean, 1.0));
+
+    {
+        const std::vector<rflux::percolab::PercolationPoint> weighted_bond =
+            rflux::percolab::bond_percolation_weighted(
+                complete.data(), 4, probabilities.data(), 2, 20, 5);
+        CHECK(approx(weighted_bond[0].giant_mean, 0.25));
+        CHECK(approx(weighted_bond[1].giant_mean, 1.0));
+        const std::vector<double> node_weights = {1.0, 0.0, 0.0, 0.0};
+        const std::vector<rflux::percolab::PercolationPoint> weighted_site =
+            rflux::percolab::site_percolation_weighted(
+                complete.data(), 4, node_weights.data(), probabilities.data(),
+                2, 20, 5);
+        CHECK(approx(weighted_site[0].giant_mean, 0.0));
+        CHECK(approx(weighted_site[1].giant_mean, 0.25));
+    }
 
     const std::uint32_t seeds[1] = {0};
     const rflux::percolab::DiffusionResult diffusion =

@@ -376,6 +376,40 @@ class GaussianHMM:
             "rflux_hmm_forecast", self._n_states, get_lib().rflux_hmm_forecast,
             self._require_handle(), double_ptr(probabilities), horizon)
 
+    def filter_step(self, state_probs: Any, observation: Any) -> np.ndarray:
+        """Causal one-step update from a prior state distribution."""
+        probabilities = as_f64_1d(state_probs, "state_probs")
+        if probabilities.size != self._n_states:
+            raise ValueError(f"state_probs must have length {self._n_states}")
+        single = np.asarray(observation, dtype=np.float64)
+        if single.ndim == 0:
+            if self._n_features != 1:
+                raise ValueError(
+                    f"observation must have shape (1, {self._n_features})"
+                )
+            single = single.reshape(1, 1)
+        elif single.ndim == 1:
+            if single.size != self._n_features:
+                raise ValueError(
+                    f"observation must have length {self._n_features}"
+                )
+            single = single.reshape(1, -1)
+        elif single.shape != (1, self._n_features):
+            raise ValueError(
+                f"observation must have shape (1, {self._n_features})"
+            )
+        single = np.ascontiguousarray(single)
+        return call_vector(
+            "rflux_hmm_filter_step", self._n_states,
+            get_lib().rflux_hmm_filter_step, self._require_handle(),
+            double_ptr(probabilities), double_ptr(single))
+
+    def stationary_distribution(self) -> np.ndarray:
+        """Long-run distribution implied by the current transition matrix."""
+        return call_vector(
+            "rflux_hmm_stationary", self._n_states,
+            get_lib().rflux_hmm_stationary, self._require_handle())
+
     def save(self, path: Any) -> None:
         """Save parameters to a compressed NumPy ``.npz`` file."""
         parameters = self.parameters

@@ -1,6 +1,6 @@
-"""Optional data adapters for CSV, akshare and yfinance.
+"""Optional data adapters for CSV, akshare, yfinance and tushare.
 
-Pandas, akshare and yfinance are optional dependencies.  The module itself can
+Pandas, akshare, yfinance and tushare are optional dependencies.  The module itself can
 be imported without them; only the corresponding loader raises a helpful
 ``MissingDependencyError`` when a dependency is absent.
 
@@ -10,6 +10,7 @@ column per instrument, sorted ascending.
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -48,6 +49,17 @@ def _akshare():
     return ak
 
 
+def _tushare():
+    try:
+        import tushare as ts  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise MissingDependencyError(
+            "tushare is required for load_tushare: "
+            "pip install 'rflux[tushare]'"
+        ) from exc
+    return ts
+
+
 def _yfinance():
     try:
         import yfinance as yf  # type: ignore
@@ -71,14 +83,14 @@ def _as_sequence(value: Any, name: str) -> list[str]:
     return items
 
 
-def _akshare_date(value: Any, default: str) -> str:
+def _compact_date(value: Any, default: str, what: str = "date") -> str:
     if value is None:
         return default
     if isinstance(value, (datetime, date)):
         return value.strftime("%Y%m%d")
     text = str(value).strip().replace("-", "").replace("/", "")
     if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"invalid akshare date {value!r}; use YYYY-MM-DD")
+        raise ValueError(f"invalid {what} {value!r}; use YYYY-MM-DD")
     return text
 
 
@@ -179,8 +191,8 @@ def load_akshare(
     pd = _pandas()
     ak = _akshare()
     requested = _as_sequence(symbols, "symbols")
-    start_date = _akshare_date(start, "19700101")
-    end_date = _akshare_date(end, datetime.now().strftime("%Y%m%d"))
+    start_date = _compact_date(start, "19700101", "akshare start")
+    end_date = _compact_date(end, datetime.now().strftime("%Y%m%d"), "akshare end")
     series = []
     for symbol in requested:
         try:
@@ -218,6 +230,71 @@ def load_akshare(
     frame = frame.dropna(how="all")
     if frame.empty:
         raise DataSourceError("akshare returned only empty price rows")
+    return frame
+
+
+def load_tushare(
+    symbols: str | Sequence[str],
+    *,
+    start: Any = None,
+    end: Any = None,
+    token: str | None = None,
+    price_column: str = "close",
+    **daily_kwargs: Any,
+) -> Any:
+    """Load A-share daily closes from tushare's ``pro.daily`` endpoint.
+
+    A token can be supplied explicitly or through ``TUSHARE_TOKEN``.  The
+    returned prices are raw daily closes; adjustment factors are the caller's
+    responsibility.  tushare is an optional dependency.
+    """
+    pd = _pandas()
+    ts = _tushare()
+    requested = _as_sequence(symbols, "symbols")
+    start_date = _compact_date(start, "19700101", "tushare start")
+    end_date = _compact_date(
+        end, datetime.now().strftime("%Y%m%d"), "tushare end"
+    )
+    token = token or os.environ.get("TUSHARE_TOKEN")
+    try:
+        pro = ts.pro_api(token) if token else ts.pro_api()
+    except Exception as exc:  # pragma: no cover - provider path
+        raise DataSourceError(f"tushare client setup failed: {exc}") from exc
+    series = []
+    for symbol in requested:
+        try:
+            raw = pro.daily(
+                ts_code=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                **daily_kwargs,
+            )
+        except Exception as exc:  # pragma: no cover - network/provider path
+            raise DataSourceError(
+                f"tushare failed for {symbol}: {exc}"
+            ) from exc
+        if raw is None or len(raw) == 0:
+            raise DataSourceError(f"tushare returned no rows for {symbol}")
+        if "trade_date" not in raw.columns:
+            raise DataSourceError(
+                f"tushare schema for {symbol} is missing 'trade_date': "
+                f"{list(raw.columns)!r}"
+            )
+        if price_column not in raw.columns:
+            raise DataSourceError(
+                f"tushare schema for {symbol} is missing {price_column!r}: "
+                f"{list(raw.columns)!r}"
+            )
+        dates = pd.to_datetime(raw["trade_date"].astype(str), errors="raise")
+        values = pd.to_numeric(raw[price_column], errors="coerce")
+        item = pd.Series(values.to_numpy(), index=dates, name=symbol)
+        item = item[~item.index.duplicated(keep="last")].sort_index()
+        series.append(item)
+    frame = pd.concat(series, axis=1).sort_index()
+    frame.index.name = "date"
+    frame = frame.dropna(how="all")
+    if frame.empty:
+        raise DataSourceError("tushare returned only empty price rows")
     return frame
 
 
@@ -289,7 +366,7 @@ def load_yfinance(
 
 
 def load_prices(source: str, **kwargs: Any) -> Any:
-    """Unified loader: ``csv``, ``akshare`` or ``yfinance``."""
+    """Unified loader: ``csv``, ``akshare``, ``yfinance`` or ``tushare``."""
     normalized = str(source).lower()
     if normalized == "csv":
         return load_csv(**kwargs)
@@ -297,7 +374,9 @@ def load_prices(source: str, **kwargs: Any) -> Any:
         return load_akshare(**kwargs)
     if normalized in {"yfinance", "yahoo"}:
         return load_yfinance(**kwargs)
-    raise ValueError("source must be 'csv', 'akshare' or 'yfinance'")
+    if normalized == "tushare":
+        return load_tushare(**kwargs)
+    raise ValueError("source must be 'csv', 'akshare', 'yfinance' or 'tushare'")
 
 
 __all__ = [
@@ -306,6 +385,7 @@ __all__ = [
     "load_akshare",
     "load_csv",
     "load_prices",
+    "load_tushare",
     "load_yfinance",
     "to_returns",
 ]

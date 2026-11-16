@@ -436,6 +436,23 @@ RFLUX_API rflux_status rflux_hmm_forecast(const rflux_hmm* model,
                                           const double* state_probs,
                                           size_t horizon, double* out);
 
+/*
+ * One causal HMM update: posterior = normalise(prior * transition * emission),
+ * where prior has length n_states and observation has length n_features.
+ * out has length n_states.  The prior must be finite, non-negative and have
+ * positive total mass.
+ */
+RFLUX_API rflux_status rflux_hmm_filter_step(
+    const rflux_hmm* model, const double* state_probs,
+    const double* observation, double* out);
+
+/*
+ * Stationary distribution of the current transition matrix.  out has length
+ * n_states and sums to one.  Fails with RFLUX_ERR_NUMERICAL when the chain has
+ * no unique stationary distribution.
+ */
+RFLUX_API rflux_status rflux_hmm_stationary(const rflux_hmm* model, double* out);
+
 /* ------------------------------------------------------------------------- */
 /* regimelab: causal rule-based regimes                                      */
 /* ------------------------------------------------------------------------- */
@@ -576,6 +593,27 @@ RFLUX_API rflux_status rflux_site_percolation(const double* adjacency, size_t n,
                                               double* giant_mean,
                                               double* giant_std,
                                               double* susceptibility);
+
+/*
+ * Weighted bond percolation: every candidate edge is retained with probability
+ * min(1, p * adjacency[i,j]).  Weights must be finite and non-negative.
+ * Outputs follow the bond layout.
+ */
+RFLUX_API rflux_status rflux_bond_percolation_weighted(
+    const double* adjacency, size_t n, const double* probabilities,
+    size_t n_probabilities, size_t repetitions, uint64_t seed,
+    double* giant_mean, double* giant_std, double* susceptibility);
+
+/*
+ * Weighted site percolation: node i survives with probability
+ * min(1, p * node_weights[i]).  node_weights has length n.  Outputs follow the
+ * bond layout.
+ */
+RFLUX_API rflux_status rflux_site_percolation_weighted(
+    const double* adjacency, size_t n, const double* node_weights,
+    const double* probabilities, size_t n_probabilities, size_t repetitions,
+    uint64_t seed, double* giant_mean, double* giant_std,
+    double* susceptibility);
 
 /*
  * Stochastic SIR risk diffusion on a symmetric non-negative weighted graph.

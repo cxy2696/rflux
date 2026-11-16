@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Example with akshare or yfinance data.
+"""Example with akshare, yfinance, tushare or a custom CSV.
 
 Install the optional dependencies, for example:
 
     pip install 'rflux[yfinance]'
-    PYTHONPATH=python RFLUX_LIBRARY=$PWD/build/librflux.dylib \
-        python examples/python_real_data.py \
+    PYTHONPATH=python python examples/python_real_data.py \
         --source yfinance --symbols AAPL MSFT NVDA --start 2021-01-01
+
+    pip install 'rflux[tushare]'
+    PYTHONPATH=python python examples/python_real_data.py \
+        --source tushare --symbols 000001.SZ 600519.SH \
+        --start 2021-01-01 --token "$TUSHARE_TOKEN"
+
+    PYTHONPATH=python python examples/python_real_data.py \
+        --source csv --path my_prices.csv --date-column date
 
 This script downloads data only when explicitly run.  It is not part of the
 test suite and makes no claim about the profitability of any signal.
@@ -23,17 +30,39 @@ from rflux import data, metrics, percolab, qflux, regimelab
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", choices=["akshare", "yfinance"], required=True)
-    parser.add_argument("--symbols", nargs="+", required=True)
+    parser.add_argument(
+        "--source", choices=["akshare", "yfinance", "tushare", "csv"],
+        required=True,
+    )
+    parser.add_argument("--symbols", nargs="+", default=None)
+    parser.add_argument("--path", default=None, help="CSV path for --source csv")
+    parser.add_argument("--date-column", default="date")
+    parser.add_argument("--token", default=None, help="tushare token")
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", default=None)
     parser.add_argument("--threshold", type=float, default=0.45)
     args = parser.parse_args()
 
-    if args.source == "akshare":
-        prices = data.load_akshare(args.symbols, start=args.start, end=args.end)
+    if args.source == "csv":
+        if not args.path:
+            parser.error("--path is required with --source csv")
+        prices = data.load_csv(args.path, date_column=args.date_column)
     else:
-        prices = data.load_yfinance(args.symbols, start=args.start, end=args.end)
+        if not args.symbols:
+            parser.error("--symbols is required for provider sources")
+        if args.source == "akshare":
+            prices = data.load_akshare(
+                args.symbols, start=args.start, end=args.end
+            )
+        elif args.source == "yfinance":
+            prices = data.load_yfinance(
+                args.symbols, start=args.start, end=args.end
+            )
+        else:
+            prices = data.load_tushare(
+                args.symbols, start=args.start, end=args.end,
+                token=args.token,
+            )
     returns = data.to_returns(prices, method="simple", fill_method="ffill")
     print("price panel:", prices.shape, prices.index.min(), prices.index.max())
 

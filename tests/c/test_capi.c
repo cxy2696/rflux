@@ -371,6 +371,14 @@ static int test_hmm(void) {
         CHECK(rflux_hmm_forecast(model, current, 10, forecast) == RFLUX_OK);
         CHECK(approx(forecast[0] + forecast[1], 1.0, 1e-9));
         CHECK(forecast[0] >= 0.0 && forecast[1] >= 0.0);
+        double observation = 0.0;
+        double step[2];
+        double prior[2] = {0.6, 0.4};
+        CHECK(rflux_hmm_filter_step(model, prior, &observation, step) == RFLUX_OK);
+        CHECK(approx(step[0] + step[1], 1.0, 1e-9));
+        double stationary[2];
+        CHECK(rflux_hmm_stationary(model, stationary) == RFLUX_OK);
+        CHECK(approx(stationary[0] + stationary[1], 1.0, 1e-9));
     }
 
     {
@@ -562,6 +570,27 @@ static int test_graphs(void) {
               RFLUX_OK);
         CHECK(approx(giant[0], 0.0, 1e-12));
         CHECK(approx(giant[1], 1.0, 1e-12));
+    }
+
+    {
+        const double complete[16] = {
+            0, 1, 1, 1,
+            1, 0, 1, 1,
+            1, 1, 0, 1,
+            1, 1, 1, 0};
+        const double probabilities[2] = {0.0, 1.0};
+        const double node_weights[4] = {1.0, 0.0, 0.0, 0.0};
+        double giant[2], giant_std[2], susceptibility[2];
+        CHECK(rflux_bond_percolation_weighted(
+                  complete, 4, probabilities, 2, 20, 3, giant, giant_std,
+                  susceptibility) == RFLUX_OK);
+        CHECK(approx(giant[0], 0.25, 1e-12));
+        CHECK(approx(giant[1], 1.0, 1e-12));
+        CHECK(rflux_site_percolation_weighted(
+                  complete, 4, node_weights, probabilities, 2, 20, 3, giant,
+                  giant_std, susceptibility) == RFLUX_OK);
+        CHECK(approx(giant[0], 0.0, 1e-12));
+        CHECK(approx(giant[1], 0.25, 1e-12));
     }
 
     {

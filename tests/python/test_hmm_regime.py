@@ -194,6 +194,31 @@ class TestGaussianHMM(unittest.TestCase):
         finally:
             model.close()
 
+    def test_filter_step_and_stationary_distribution(self):
+        parameters = regimelab.HMMParameters(
+            start_prob=np.array([0.6, 0.4]),
+            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
+            means=np.array([[-1.0], [1.0]]),
+            variances=np.array([[1.0], [1.0]]),
+        )
+        model = regimelab.GaussianHMM(2, 1)
+        try:
+            model.set_parameters(parameters)
+            np.testing.assert_allclose(
+                model.filter_step([0.6, 0.4], 0.0), [0.62, 0.38], atol=1e-12
+            )
+            high = model.filter_step([0.6, 0.4], 2.0)
+            self.assertGreater(high[1], high[0])
+            np.testing.assert_allclose(
+                model.stationary_distribution(),
+                [2.0 / 3.0, 1.0 / 3.0],
+                atol=1e-12,
+            )
+            with self.assertRaises(ValueError):
+                model.filter_step([0.6, 0.4], [0.0, 1.0])
+        finally:
+            model.close()
+
     def test_invalid_parameter_tables_are_rejected(self):
         model = regimelab.GaussianHMM(2, 1)
         good = regimelab.HMMParameters(

@@ -288,6 +288,18 @@ EM sums the transition counts in log space through $\xi_t(j,k)$ . This avoids th
 - `filtered()` uses observations through t and is causal;
 - `smoothed()` and `viterbi()` use the full sample and are not point-in-time signals;
 - `forecast()` propagates the hidden-state distribution, not prices.
+- `filter_step(prior, observation)` performs one causal update by multiplying the prior by the transition matrix and emission density, then normalising; it is suitable for streaming data.
+- `stationary_distribution()` solves for the left eigenvector of the transition matrix and returns the long-run state distribution; a singular or non-unique system raises a numerical error.
+
+One-step filtering:
+
+$$
+P(s_t=k\mid \text{prior},x_t)
+=\frac{\left(\sum_j \pi_j A_{jk}\right)b_k(x_t)}
+{\sum_l\left(\sum_j \pi_j A_{jl}\right)b_l(x_t)}
+$$
+
+The stationary distribution satisfies $\pi A=\pi$ and $\sum_k\pi_k=1$.
 
 ### 4.3 Initialisation and fitting
 
@@ -411,6 +423,7 @@ Site:
 - Each node survives independently with probability p;
 - An edge exists only when both ends survive and $A_{ij}>0$ ;
 - Giant fractions always use the original node count n as denominator.
+Weighted variants multiply the probability by a weight and cap it at one: a bond edge $i,j$ is retained with $\min(1,p w_{ij})$; site node i survives with $\min(1,p v_i)$. Weights must be finite and non-negative. This lets correlation strength, exposure or custom CSV edge weights feed the same scan.
 
 For each p and R repetitions:
 

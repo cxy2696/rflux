@@ -39,7 +39,8 @@ rflux = "rflux.cli:main"
 data = ["pandas>=1.5"]
 akshare = ["pandas>=1.5", "akshare>=1.12"]
 yfinance = ["pandas>=1.5", "yfinance>=0.2.40"]
-all = ["pandas>=1.5", "akshare>=1.12", "yfinance>=0.2.40"]
+tushare = ["pandas>=1.5", "tushare>=1.2"]
+all = ["pandas>=1.5", "akshare>=1.12", "yfinance>=0.2.40", "tushare>=1.2"]
 
 [tool.setuptools]
 package-dir = {"" = "."}

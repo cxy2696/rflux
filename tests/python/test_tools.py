@@ -168,6 +168,10 @@ class TestDataTools(unittest.TestCase):
             deduplicated = data.load_csv(duplicate_path, date_column="date")
             self.assertTrue(deduplicated.index.is_unique)
             self.assertAlmostEqual(float(deduplicated.iloc[1, 0]), 111.0)
+            routed = data.load_prices(
+                "csv", path=path, date_column="date", columns=["AAA"]
+            )
+            self.assertEqual(list(routed.columns), ["AAA"])
 
     def test_optional_provider_errors_are_helpful(self):
         if importlib.util.find_spec("pandas") is None:
@@ -175,6 +179,8 @@ class TestDataTools(unittest.TestCase):
                 data.load_akshare(["000001"])
             with self.assertRaises(data.MissingDependencyError):
                 data.load_yfinance(["AAPL"])
+            with self.assertRaises(data.MissingDependencyError):
+                data.load_tushare(["000001.SZ"], token="test")
             return
         if importlib.util.find_spec("akshare") is None:
             with self.assertRaises(data.MissingDependencyError):
@@ -182,6 +188,9 @@ class TestDataTools(unittest.TestCase):
         if importlib.util.find_spec("yfinance") is None:
             with self.assertRaises(data.MissingDependencyError):
                 data.load_yfinance(["AAPL"])
+        if importlib.util.find_spec("tushare") is None:
+            with self.assertRaises(data.MissingDependencyError):
+                data.load_tushare(["000001.SZ"], token="test")
 
     def test_provider_schema_normalization_with_mocks(self):
         if importlib.util.find_spec("pandas") is None:
@@ -223,6 +232,25 @@ class TestDataTools(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"akshare": fake_ak}):
             with self.assertRaises(data.DataSourceError):
                 data.load_akshare(["000001"], price_column="成交量")
+
+        ts_frame = pd.DataFrame(
+            {
+                "trade_date": [20240102, 20240103],
+                "close": ["10.5", "10.7"],
+            }
+        )
+        fake_pro = types.SimpleNamespace(
+            daily=lambda **kwargs: ts_frame.copy()
+        )
+        fake_ts = types.ModuleType("tushare")
+        fake_ts.pro_api = lambda token: fake_pro
+        with mock.patch.dict(sys.modules, {"tushare": fake_ts}):
+            tushare_prices = data.load_tushare(
+                ["000001.SZ"], token="test", start="2024-01-01"
+            )
+        self.assertEqual(list(tushare_prices.columns), ["000001.SZ"])
+        self.assertAlmostEqual(float(tushare_prices.iloc[-1, 0]), 10.7)
+        self.assertTrue(tushare_prices.index.is_monotonic_increasing)
 
 
 if __name__ == "__main__":

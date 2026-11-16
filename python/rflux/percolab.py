@@ -217,6 +217,7 @@ def _percolation_scan(
     repetitions: int,
     seed: int,
     kind: str,
+    node_weights: Any = None,
 ) -> PercolationScan:
     matrix = as_square(adjacency, "adjacency")
     probability_array = as_f64_1d(probabilities, "probabilities")
@@ -225,18 +226,30 @@ def _percolation_scan(
         raise ValueError("probabilities must not be empty")
     repetitions = as_size(repetitions, "repetitions")
     seed = as_u64(seed, "seed")
+    call_names = {
+        "bond": "rflux_bond_percolation",
+        "site": "rflux_site_percolation",
+        "bond_weighted": "rflux_bond_percolation_weighted",
+        "site_weighted": "rflux_site_percolation_weighted",
+    }
+    function = {
+        "bond": get_lib().rflux_bond_percolation,
+        "site": get_lib().rflux_site_percolation,
+        "bond_weighted": get_lib().rflux_bond_percolation_weighted,
+        "site_weighted": get_lib().rflux_site_percolation_weighted,
+    }[kind]
+    prefix = [double_ptr(matrix), matrix.shape[0]]
+    if node_weights is not None:
+        weights = as_f64_1d(node_weights, "node_weights")
+        if weights.size != matrix.shape[0]:
+            raise ValueError("node_weights must have one entry per node")
+        prefix.append(double_ptr(weights))
     mean = empty_f64(n_probabilities)
     std = empty_f64(n_probabilities)
     susceptibility = empty_f64(n_probabilities)
-    function = (
-        get_lib().rflux_bond_percolation
-        if kind == "bond"
-        else get_lib().rflux_site_percolation
-    )
     check(
         function(
-            double_ptr(matrix),
-            matrix.shape[0],
+            *prefix,
             double_ptr(probability_array),
             n_probabilities,
             repetitions,
@@ -245,7 +258,7 @@ def _percolation_scan(
             double_ptr(std),
             double_ptr(susceptibility),
         ),
-        f"rflux_{kind}_percolation",
+        call_names[kind],
     )
     return PercolationScan(
         probabilities=probability_array.copy(),
@@ -273,6 +286,32 @@ def site_percolation(
 ) -> PercolationScan:
     """Site percolation; giant fraction is relative to the original n."""
     return _percolation_scan(adjacency, probabilities, repetitions, seed, "site")
+
+
+def bond_percolation_weighted(
+    adjacency: Any,
+    probabilities: Any,
+    repetitions: int = 100,
+    seed: int = 42,
+) -> PercolationScan:
+    """Bond percolation with edge retention probability ``p * weight``."""
+    return _percolation_scan(
+        adjacency, probabilities, repetitions, seed, "bond_weighted"
+    )
+
+
+def site_percolation_weighted(
+    adjacency: Any,
+    node_weights: Any,
+    probabilities: Any,
+    repetitions: int = 100,
+    seed: int = 42,
+) -> PercolationScan:
+    """Site percolation with survival probability ``p * node_weight``."""
+    return _percolation_scan(
+        adjacency, probabilities, repetitions, seed, "site_weighted",
+        node_weights,
+    )
 
 
 def risk_diffusion(
@@ -420,6 +459,7 @@ __all__ = [
     "MSTResult",
     "PercolationScan",
     "bond_percolation",
+    "bond_percolation_weighted",
     "centrality",
     "clustering",
     "correlation_adjacency",
@@ -432,5 +472,6 @@ __all__ = [
     "pagerank",
     "risk_diffusion",
     "site_percolation",
+    "site_percolation_weighted",
     "threshold_components",
 ]

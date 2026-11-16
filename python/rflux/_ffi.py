@@ -217,6 +217,10 @@ def _configure(lib: ctypes.CDLL) -> None:
          [ctypes.c_void_p, c_double_p, size_t, c_double_p])
     bind("rflux_hmm_forecast", ctypes.c_int,
          [ctypes.c_void_p, c_double_p, size_t, c_double_p])
+    bind("rflux_hmm_filter_step", ctypes.c_int,
+         [ctypes.c_void_p, c_double_p, c_double_p, c_double_p])
+    bind("rflux_hmm_stationary", ctypes.c_int,
+         [ctypes.c_void_p, c_double_p])
 
     # rule-based regimes
     bind("rflux_volatility_regime", ctypes.c_int,
@@ -249,6 +253,12 @@ def _configure(lib: ctypes.CDLL) -> None:
     bind("rflux_site_percolation", ctypes.c_int,
          [c_double_p, size_t, c_double_p, size_t, size_t, uint64, c_double_p,
           c_double_p, c_double_p])
+    bind("rflux_bond_percolation_weighted", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, size_t, size_t, uint64, c_double_p,
+          c_double_p, c_double_p])
+    bind("rflux_site_percolation_weighted", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, c_double_p, size_t, size_t, uint64,
+          c_double_p, c_double_p, c_double_p])
     bind("rflux_risk_diffusion", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, size_t, double, double, size_t,
           size_t, uint64, c_double_p, c_double_p])

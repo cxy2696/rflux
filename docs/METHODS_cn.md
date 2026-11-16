@@ -288,6 +288,18 @@ EM 的转移计数在 log 域计算 $\xi_t(j,k)$ 后求和，避免普通缩放�
 - `filtered()` 只使用截至 t 的观测，是因果的；
 - `smoothed()` 和 `viterbi()` 使用全样本，不能直接当作 t 时刻信号；
 - `forecast()` 只传播隐状态分布，不预测价格。
+- `filter_step(prior, observation)` 做一次因果更新：先乘转移矩阵和发射密度，再归一化；适合流式数据。
+- `stationary_distribution()` 求解转移矩阵的左特征向量，返回长期状态分布；多解或奇异时抛数值错误。
+
+单步过滤：
+
+$$
+P(s_t=k\mid \text{prior},x_t)
+=\frac{\left(\sum_j \pi_j A_{jk}\right)b_k(x_t)}
+{\sum_l\left(\sum_j \pi_j A_{jl}\right)b_l(x_t)}
+$$
+
+平稳分布满足 $\pi A=\pi$ 且 $\sum_k\pi_k=1$。
 
 ### 4.3 初始化与拟合
 
@@ -411,6 +423,7 @@ Site：
 - 每个节点独立以概率 p 存活；
 - 只有两端都存活且 $A_{ij}>0$ 时才存在边；
 - 巨组分比例的分母始终是原始节点数 n。
+加权版本把概率乘上权重并截到 1：bond 的边 $i,j$ 以 $\min(1,p w_{ij})$ 保留；site 的节点 i 以 $\min(1,p v_i)$ 存活。权重必须有限非负；这允许将相关强度、暴露或自定义 CSV 的边权接入同一套扫描。
 
 对每个 p 做 R 次重复：
 

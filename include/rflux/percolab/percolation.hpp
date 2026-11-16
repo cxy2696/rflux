@@ -45,4 +45,18 @@ std::vector<PercolationPoint> site_percolation(const double* adjacency,
                                                std::size_t repetitions,
                                                std::uint64_t seed);
 
+/*
+ * Weighted variants.  Edges are retained with probability min(1, p * w_ij);
+ * nodes survive with probability min(1, p * w_i).  Weights must be finite and
+ * non-negative.  The graph still has to be symmetric and non-negative.
+ */
+std::vector<PercolationPoint> bond_percolation_weighted(
+    const double* adjacency, std::size_t n, const double* probabilities,
+    std::size_t n_probabilities, std::size_t repetitions, std::uint64_t seed);
+
+std::vector<PercolationPoint> site_percolation_weighted(
+    const double* adjacency, std::size_t n, const double* node_weights,
+    const double* probabilities, std::size_t n_probabilities,
+    std::size_t repetitions, std::uint64_t seed);
+
 }  // namespace rflux::percolab

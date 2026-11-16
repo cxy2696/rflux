@@ -632,6 +632,22 @@ rflux_status rflux_hmm_forecast(const rflux_hmm* model,
         });
 }
 
+rflux_status rflux_hmm_filter_step(const rflux_hmm* model,
+                                   const double* state_probs,
+                                   const double* observation, double* out) {
+    return guarded_vector(
+        "rflux_hmm_filter_step", out, "out",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.filter_step(state_probs, observation); });
+}
+
+rflux_status rflux_hmm_stationary(const rflux_hmm* model, double* out) {
+    return guarded_vector(
+        "rflux_hmm_stationary", out, "out",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.stationary_distribution(); });
+}
+
 /* ---------------------------------------------------------------------- */
 /* regimelab regimes                                                      */
 /* ---------------------------------------------------------------------- */
@@ -778,6 +794,33 @@ rflux_status rflux_site_percolation(
             return rflux::percolab::site_percolation(
                 adjacency, n, probabilities, n_probabilities, repetitions,
                 seed);
+        });
+}
+
+rflux_status rflux_bond_percolation_weighted(
+    const double* adjacency, size_t n, const double* probabilities,
+    size_t n_probabilities, size_t repetitions, uint64_t seed,
+    double* giant_mean, double* giant_std, double* susceptibility) {
+    return guarded_percolation(
+        "rflux_bond_percolation_weighted", giant_mean, giant_std,
+        susceptibility, [&] {
+            return rflux::percolab::bond_percolation_weighted(
+                adjacency, n, probabilities, n_probabilities, repetitions,
+                seed);
+        });
+}
+
+rflux_status rflux_site_percolation_weighted(
+    const double* adjacency, size_t n, const double* node_weights,
+    const double* probabilities, size_t n_probabilities, size_t repetitions,
+    uint64_t seed, double* giant_mean, double* giant_std,
+    double* susceptibility) {
+    return guarded_percolation(
+        "rflux_site_percolation_weighted", giant_mean, giant_std,
+        susceptibility, [&] {
+            return rflux::percolab::site_percolation_weighted(
+                adjacency, n, node_weights, probabilities, n_probabilities,
+                repetitions, seed);
         });
 }
 

@@ -19,6 +19,11 @@ causal semantics are called out explicitly when they change.
   the C ABI and Python.
 - Switched public Python result dataclasses to `slots=True` to reduce per-result
   memory and attribute overhead.
+- Added HMM one-step causal filtering and transition-matrix stationary
+  distributions through C++, the C ABI and Python.
+- Added weighted bond/site percolation variants with capped `p * weight`
+  retention, exposed through C++, the C ABI and Python.
+- Added optional tushare data loading and documented custom wide CSV loading.
 - Added `rflux.portfolio_risk` with complete-case sample covariance, annualized
   volatility, diversification, gross/net exposure and Euler volatility
   contributions.

@@ -109,6 +109,17 @@ class TestGraphs(unittest.TestCase):
         )
         np.testing.assert_allclose(site.giant_mean, [0.0, 1.0])
 
+    def test_weighted_percolation_endpoints(self):
+        complete = np.ones((4, 4)) - np.eye(4)
+        weighted_bond = percolab.bond_percolation_weighted(complete, [0.0, 1.0])
+        np.testing.assert_allclose(weighted_bond.giant_mean, [0.25, 1.0])
+        weighted_site = percolab.site_percolation_weighted(
+            complete, [1.0, 0.0, 0.0, 0.0], [0.0, 1.0]
+        )
+        np.testing.assert_allclose(weighted_site.giant_mean, [0.0, 0.25])
+        with self.assertRaises(ValueError):
+            percolab.site_percolation_weighted(complete, [1.0], [1.0])
+
     def test_risk_diffusion_rejects_impossible_step_count(self):
         adjacency = np.array([[0.0, 1.0], [1.0, 0.0]])
         with self.assertRaises(ValueError):

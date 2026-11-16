@@ -11,9 +11,9 @@ The current release is `0.4.2`; the C ABI version is `1`.
 | Area | Contents |
 | --- | --- |
 | `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
-| `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
-| `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector centrality, clustering, minimum spanning trees, bond/site percolation and SIR diffusion |
-| Python tools | Optional akshare/yfinance/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
+| `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
+| `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector centrality, clustering, minimum spanning trees, bond/site percolation with weighted variants and SIR diffusion |
+| Python tools | Optional akshare/yfinance/tushare/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
 
@@ -126,7 +126,28 @@ Optional data dependencies:
 python -m pip install pandas
 python -m pip install akshare
 python -m pip install yfinance
+python -m pip install tushare
 ```
+
+CSV and tushare entry points:
+
+```python
+from rflux import data
+
+custom = data.load_csv(
+    "my_prices.csv",
+    date_column="trade_date",
+    columns=["AAA", "BBB"],
+    sep=",",
+)
+ts_prices = data.load_tushare(
+    ["000001.SZ", "600519.SH"],
+    start="2024-01-01",
+    token="YOUR_TUSHARE_TOKEN",   # or set TUSHARE_TOKEN
+)
+```
+
+`load_csv` accepts a custom date column, selected columns and `pandas.read_csv` options. The `rflux analyze`/`rflux risk` CSV path does not require pandas, which is useful for user-supplied wide tables. Tushare prices are raw daily closes; adjustment factors are the caller's responsibility.
 
 There is no standalone wheel yet. The Python package needs a native shared library for the same platform, so build it first. `_lib/` binaries are not committed. C++ users can include `rflux/rflux.hpp` for the full public interface.
 

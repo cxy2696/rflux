@@ -980,4 +980,121 @@ std::vector<double> GaussianHMM::forecast(const double* state_probs,
     return result;
 }
 
+std::vector<double> GaussianHMM::filter_step(const double* state_probs,
+                                             const double* observation) const {
+    validate_model();
+    require_pointer(state_probs, "state_probs must not be NULL");
+    require_pointer(observation, "observation must not be NULL");
+    require_finite(observation, n_features_, "observation");
+    long double prior_total = 0.0L;
+    for (std::size_t state = 0; state < n_states_; ++state) {
+        require(std::isfinite(state_probs[state]) && state_probs[state] >= 0.0,
+                "state_probs must be finite and non-negative");
+        prior_total += static_cast<long double>(state_probs[state]);
+    }
+    require(prior_total > 0.0L, "state_probs must have positive mass");
+
+    const LogModel logs = log_model(parameters_, n_states_);
+    const std::vector<double> emission = log_emission_matrix(
+        parameters_, n_states_, n_features_, observation, 1);
+    std::vector<double> terms(n_states_, 0.0);
+    std::vector<double> log_post(n_states_, 0.0);
+    for (std::size_t state = 0; state < n_states_; ++state) {
+        for (std::size_t previous = 0; previous < n_states_; ++previous) {
+            terms[previous] = safe_log(state_probs[previous]) +
+                              logs.transition[previous * n_states_ + state];
+        }
+        log_post[state] =
+            log_sum_exp(terms.data(), n_states_) + emission[state];
+    }
+    const double normalizer =
+        log_sum_exp(log_post.data(), n_states_);
+    if (!std::isfinite(normalizer)) {
+        throw NumericalError("HMM filter step has no finite posterior mass");
+    }
+    std::vector<double> out(n_states_, 0.0);
+    for (std::size_t state = 0; state < n_states_; ++state) {
+        out[state] = std::exp(log_post[state] - normalizer);
+    }
+    return out;
+}
+
+std::vector<double> GaussianHMM::stationary_distribution() const {
+    validate_model();
+    const std::size_t k = n_states_;
+    if (k == 1) return {1.0};
+
+    // Solve (A^T - I) pi = 0 with the last equation replaced by sum(pi)=1.
+    std::vector<long double> matrix(k * k, 0.0L);
+    std::vector<long double> rhs(k, 0.0L);
+    for (std::size_t row = 0; row < k; ++row) {
+        for (std::size_t col = 0; col < k; ++col) {
+            matrix[row * k + col] =
+                static_cast<long double>(
+                    parameters_.transition[col * k + row]);
+        }
+        matrix[row * k + row] -= 1.0L;
+    }
+    for (std::size_t col = 0; col < k; ++col) {
+        matrix[(k - 1) * k + col] = 1.0L;
+    }
+    rhs[k - 1] = 1.0L;
+
+    for (std::size_t col = 0; col < k; ++col) {
+        std::size_t pivot = col;
+        long double best = std::abs(matrix[col * k + col]);
+        for (std::size_t row = col + 1; row < k; ++row) {
+            const long double value = std::abs(matrix[row * k + col]);
+            if (value > best) {
+                best = value;
+                pivot = row;
+            }
+        }
+        if (!(best > 1e-18L)) {
+            throw NumericalError(
+                "HMM transition matrix has no unique stationary distribution");
+        }
+        if (pivot != col) {
+            for (std::size_t j = 0; j < k; ++j) {
+                std::swap(matrix[col * k + j], matrix[pivot * k + j]);
+            }
+            std::swap(rhs[col], rhs[pivot]);
+        }
+        const long double diagonal = matrix[col * k + col];
+        for (std::size_t row = col + 1; row < k; ++row) {
+            const long double factor = matrix[row * k + col] / diagonal;
+            if (factor == 0.0L) continue;
+            for (std::size_t j = col; j < k; ++j) {
+                matrix[row * k + j] -= factor * matrix[col * k + j];
+            }
+            rhs[row] -= factor * rhs[col];
+        }
+    }
+
+    std::vector<long double> solution(k, 0.0L);
+    for (std::size_t row = k; row-- > 0;) {
+        long double value = rhs[row];
+        for (std::size_t col = row + 1; col < k; ++col) {
+            value -= matrix[row * k + col] * solution[col];
+        }
+        solution[row] = value / matrix[row * k + row];
+    }
+    long double total = 0.0L;
+    for (long double value : solution) {
+        if (value < -1e-12L) {
+            throw NumericalError("stationary distribution has negative mass");
+        }
+        total += std::max(value, 0.0L);
+    }
+    if (!(total > 0.0L)) {
+        throw NumericalError("stationary distribution lost probability mass");
+    }
+    std::vector<double> out(k, 0.0);
+    for (std::size_t state = 0; state < k; ++state) {
+        out[state] = static_cast<double>(
+            std::max(solution[state], 0.0L) / total);
+    }
+    return out;
+}
+
 }  // namespace rflux::regimelab

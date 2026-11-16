@@ -52,6 +52,20 @@ void validate_percolation_inputs(const double* adjacency, std::size_t n,
     }
 }
 
+void validate_weight_vector(const double* weights, std::size_t n,
+                            const char* what) {
+    require_pointer(weights, what);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(weights[i])) {
+            throw NonFinite(std::string(what) +
+                            " must contain only finite values");
+        }
+        if (weights[i] < 0.0) {
+            throw InvalidArgument(std::string(what) + " must be non-negative");
+        }
+    }
+}
+
 struct ClusterMoments {
     double giant_fraction = 0.0;
     double finite_susceptibility = 0.0;
@@ -180,6 +194,51 @@ std::vector<PercolationPoint> site_percolation(
             std::vector<std::uint8_t> alive(n, 0);
             for (std::size_t i = 0; i < n; ++i) {
                 alive[i] = rng.uniform() < p ? 1 : 0;
+            }
+            UnionFind uf(n);
+            for (const Edge& edge : edges) {
+                if (alive[edge.u] != 0 && alive[edge.v] != 0) {
+                    uf.unite(edge.u, edge.v);
+                }
+            }
+            return summarize_components(uf, alive.data(), n);
+        });
+}
+
+std::vector<PercolationPoint> bond_percolation_weighted(
+    const double* adjacency, std::size_t n, const double* probabilities,
+    std::size_t n_probabilities, std::size_t repetitions, std::uint64_t seed) {
+    validate_percolation_inputs(adjacency, n, probabilities, n_probabilities,
+                                repetitions);
+    const std::vector<Edge> edges = positive_edges(adjacency, n);
+    return scan_percolation(
+        probabilities, n_probabilities, repetitions, seed,
+        [&](double p, Rng& rng) {
+            UnionFind uf(n);
+            for (const Edge& edge : edges) {
+                const double weight = adjacency[edge.u * n + edge.v];
+                const double retained = std::min(1.0, p * weight);
+                if (rng.uniform() < retained) uf.unite(edge.u, edge.v);
+            }
+            return summarize_components(uf, nullptr, n);
+        });
+}
+
+std::vector<PercolationPoint> site_percolation_weighted(
+    const double* adjacency, std::size_t n, const double* node_weights,
+    const double* probabilities, std::size_t n_probabilities,
+    std::size_t repetitions, std::uint64_t seed) {
+    validate_percolation_inputs(adjacency, n, probabilities, n_probabilities,
+                                repetitions);
+    validate_weight_vector(node_weights, n, "node_weights");
+    const std::vector<Edge> edges = positive_edges(adjacency, n);
+    return scan_percolation(
+        probabilities, n_probabilities, repetitions, seed,
+        [&](double p, Rng& rng) {
+            std::vector<std::uint8_t> alive(n, 0);
+            for (std::size_t i = 0; i < n; ++i) {
+                alive[i] =
+                    rng.uniform() < std::min(1.0, p * node_weights[i]) ? 1 : 0;
             }
             UnionFind uf(n);
             for (const Edge& edge : edges) {
