@@ -121,6 +121,36 @@ std::vector<PercolationPoint> finish_scan(
     return out;
 }
 
+ClusterMoments bond_trial(const std::vector<Edge>& edges, std::size_t n,
+                          double p, Rng& rng, const double* edge_weights) {
+    UnionFind uf(n);
+    for (const Edge& edge : edges) {
+        const double weight =
+            edge_weights == nullptr ? 1.0 : edge_weights[edge.u * n + edge.v];
+        if (rng.uniform() < std::min(1.0, p * weight)) {
+            uf.unite(edge.u, edge.v);
+        }
+    }
+    return summarize_components(uf, nullptr, n);
+}
+
+ClusterMoments site_trial(const std::vector<Edge>& edges, std::size_t n,
+                          double p, Rng& rng, const double* node_weights) {
+    std::vector<std::uint8_t> alive(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double weight =
+            node_weights == nullptr ? 1.0 : node_weights[i];
+        alive[i] = rng.uniform() < std::min(1.0, p * weight) ? 1 : 0;
+    }
+    UnionFind uf(n);
+    for (const Edge& edge : edges) {
+        if (alive[edge.u] != 0 && alive[edge.v] != 0) {
+            uf.unite(edge.u, edge.v);
+        }
+    }
+    return summarize_components(uf, alive.data(), n);
+}
+
 template <typename Replicate>
 std::vector<PercolationPoint> scan_percolation(
     const double* probabilities, std::size_t n_probabilities,
@@ -174,11 +204,7 @@ std::vector<PercolationPoint> bond_percolation(
     return scan_percolation(
         probabilities, n_probabilities, repetitions, seed,
         [&](double p, Rng& rng) {
-            UnionFind uf(n);
-            for (const Edge& edge : edges) {
-                if (rng.uniform() < p) uf.unite(edge.u, edge.v);
-            }
-            return summarize_components(uf, nullptr, n);
+            return bond_trial(edges, n, p, rng, nullptr);
         });
 }
 
@@ -191,17 +217,7 @@ std::vector<PercolationPoint> site_percolation(
     return scan_percolation(
         probabilities, n_probabilities, repetitions, seed,
         [&](double p, Rng& rng) {
-            std::vector<std::uint8_t> alive(n, 0);
-            for (std::size_t i = 0; i < n; ++i) {
-                alive[i] = rng.uniform() < p ? 1 : 0;
-            }
-            UnionFind uf(n);
-            for (const Edge& edge : edges) {
-                if (alive[edge.u] != 0 && alive[edge.v] != 0) {
-                    uf.unite(edge.u, edge.v);
-                }
-            }
-            return summarize_components(uf, alive.data(), n);
+            return site_trial(edges, n, p, rng, nullptr);
         });
 }
 
@@ -214,13 +230,7 @@ std::vector<PercolationPoint> bond_percolation_weighted(
     return scan_percolation(
         probabilities, n_probabilities, repetitions, seed,
         [&](double p, Rng& rng) {
-            UnionFind uf(n);
-            for (const Edge& edge : edges) {
-                const double weight = adjacency[edge.u * n + edge.v];
-                const double retained = std::min(1.0, p * weight);
-                if (rng.uniform() < retained) uf.unite(edge.u, edge.v);
-            }
-            return summarize_components(uf, nullptr, n);
+            return bond_trial(edges, n, p, rng, adjacency);
         });
 }
 
@@ -235,18 +245,7 @@ std::vector<PercolationPoint> site_percolation_weighted(
     return scan_percolation(
         probabilities, n_probabilities, repetitions, seed,
         [&](double p, Rng& rng) {
-            std::vector<std::uint8_t> alive(n, 0);
-            for (std::size_t i = 0; i < n; ++i) {
-                alive[i] =
-                    rng.uniform() < std::min(1.0, p * node_weights[i]) ? 1 : 0;
-            }
-            UnionFind uf(n);
-            for (const Edge& edge : edges) {
-                if (alive[edge.u] != 0 && alive[edge.v] != 0) {
-                    uf.unite(edge.u, edge.v);
-                }
-            }
-            return summarize_components(uf, alive.data(), n);
+            return site_trial(edges, n, p, rng, node_weights);
         });
 }
 

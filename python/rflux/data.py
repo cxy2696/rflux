@@ -174,6 +174,41 @@ def load_csv(
     return frame
 
 
+def _provider_series(
+    raw: Any,
+    symbol: str,
+    source: str,
+    date_column: str,
+    price_column: str,
+    pd: Any,
+) -> Any:
+    if raw is None or len(raw) == 0:
+        raise DataSourceError(f"{source} returned no rows for {symbol}")
+    if date_column not in raw.columns:
+        raise DataSourceError(
+            f"{source} schema for {symbol} is missing {date_column!r}: "
+            f"{list(raw.columns)!r}"
+        )
+    if price_column not in raw.columns:
+        raise DataSourceError(
+            f"{source} schema for {symbol} is missing {price_column!r}: "
+            f"{list(raw.columns)!r}"
+        )
+    dates = pd.to_datetime(raw[date_column].astype(str), errors="raise")
+    values = pd.to_numeric(raw[price_column], errors="coerce")
+    item = pd.Series(values.to_numpy(), index=dates, name=symbol)
+    return item[~item.index.duplicated(keep="last")].sort_index()
+
+
+def _assemble_provider_frame(series: list[Any], source: str, pd: Any) -> Any:
+    frame = pd.concat(series, axis=1).sort_index()
+    frame.index.name = "date"
+    frame = frame.dropna(how="all")
+    if frame.empty:
+        raise DataSourceError(f"{source} returned only empty price rows")
+    return frame
+
+
 def load_akshare(
     symbols: str | Sequence[str],
     *,
@@ -207,30 +242,10 @@ def load_akshare(
             raise DataSourceError(
                 f"akshare failed for {symbol}: {exc}"
             ) from exc
-        if raw is None or len(raw) == 0:
-            raise DataSourceError(f"akshare returned no rows for {symbol}")
-        if "日期" not in raw.columns:
-            raise DataSourceError(
-                f"akshare schema for {symbol} is missing '日期': "
-                f"{list(raw.columns)!r}"
-            )
-        value_column = price_column
-        if value_column not in raw.columns:
-            raise DataSourceError(
-                f"akshare schema for {symbol} is missing requested column "
-                f"{value_column!r}; available columns: {list(raw.columns)!r}"
-            )
-        dates = pd.to_datetime(raw["日期"], errors="raise")
-        values = pd.to_numeric(raw[value_column], errors="coerce")
-        item = pd.Series(values.to_numpy(), index=dates, name=symbol)
-        item = item[~item.index.duplicated(keep="last")].sort_index()
-        series.append(item)
-    frame = pd.concat(series, axis=1).sort_index()
-    frame.index.name = "date"
-    frame = frame.dropna(how="all")
-    if frame.empty:
-        raise DataSourceError("akshare returned only empty price rows")
-    return frame
+        series.append(
+            _provider_series(raw, symbol, "akshare", "日期", price_column, pd)
+        )
+    return _assemble_provider_frame(series, "akshare", pd)
 
 
 def load_tushare(
@@ -273,29 +288,11 @@ def load_tushare(
             raise DataSourceError(
                 f"tushare failed for {symbol}: {exc}"
             ) from exc
-        if raw is None or len(raw) == 0:
-            raise DataSourceError(f"tushare returned no rows for {symbol}")
-        if "trade_date" not in raw.columns:
-            raise DataSourceError(
-                f"tushare schema for {symbol} is missing 'trade_date': "
-                f"{list(raw.columns)!r}"
-            )
-        if price_column not in raw.columns:
-            raise DataSourceError(
-                f"tushare schema for {symbol} is missing {price_column!r}: "
-                f"{list(raw.columns)!r}"
-            )
-        dates = pd.to_datetime(raw["trade_date"].astype(str), errors="raise")
-        values = pd.to_numeric(raw[price_column], errors="coerce")
-        item = pd.Series(values.to_numpy(), index=dates, name=symbol)
-        item = item[~item.index.duplicated(keep="last")].sort_index()
-        series.append(item)
-    frame = pd.concat(series, axis=1).sort_index()
-    frame.index.name = "date"
-    frame = frame.dropna(how="all")
-    if frame.empty:
-        raise DataSourceError("tushare returned only empty price rows")
-    return frame
+        series.append(
+            _provider_series(raw, symbol, "tushare", "trade_date",
+                             price_column, pd)
+        )
+    return _assemble_provider_frame(series, "tushare", pd)
 
 
 def load_yfinance(

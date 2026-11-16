@@ -5,6 +5,10 @@ causal semantics are called out explicitly when they change.
 
 ## Unreleased
 
+- Extracted shared provider-series and provider-frame normalization for the
+  akshare and tushare loaders.
+- Shared edge and node percolation trial kernels between weighted and
+  unweighted scans.
 - Reduced Python binding boilerplate with shared `call_vector`, `call_i32` and
   `call_scalar` helpers; qflux, percolab and regimelab wrappers now allocate,
   call and check through one path.
