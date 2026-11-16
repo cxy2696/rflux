@@ -24,6 +24,48 @@ void validate_rolling(const double* values, std::size_t n, std::size_t window,
     require(ddof < window, "ddof must be smaller than window");
 }
 
+struct CenterScale {
+    std::vector<double> mean;
+    std::vector<double> scale;
+};
+
+/* One pass over the window boundaries for std and z-score. */
+CenterScale rolling_center_scale(const double* values, std::size_t n,
+                                 std::size_t window, std::size_t ddof) {
+    validate_rolling(values, n, window, ddof);
+    CenterScale result{std::vector<double>(n, kNaN),
+                       std::vector<double>(n, kNaN)};
+
+    rflux::detail::SlidingMoments1 moments;
+    std::size_t missing = 0;
+    const long double denominator =
+        static_cast<long double>(window - ddof);
+
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::isfinite(values[i])) {
+            moments.push(values[i]);
+        } else {
+            ++missing;
+        }
+        if (i >= window) {
+            const double old = values[i - window];
+            if (std::isfinite(old)) {
+                moments.pop();
+            } else {
+                --missing;
+            }
+        }
+        if (i + 1 < window || missing != 0) continue;
+
+        const rflux::detail::Moments1 block = moments.moments();
+        long double variance = block.m2 / denominator;
+        if (variance < 0.0L) variance = 0.0L;
+        result.mean[i] = static_cast<double>(block.mean);
+        result.scale[i] = std::sqrt(static_cast<double>(variance));
+    }
+    return result;
+}
+
 }  // namespace
 
 std::vector<double> rolling_sum(const double* values, std::size_t n,
@@ -64,33 +106,40 @@ std::vector<double> rolling_mean(const double* values, std::size_t n,
 
 std::vector<double> rolling_std(const double* values, std::size_t n,
                                 std::size_t window, std::size_t ddof) {
-    validate_rolling(values, n, window, ddof);
+    return rolling_center_scale(values, n, window, ddof).scale;
+}
+
+std::vector<double> rolling_extreme(const double* values, std::size_t n,
+                                   std::size_t window, bool minimum) {
+    validate_rolling(values, n, window);
     std::vector<double> out(n, kNaN);
-
-    rflux::detail::SlidingMoments1 moments;
+    std::deque<std::size_t> candidates;
     std::size_t missing = 0;
-    const long double denominator =
-        static_cast<long double>(window - ddof);
-
     for (std::size_t i = 0; i < n; ++i) {
         if (std::isfinite(values[i])) {
-            moments.push(values[i]);
+            while (!candidates.empty()) {
+                const double candidate = values[candidates.back()];
+                if (minimum ? candidate < values[i] : candidate > values[i]) {
+                    break;
+                }
+                candidates.pop_back();
+            }
+            candidates.push_back(i);
         } else {
             ++missing;
         }
         if (i >= window) {
-            const double old = values[i - window];
-            if (std::isfinite(old)) {
-                moments.pop();
+            const std::size_t expired = i - window;
+            if (std::isfinite(values[expired])) {
+                if (!candidates.empty() && candidates.front() == expired) {
+                    candidates.pop_front();
+                }
             } else {
                 --missing;
             }
         }
-        if (i + 1 >= window && missing == 0) {
-            const rflux::detail::Moments1 block = moments.moments();
-            long double variance = block.m2 / denominator;
-            if (variance < 0.0L) variance = 0.0L;
-            out[i] = std::sqrt(static_cast<double>(variance));
+        if (i + 1 >= window && missing == 0 && !candidates.empty()) {
+            out[i] = values[candidates.front()];
         }
     }
     return out;
@@ -98,103 +147,22 @@ std::vector<double> rolling_std(const double* values, std::size_t n,
 
 std::vector<double> rolling_min(const double* values, std::size_t n,
                                 std::size_t window) {
-    validate_rolling(values, n, window);
-    std::vector<double> out(n, kNaN);
-    std::deque<std::size_t> candidates;
-    std::size_t missing = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(values[i])) {
-            while (!candidates.empty() &&
-                   values[candidates.back()] >= values[i]) {
-                candidates.pop_back();
-            }
-            candidates.push_back(i);
-        } else {
-            ++missing;
-        }
-        if (i >= window) {
-            const std::size_t expired = i - window;
-            if (std::isfinite(values[expired])) {
-                if (!candidates.empty() && candidates.front() == expired) {
-                    candidates.pop_front();
-                }
-            } else {
-                --missing;
-            }
-        }
-        if (i + 1 >= window && missing == 0 && !candidates.empty()) {
-            out[i] = values[candidates.front()];
-        }
-    }
-    return out;
+    return rolling_extreme(values, n, window, true);
 }
 
 std::vector<double> rolling_max(const double* values, std::size_t n,
                                 std::size_t window) {
-    validate_rolling(values, n, window);
-    std::vector<double> out(n, kNaN);
-    std::deque<std::size_t> candidates;
-    std::size_t missing = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(values[i])) {
-            while (!candidates.empty() &&
-                   values[candidates.back()] <= values[i]) {
-                candidates.pop_back();
-            }
-            candidates.push_back(i);
-        } else {
-            ++missing;
-        }
-        if (i >= window) {
-            const std::size_t expired = i - window;
-            if (std::isfinite(values[expired])) {
-                if (!candidates.empty() && candidates.front() == expired) {
-                    candidates.pop_front();
-                }
-            } else {
-                --missing;
-            }
-        }
-        if (i + 1 >= window && missing == 0 && !candidates.empty()) {
-            out[i] = values[candidates.front()];
-        }
-    }
-    return out;
+    return rolling_extreme(values, n, window, false);
 }
 
 std::vector<double> rolling_zscore(const double* values, std::size_t n,
                                    std::size_t window, std::size_t ddof) {
-    validate_rolling(values, n, window, ddof);
+    const CenterScale stats = rolling_center_scale(values, n, window, ddof);
     std::vector<double> out(n, kNaN);
-
-    rflux::detail::SlidingMoments1 moments;
-    std::size_t missing = 0;
-    const long double denominator =
-        static_cast<long double>(window - ddof);
-
     for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(values[i])) {
-            moments.push(values[i]);
-        } else {
-            ++missing;
-        }
-        if (i >= window) {
-            const double old = values[i - window];
-            if (std::isfinite(old)) {
-                moments.pop();
-            } else {
-                --missing;
-            }
-        }
-        if (i + 1 >= window && missing == 0) {
-            const rflux::detail::Moments1 block = moments.moments();
-            long double variance = block.m2 / denominator;
-            if (variance < 0.0L) variance = 0.0L;
-            if (variance > 0.0L) {
-                out[i] = static_cast<double>(
-                    (static_cast<long double>(values[i]) - block.mean) /
-                    std::sqrt(variance));
-            }
+        if (std::isfinite(stats.scale[i]) && stats.scale[i] > 0.0 &&
+            std::isfinite(values[i])) {
+            out[i] = (values[i] - stats.mean[i]) / stats.scale[i];
         }
     }
     return out;

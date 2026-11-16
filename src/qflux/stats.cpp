@@ -13,14 +13,87 @@ namespace {
 
 using rflux::detail::finite_values;
 using rflux::detail::kNaN;
+using rflux::detail::mean_of;
 using rflux::detail::quantile_sorted;
 using rflux::detail::require;
 using rflux::detail::require_pointer;
 
-double finite_mean(const std::vector<double>& values) {
-    long double sum = 0.0L;
-    for (double value : values) sum += static_cast<long double>(value);
-    return static_cast<double>(sum / static_cast<long double>(values.size()));
+std::vector<double> excess_returns(const double* returns, std::size_t n,
+                                   double periods_per_year, double risk_free) {
+    require_pointer(returns, "returns must not be NULL");
+    require(n > 0, "n must be positive");
+    require(std::isfinite(periods_per_year) && periods_per_year > 0.0,
+            "periods_per_year must be finite and positive");
+    require(std::isfinite(risk_free), "risk_free must be finite");
+
+    const double rf_period = risk_free / periods_per_year;
+    require(std::isfinite(rf_period), "risk_free / periods_per_year overflows");
+    std::vector<double> excess;
+    excess.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(returns[i])) continue;
+        const double value = returns[i] - rf_period;
+        if (std::isfinite(value)) excess.push_back(value);
+    }
+    return excess;
+}
+
+/* Scale away the level so squaring cannot overflow on platforms where long
+ * double is only 64-bit (notably arm64 macOS).  Mean/volatility ratios are
+ * invariant under a common positive scale. */
+bool scale_to_unit(std::vector<double>& values) {
+    double scale = 0.0;
+    for (double value : values) scale = std::max(scale, std::abs(value));
+    if (!(scale > 0.0) || !std::isfinite(scale)) return false;
+    for (double& value : values) value /= scale;
+    return true;
+}
+
+/*
+ * Pearson correlation over the observations where both series are finite.
+ * Means are recomputed on that pairwise-complete subset: using full-sample
+ * means would change the result when the missing patterns differ.
+ *
+ * The stride arguments let the correlation matrix reuse this kernel without
+ * copying each pair of columns out of the row-major panel.
+ */
+double pairwise_pearson(const double* x, const double* y, std::size_t n,
+                        std::size_t stride_x = 1,
+                        std::size_t stride_y = 1) {
+    std::size_t count = 0;
+    long double sum_x = 0.0L;
+    long double sum_y = 0.0L;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double xv = x[i * stride_x];
+        const double yv = y[i * stride_y];
+        if (!std::isfinite(xv) || !std::isfinite(yv)) continue;
+        sum_x += static_cast<long double>(xv);
+        sum_y += static_cast<long double>(yv);
+        ++count;
+    }
+    if (count < 2) return kNaN;
+
+    const long double mean_x = sum_x / static_cast<long double>(count);
+    const long double mean_y = sum_y / static_cast<long double>(count);
+    long double covariance = 0.0L;
+    long double variance_x = 0.0L;
+    long double variance_y = 0.0L;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double xv = x[i * stride_x];
+        const double yv = y[i * stride_y];
+        if (!std::isfinite(xv) || !std::isfinite(yv)) continue;
+        const long double dx =
+            static_cast<long double>(xv) - mean_x;
+        const long double dy =
+            static_cast<long double>(yv) - mean_y;
+        covariance += dx * dy;
+        variance_x += dx * dx;
+        variance_y += dy * dy;
+    }
+    if (variance_x <= 0.0L || variance_y <= 0.0L) return kNaN;
+    const double corr = static_cast<double>(
+        covariance / std::sqrt(variance_x * variance_y));
+    return std::max(-1.0, std::min(1.0, corr));
 }
 
 }  // namespace
@@ -36,7 +109,7 @@ Moments describe(const double* values, std::size_t n) {
     Moments result;
     result.n_valid = data.size();
     const long double count = static_cast<long double>(data.size());
-    const double mean = finite_mean(data);
+    const double mean = mean_of(data);
     result.mean = mean;
 
     long double sum2 = 0.0L;
@@ -94,37 +167,7 @@ double pearson(const double* x, const double* y, std::size_t n) {
     require_pointer(y, "y must not be NULL");
     require(n > 0, "n must be positive");
 
-    std::size_t count = 0;
-    long double sum_x = 0.0L;
-    long double sum_y = 0.0L;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(x[i]) && std::isfinite(y[i])) {
-            sum_x += static_cast<long double>(x[i]);
-            sum_y += static_cast<long double>(y[i]);
-            ++count;
-        }
-    }
-    if (count < 2) return kNaN;
-
-    const long double mean_x = sum_x / static_cast<long double>(count);
-    const long double mean_y = sum_y / static_cast<long double>(count);
-    long double covariance = 0.0L;
-    long double variance_x = 0.0L;
-    long double variance_y = 0.0L;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (!std::isfinite(x[i]) || !std::isfinite(y[i])) continue;
-        const long double dx =
-            static_cast<long double>(x[i]) - mean_x;
-        const long double dy =
-            static_cast<long double>(y[i]) - mean_y;
-        covariance += dx * dy;
-        variance_x += dx * dx;
-        variance_y += dy * dy;
-    }
-    if (variance_x <= 0.0L || variance_y <= 0.0L) return kNaN;
-    double corr = static_cast<double>(covariance /
-                                      std::sqrt(variance_x * variance_y));
-    return std::max(-1.0, std::min(1.0, corr));
+    return pairwise_pearson(x, y, n);
 }
 
 std::vector<double> correlation_matrix(const double* panel, std::size_t n_obs,
@@ -139,40 +182,9 @@ std::vector<double> correlation_matrix(const double* panel, std::size_t n_obs,
 
     for (std::size_t a = 0; a < n_assets; ++a) {
         for (std::size_t b = a; b < n_assets; ++b) {
-            /* Pairwise-complete means, not full-sample means: missing values
-             * make the two different, and correlation is not invariant to
-             * that choice. */
-            std::size_t count = 0;
-            long double sum_a = 0.0L;
-            long double sum_b = 0.0L;
-            for (std::size_t r = 0; r < n_obs; ++r) {
-                const double va = panel[r * n_assets + a];
-                const double vb = panel[r * n_assets + b];
-                if (!std::isfinite(va) || !std::isfinite(vb)) continue;
-                sum_a += static_cast<long double>(va);
-                sum_b += static_cast<long double>(vb);
-                ++count;
-            }
-            if (count < 2) continue;
-            const long double mean_a = sum_a / static_cast<long double>(count);
-            const long double mean_b = sum_b / static_cast<long double>(count);
-            long double covariance = 0.0L;
-            long double variance_a = 0.0L;
-            long double variance_b = 0.0L;
-            for (std::size_t r = 0; r < n_obs; ++r) {
-                const double va = panel[r * n_assets + a];
-                const double vb = panel[r * n_assets + b];
-                if (!std::isfinite(va) || !std::isfinite(vb)) continue;
-                const long double da = static_cast<long double>(va) - mean_a;
-                const long double db = static_cast<long double>(vb) - mean_b;
-                covariance += da * db;
-                variance_a += da * da;
-                variance_b += db * db;
-            }
-            if (variance_a > 0.0L && variance_b > 0.0L) {
-                double corr = static_cast<double>(
-                    covariance / std::sqrt(variance_a * variance_b));
-                corr = std::max(-1.0, std::min(1.0, corr));
+            const double corr = pairwise_pearson(
+                panel + a, panel + b, n_obs, n_assets, n_assets);
+            if (std::isfinite(corr)) {
                 matrix[a * n_assets + b] = corr;
                 matrix[b * n_assets + a] = corr;
             }
@@ -183,20 +195,10 @@ std::vector<double> correlation_matrix(const double* panel, std::size_t n_obs,
 
 double sharpe(const double* returns, std::size_t n, double periods_per_year,
               double risk_free) {
-    require_pointer(returns, "returns must not be NULL");
-    require(n > 0, "n must be positive");
-    require(std::isfinite(periods_per_year) && periods_per_year > 0.0,
-            "periods_per_year must be finite and positive");
-    require(std::isfinite(risk_free), "risk_free must be finite");
-
-    std::vector<double> excess;
-    excess.reserve(n);
-    const double rf_period = risk_free / periods_per_year;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(returns[i])) excess.push_back(returns[i] - rf_period);
-    }
-    if (excess.size() < 2) return kNaN;
-    const double mean = finite_mean(excess);
+    std::vector<double> excess =
+        excess_returns(returns, n, periods_per_year, risk_free);
+    if (excess.size() < 2 || !scale_to_unit(excess)) return kNaN;
+    const double mean = mean_of(excess);
     long double sum = 0.0L;
     for (double value : excess) {
         const long double diff = static_cast<long double>(value - mean);
@@ -210,24 +212,15 @@ double sharpe(const double* returns, std::size_t n, double periods_per_year,
 
 double sortino(const double* returns, std::size_t n, double periods_per_year,
                double risk_free) {
-    require_pointer(returns, "returns must not be NULL");
-    require(n > 0, "n must be positive");
-    require(std::isfinite(periods_per_year) && periods_per_year > 0.0,
-            "periods_per_year must be finite and positive");
-    require(std::isfinite(risk_free), "risk_free must be finite");
-
-    std::vector<double> excess;
-    excess.reserve(n);
-    const double rf_period = risk_free / periods_per_year;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (std::isfinite(returns[i])) excess.push_back(returns[i] - rf_period);
-    }
-    if (excess.size() < 2) return kNaN;
-    const double mean = finite_mean(excess);
+    std::vector<double> excess =
+        excess_returns(returns, n, periods_per_year, risk_free);
+    if (excess.size() < 2 || !scale_to_unit(excess)) return kNaN;
+    const double mean = mean_of(excess);
     long double downside_sum = 0.0L;
     for (double value : excess) {
-        const double downside = std::min(value, 0.0);
-        downside_sum += static_cast<long double>(downside * downside);
+        const long double downside =
+            static_cast<long double>(std::min(value, 0.0));
+        downside_sum += downside * downside;
     }
     const double downside_deviation = std::sqrt(
         static_cast<double>(downside_sum /

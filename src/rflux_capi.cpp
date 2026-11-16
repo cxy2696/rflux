@@ -26,9 +26,6 @@ struct rflux_hmm {
     rflux::regimelab::GaussianHMM model;
 };
 
-#define RFLUX_STRINGIFY_INNER(value) #value
-#define RFLUX_STRINGIFY(value) RFLUX_STRINGIFY_INNER(value)
-
 namespace {
 
 thread_local char g_last_error[1024] = {0};
@@ -157,7 +154,8 @@ uint32_t rflux_abi_version(void) { return RFLUX_ABI_VERSION; }
 const char* rflux_version_string(void) {
 #define RFLUX_STRINGIFY_INNER(value) #value
 #define RFLUX_STRINGIFY(value) RFLUX_STRINGIFY_INNER(value)
-    return RFLUX_STRINGIFY(RFLUX_VERSION_MAJOR) "."            RFLUX_STRINGIFY(RFLUX_VERSION_MINOR) "."            RFLUX_STRINGIFY(RFLUX_VERSION_PATCH);
+    return RFLUX_STRINGIFY(RFLUX_VERSION_MAJOR) "." RFLUX_STRINGIFY(
+               RFLUX_VERSION_MINOR) "." RFLUX_STRINGIFY(RFLUX_VERSION_PATCH);
 #undef RFLUX_STRINGIFY
 #undef RFLUX_STRINGIFY_INNER
 }

@@ -43,6 +43,28 @@ struct ForwardResult {
     double log_likelihood = 0.0;
 };
 
+/* Log-domain parameters computed once per EM iteration/inference call. */
+struct LogModel {
+    std::vector<double> start;
+    std::vector<double> transition;
+};
+
+LogModel log_model(const HmmParameters& parameters, std::size_t k) {
+    LogModel logs;
+    logs.start.resize(k);
+    logs.transition.resize(k * k);
+    for (std::size_t state = 0; state < k; ++state) {
+        logs.start[state] = safe_log(parameters.start_prob[state]);
+    }
+    for (std::size_t previous = 0; previous < k; ++previous) {
+        for (std::size_t state = 0; state < k; ++state) {
+            logs.transition[previous * k + state] = safe_log(
+                parameters.transition[previous * k + state]);
+        }
+    }
+    return logs;
+}
+
 struct Candidate {
     HmmParameters parameters;
     double log_likelihood = -std::numeric_limits<double>::infinity();
@@ -133,6 +155,18 @@ void normalize_with_floor(std::vector<double>& values) {
     }
 }
 
+/* Normalise a probability vector without changing structural zeros. */
+void normalize_without_floor(std::vector<double>& values) {
+    long double sum = 0.0L;
+    for (double value : values) sum += static_cast<long double>(value);
+    if (!(sum > 0.0L) || !std::isfinite(static_cast<double>(sum))) {
+        throw NumericalError("HMM probability vector lost its mass");
+    }
+    for (double& value : values) {
+        value = static_cast<double>(static_cast<long double>(value) / sum);
+    }
+}
+
 void normalize_transition(std::vector<double>& transition, std::size_t k) {
     for (std::size_t row = 0; row < k; ++row) {
         long double sum = 0.0L;
@@ -158,6 +192,38 @@ void normalize_transition(std::vector<double>& transition, std::size_t k) {
             transition[row * k + col] = static_cast<double>(
                 static_cast<long double>(transition[row * k + col]) / sum);
         }
+    }
+}
+
+void validate_probability_tables(const HmmParameters& parameters,
+                                  std::size_t k) {
+    long double start_sum = 0.0L;
+    for (double value : parameters.start_prob) {
+        require(std::isfinite(value) && value >= 0.0,
+                "start probabilities must be finite and non-negative");
+        start_sum += static_cast<long double>(value);
+    }
+    require(close_to_one(static_cast<double>(start_sum)),
+            "start probabilities must sum to one");
+    for (std::size_t row = 0; row < k; ++row) {
+        long double row_sum = 0.0L;
+        for (std::size_t col = 0; col < k; ++col) {
+            const double value = parameters.transition[row * k + col];
+            require(std::isfinite(value) && value >= 0.0,
+                    "transition probabilities must be finite and non-negative");
+            row_sum += static_cast<long double>(value);
+        }
+        require(close_to_one(static_cast<double>(row_sum)),
+                "each transition row must sum to one");
+    }
+}
+
+void validate_emission_parameters(const HmmParameters& parameters) {
+    for (std::size_t i = 0; i < parameters.means.size(); ++i) {
+        require(std::isfinite(parameters.means[i]), "means must be finite");
+        require(std::isfinite(parameters.variances[i]) &&
+                    parameters.variances[i] > 0.0,
+                "variances must be finite and positive");
     }
 }
 
@@ -219,7 +285,7 @@ std::vector<double> log_emission_matrix(const HmmParameters& parameters,
     return log_emission;
 }
 
-ForwardResult forward_pass(const HmmParameters& parameters, std::size_t k,
+ForwardResult forward_pass(const LogModel& logs, std::size_t k,
                            const std::vector<double>& log_emission,
                            std::size_t n) {
     ForwardResult result;
@@ -227,8 +293,7 @@ ForwardResult forward_pass(const HmmParameters& parameters, std::size_t k,
         checked_mul(n, k, "n*K overflow"),
         -std::numeric_limits<double>::infinity());
     for (std::size_t state = 0; state < k; ++state) {
-        result.log_alpha[state] =
-            safe_log(parameters.start_prob[state]) + log_emission[state];
+        result.log_alpha[state] = logs.start[state] + log_emission[state];
     }
     std::vector<double> terms(k, 0.0);
     for (std::size_t t = 1; t < n; ++t) {
@@ -236,7 +301,7 @@ ForwardResult forward_pass(const HmmParameters& parameters, std::size_t k,
             for (std::size_t previous = 0; previous < k; ++previous) {
                 terms[previous] =
                     result.log_alpha[(t - 1) * k + previous] +
-                    safe_log(parameters.transition[previous * k + state]);
+                    logs.transition[previous * k + state];
             }
             result.log_alpha[t * k + state] =
                 log_sum_exp(terms.data(), k) +
@@ -251,7 +316,8 @@ ForwardResult forward_pass(const HmmParameters& parameters, std::size_t k,
     return result;
 }
 
-EstepResult expectation_step(const HmmParameters& parameters, std::size_t k,
+EstepResult expectation_step(const HmmParameters& parameters,
+                             const LogModel& logs, std::size_t k,
                              std::size_t d, const double* observations,
                              std::size_t n) {
     EstepResult result;
@@ -259,7 +325,7 @@ EstepResult expectation_step(const HmmParameters& parameters, std::size_t k,
     result.log_emission =
         log_emission_matrix(parameters, k, d, observations, n);
     ForwardResult forward =
-        forward_pass(parameters, k, result.log_emission, n);
+        forward_pass(logs, k, result.log_emission, n);
     result.log_alpha = std::move(forward.log_alpha);
     result.log_likelihood = forward.log_likelihood;
     result.log_beta.assign(count, 0.0);
@@ -273,7 +339,7 @@ EstepResult expectation_step(const HmmParameters& parameters, std::size_t k,
         for (std::size_t previous = 0; previous < k; ++previous) {
             for (std::size_t state = 0; state < k; ++state) {
                 terms[state] =
-                    safe_log(parameters.transition[previous * k + state]) +
+                    logs.transition[previous * k + state] +
                     result.log_emission[(t + 1) * k + state] +
                     result.log_beta[(t + 1) * k + state];
             }
@@ -305,7 +371,7 @@ EstepResult expectation_step(const HmmParameters& parameters, std::size_t k,
 }
 
 HmmParameters maximization_step(const EstepResult& estep,
-                                const HmmParameters& old_parameters, std::size_t k,
+                                const LogModel& logs, std::size_t k,
                                 std::size_t d, const double* observations,
                                 std::size_t n,
                                 const std::vector<double>& global_means,
@@ -327,7 +393,7 @@ HmmParameters maximization_step(const EstepResult& estep,
             for (std::size_t state = 0; state < k; ++state) {
                 const double log_xi =
                     estep.log_alpha[t * k + previous] +
-                    safe_log(old_parameters.transition[previous * k + state]) +
+                    logs.transition[previous * k + state] +
                     estep.log_emission[(t + 1) * k + state] +
                     estep.log_beta[(t + 1) * k + state] -
                     estep.log_likelihood;
@@ -569,8 +635,9 @@ Candidate train_once(const double* observations, std::size_t n, std::size_t d,
     double previous_likelihood = -std::numeric_limits<double>::infinity();
     const std::size_t max_iter = options.max_iter;
     for (std::size_t iteration = 1; iteration <= max_iter; ++iteration) {
-        const EstepResult estep = expectation_step(candidate, k, d,
-                                                   observations, n);
+        const LogModel logs = log_model(candidate, k);
+        const EstepResult estep =
+            expectation_step(candidate, logs, k, d, observations, n);
         if (estep.log_likelihood > best.log_likelihood) {
             best.parameters = candidate;
             best.log_likelihood = estep.log_likelihood;
@@ -595,7 +662,7 @@ Candidate train_once(const double* observations, std::size_t n, std::size_t d,
         previous_likelihood = estep.log_likelihood;
         best.iterations = iteration;
         if (iteration == max_iter) break;
-        candidate = maximization_step(estep, candidate, k, d, observations, n,
+        candidate = maximization_step(estep, logs, k, d, observations, n,
                                       global_means, variance_floors);
     }
     return best;
@@ -633,34 +700,12 @@ void GaussianHMM::validate_observations(const double* observations,
 }
 
 void GaussianHMM::validate_model() const {
-    if (!ready_) throw NotReady("HMM has no parameters; fit or set_parameters first");
+    if (!ready_) {
+        throw NotReady("HMM is not fitted or parameterised; call fit or set_parameters first");
+    }
     validate_parameter_sizes(parameters_, n_states_, n_features_);
-    for (double value : parameters_.start_prob) {
-        require(std::isfinite(value) && value >= 0.0,
-                "start probabilities must be finite and non-negative");
-    }
-    double start_sum = 0.0;
-    for (double value : parameters_.start_prob) start_sum += value;
-    require(close_to_one(start_sum), "start probabilities must sum to one");
-    for (std::size_t state = 0; state < n_states_; ++state) {
-        double row_sum = 0.0;
-        for (std::size_t next = 0; next < n_states_; ++next) {
-            const double value =
-                parameters_.transition[state * n_states_ + next];
-            require(std::isfinite(value) && value >= 0.0,
-                    "transition probabilities must be finite and non-negative");
-            row_sum += value;
-        }
-        require(close_to_one(row_sum),
-                "each transition row must sum to one");
-    }
-    for (std::size_t i = 0; i < parameters_.means.size(); ++i) {
-        require(std::isfinite(parameters_.means[i]),
-                "means must be finite");
-        require(std::isfinite(parameters_.variances[i]) &&
-                    parameters_.variances[i] > 0.0,
-                "variances must be finite and positive");
-    }
+    validate_probability_tables(parameters_, n_states_);
+    validate_emission_parameters(parameters_);
 }
 
 void GaussianHMM::fit(const double* observations, std::size_t n_obs,
@@ -723,36 +768,9 @@ void GaussianHMM::fit(const double* observations, std::size_t n_obs,
 
 void GaussianHMM::set_parameters(const HmmParameters& parameters) {
     validate_parameter_sizes(parameters, n_states_, n_features_);
-    HmmParameters normalized = parameters;
-    long double start_sum = 0.0L;
-    for (double value : normalized.start_prob) {
-        require(std::isfinite(value) && value >= 0.0,
-                "start probabilities must be finite and non-negative");
-        start_sum += static_cast<long double>(value);
-    }
-    require(close_to_one(static_cast<double>(start_sum)),
-            "start probabilities must sum to one");
-    for (std::size_t row = 0; row < n_states_; ++row) {
-        long double row_sum = 0.0L;
-        for (std::size_t col = 0; col < n_states_; ++col) {
-            const double value = normalized.transition[row * n_states_ + col];
-            require(std::isfinite(value) && value >= 0.0,
-                    "transition probabilities must be finite and non-negative");
-            row_sum += static_cast<long double>(value);
-        }
-        require(close_to_one(static_cast<double>(row_sum)),
-                "each transition row must sum to one");
-    }
-    normalize_with_floor(normalized.start_prob);
-    normalize_transition(normalized.transition, n_states_);
-    for (std::size_t i = 0; i < normalized.means.size(); ++i) {
-        require(std::isfinite(normalized.means[i]),
-                "means must be finite");
-        require(std::isfinite(normalized.variances[i]) &&
-                    normalized.variances[i] > 0.0,
-                "variances must be finite and positive");
-    }
-    parameters_ = std::move(normalized);
+    validate_probability_tables(parameters, n_states_);
+    validate_emission_parameters(parameters);
+    parameters_ = parameters;
     ready_ = true;
     has_fit_diagnostics_ = false;
     iterations_ = 0;
@@ -798,8 +816,8 @@ double GaussianHMM::score(const double* observations,
     validate_observations(observations, n_obs);
     const std::vector<double> log_emission = log_emission_matrix(
         parameters_, n_states_, n_features_, observations, n_obs);
-    return forward_pass(parameters_, n_states_, log_emission, n_obs)
-        .log_likelihood;
+    const LogModel logs = log_model(parameters_, n_states_);
+    return forward_pass(logs, n_states_, log_emission, n_obs).log_likelihood;
 }
 
 std::vector<double> GaussianHMM::filtered(const double* observations,
@@ -810,8 +828,9 @@ std::vector<double> GaussianHMM::filtered(const double* observations,
         checked_mul(n_obs, n_states_, "n_obs*K overflows size_t");
     const std::vector<double> log_emission = log_emission_matrix(
         parameters_, n_states_, n_features_, observations, n_obs);
+    const LogModel logs = log_model(parameters_, n_states_);
     ForwardResult forward =
-        forward_pass(parameters_, n_states_, log_emission, n_obs);
+        forward_pass(logs, n_states_, log_emission, n_obs);
     const std::vector<double>& log_alpha = forward.log_alpha;
 
     std::vector<double> probabilities(count, kNaN);
@@ -842,8 +861,9 @@ std::vector<double> GaussianHMM::smoothed(const double* observations,
                                           std::size_t n_obs) const {
     validate_model();
     validate_observations(observations, n_obs);
+    const LogModel logs = log_model(parameters_, n_states_);
     const EstepResult result = expectation_step(
-        parameters_, n_states_, n_features_, observations, n_obs);
+        parameters_, logs, n_states_, n_features_, observations, n_obs);
     return result.gamma;
 }
 
@@ -853,6 +873,7 @@ std::vector<std::int32_t> GaussianHMM::viterbi(const double* observations,
     validate_observations(observations, n_obs);
     const std::vector<double> log_emission = log_emission_matrix(
         parameters_, n_states_, n_features_, observations, n_obs);
+    const LogModel logs = log_model(parameters_, n_states_);
     const std::size_t count =
         checked_mul(n_obs, n_states_, "n_obs*K overflows size_t");
     std::vector<double> score(count,
@@ -860,8 +881,7 @@ std::vector<std::int32_t> GaussianHMM::viterbi(const double* observations,
     std::vector<std::int32_t> backpointer(count, 0);
 
     for (std::size_t state = 0; state < n_states_; ++state) {
-        score[state] = safe_log(parameters_.start_prob[state]) +
-                       log_emission[state];
+        score[state] = logs.start[state] + log_emission[state];
     }
     for (std::size_t t = 1; t < n_obs; ++t) {
         for (std::size_t state = 0; state < n_states_; ++state) {
@@ -870,8 +890,7 @@ std::vector<std::int32_t> GaussianHMM::viterbi(const double* observations,
             for (std::size_t previous = 0; previous < n_states_; ++previous) {
                 const double candidate =
                     score[(t - 1) * n_states_ + previous] +
-                    safe_log(parameters_
-                                 .transition[previous * n_states_ + state]);
+                    logs.transition[previous * n_states_ + state];
                 if (candidate > best) {
                     best = candidate;
                     best_previous = previous;
@@ -939,7 +958,7 @@ std::vector<double> GaussianHMM::forecast(const double* state_probs,
                 }
             }
             result.swap(next);
-            normalize_with_floor(result);
+            normalize_without_floor(result);
         }
         horizon >>= 1U;
         if (horizon == 0) break;

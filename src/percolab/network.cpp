@@ -46,6 +46,8 @@ void validate_diffusion_inputs(const double* adjacency, std::size_t n,
             "beta must be finite and non-negative");
     rflux::detail::require_probability(gamma, "gamma");
     require(steps > 0, "steps must be positive");
+    require(steps < std::numeric_limits<std::size_t>::max(),
+            "steps is too large");
     require(repetitions > 0, "repetitions must be positive");
     validate_uint32_nodes(n);
 }
@@ -56,14 +58,18 @@ std::vector<double> correlation_to_distance(const double* corr, std::size_t n) {
     validate_symmetric_matrix(corr, n, "corr");
     std::vector<double> out(checked_mul(n, n, "n*n overflows size_t"), kNaN);
     for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = 0; j < n; ++j) {
+        out[i * n + i] = 0.0;
+        for (std::size_t j = i + 1; j < n; ++j) {
             const double value = corr[i * n + j];
             if (value < -1.0 - 1e-9 || value > 1.0 + 1e-9) {
                 throw InvalidArgument(
                     "correlation entries must be in [-1, 1]");
             }
             const double clipped = std::max(-1.0, std::min(1.0, value));
-            out[i * n + j] = std::sqrt(std::max(0.0, 2.0 * (1.0 - clipped)));
+            const double distance =
+                std::sqrt(std::max(0.0, 2.0 * (1.0 - clipped)));
+            out[i * n + j] = distance;
+            out[j * n + i] = distance;
         }
     }
     return out;
@@ -256,6 +262,7 @@ DiffusionResult risk_diffusion(const double* adjacency, std::size_t n,
         std::vector<std::size_t> infected;
         std::vector<std::size_t> newly_infected;
         std::vector<std::size_t> recovered;
+        std::vector<std::uint8_t> marked(n, 0);
         for (std::size_t step = 1; step <= steps; ++step) {
             infected.clear();
             for (std::size_t i = 0; i < n; ++i) {
@@ -263,7 +270,7 @@ DiffusionResult risk_diffusion(const double* adjacency, std::size_t n,
             }
             newly_infected.clear();
             recovered.clear();
-            std::vector<std::uint8_t> marked(n, 0);
+            std::fill(marked.begin(), marked.end(), 0);
 
             for (std::size_t source : infected) {
                 for (std::size_t target = 0; target < n; ++target) {

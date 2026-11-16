@@ -294,6 +294,7 @@ $$
 - Start probabilities and each transition row receive a tiny floor before normalisation to avoid $\log(0)$ .
 - Up to `n_init` restarts run; the parameters with the highest training log-likelihood are kept.
 - Fitting stops at `tol`. Reaching `max_iter` without convergence is not an error; `converged=0` reports it.
+- `set_parameters()` validates and stores parameters without adding a probability floor; explicit zeros stay zero. `forecast()` also follows the product without flooring.
 
 ### 4.4 State labels and identifiability
 

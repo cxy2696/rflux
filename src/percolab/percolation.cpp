@@ -108,6 +108,32 @@ std::vector<PercolationPoint> finish_scan(
     return out;
 }
 
+template <typename Replicate>
+std::vector<PercolationPoint> scan_percolation(
+    const double* probabilities, std::size_t n_probabilities,
+    std::size_t repetitions, std::uint64_t seed, Replicate replicate) {
+    std::vector<long double> giant_sum(n_probabilities, 0.0L);
+    std::vector<long double> giant_square_sum(n_probabilities, 0.0L);
+    std::vector<long double> susceptibility_sum(n_probabilities, 0.0L);
+
+    for (std::size_t p = 0; p < n_probabilities; ++p) {
+        for (std::size_t repetition = 0; repetition < repetitions;
+             ++repetition) {
+            Rng rng(mix_seed(seed, repetition));
+            const ClusterMoments moments =
+                replicate(probabilities[p], rng);
+            giant_sum[p] += static_cast<long double>(moments.giant_fraction);
+            giant_square_sum[p] +=
+                static_cast<long double>(moments.giant_fraction) *
+                static_cast<long double>(moments.giant_fraction);
+            susceptibility_sum[p] +=
+                static_cast<long double>(moments.finite_susceptibility);
+        }
+    }
+    return finish_scan(probabilities, n_probabilities, giant_sum,
+                       giant_square_sum, susceptibility_sum, repetitions);
+}
+
 }  // namespace
 
 ComponentSummary connected_components(const double* weights, std::size_t n,
@@ -132,33 +158,15 @@ std::vector<PercolationPoint> bond_percolation(
     validate_percolation_inputs(adjacency, n, probabilities, n_probabilities,
                                 repetitions);
     const std::vector<Edge> edges = positive_edges(adjacency, n);
-
-    std::vector<long double> giant_sum(n_probabilities, 0.0L);
-    std::vector<long double> giant_square_sum(n_probabilities, 0.0L);
-    std::vector<long double> susceptibility_sum(n_probabilities, 0.0L);
-
-    for (std::size_t p = 0; p < n_probabilities; ++p) {
-        for (std::size_t repetition = 0; repetition < repetitions;
-             ++repetition) {
-            Rng rng(mix_seed(seed, repetition));
+    return scan_percolation(
+        probabilities, n_probabilities, repetitions, seed,
+        [&](double p, Rng& rng) {
             UnionFind uf(n);
             for (const Edge& edge : edges) {
-                if (rng.uniform() < probabilities[p]) {
-                    uf.unite(edge.u, edge.v);
-                }
+                if (rng.uniform() < p) uf.unite(edge.u, edge.v);
             }
-            const ClusterMoments moments =
-                summarize_components(uf, nullptr, n);
-            giant_sum[p] += static_cast<long double>(moments.giant_fraction);
-            giant_square_sum[p] +=
-                static_cast<long double>(moments.giant_fraction) *
-                static_cast<long double>(moments.giant_fraction);
-            susceptibility_sum[p] +=
-                static_cast<long double>(moments.finite_susceptibility);
-        }
-    }
-    return finish_scan(probabilities, n_probabilities, giant_sum,
-                       giant_square_sum, susceptibility_sum, repetitions);
+            return summarize_components(uf, nullptr, n);
+        });
 }
 
 std::vector<PercolationPoint> site_percolation(
@@ -167,18 +175,12 @@ std::vector<PercolationPoint> site_percolation(
     validate_percolation_inputs(adjacency, n, probabilities, n_probabilities,
                                 repetitions);
     const std::vector<Edge> edges = positive_edges(adjacency, n);
-
-    std::vector<long double> giant_sum(n_probabilities, 0.0L);
-    std::vector<long double> giant_square_sum(n_probabilities, 0.0L);
-    std::vector<long double> susceptibility_sum(n_probabilities, 0.0L);
-
-    for (std::size_t p = 0; p < n_probabilities; ++p) {
-        for (std::size_t repetition = 0; repetition < repetitions;
-             ++repetition) {
-            Rng rng(mix_seed(seed, repetition));
+    return scan_percolation(
+        probabilities, n_probabilities, repetitions, seed,
+        [&](double p, Rng& rng) {
             std::vector<std::uint8_t> alive(n, 0);
             for (std::size_t i = 0; i < n; ++i) {
-                alive[i] = rng.uniform() < probabilities[p] ? 1 : 0;
+                alive[i] = rng.uniform() < p ? 1 : 0;
             }
             UnionFind uf(n);
             for (const Edge& edge : edges) {
@@ -186,18 +188,8 @@ std::vector<PercolationPoint> site_percolation(
                     uf.unite(edge.u, edge.v);
                 }
             }
-            const ClusterMoments moments =
-                summarize_components(uf, alive.data(), n);
-            giant_sum[p] += static_cast<long double>(moments.giant_fraction);
-            giant_square_sum[p] +=
-                static_cast<long double>(moments.giant_fraction) *
-                static_cast<long double>(moments.giant_fraction);
-            susceptibility_sum[p] +=
-                static_cast<long double>(moments.finite_susceptibility);
-        }
-    }
-    return finish_scan(probabilities, n_probabilities, giant_sum,
-                       giant_square_sum, susceptibility_sum, repetitions);
+            return summarize_components(uf, alive.data(), n);
+        });
 }
 
 }  // namespace rflux::percolab

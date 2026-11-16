@@ -155,6 +155,74 @@ class TestGaussianHMM(unittest.TestCase):
         with self.assertRaises(TypeError):
             regimelab.fit_hmm(np.zeros((4, 1)), n_states=2.9)
 
+    def test_structural_zeros_survive_set_and_forecast(self):
+        parameters = regimelab.HMMParameters(
+            start_prob=np.array([1.0, 0.0]),
+            transition=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            means=np.array([[-1.0], [1.0]]),
+            variances=np.array([[1.0], [1.0]]),
+        )
+        model = regimelab.GaussianHMM(2, 1)
+        try:
+            model.set_parameters(parameters)
+            stored = model.parameters
+            np.testing.assert_array_equal(stored.start_prob, [1.0, 0.0])
+            np.testing.assert_array_equal(
+                stored.transition, [[1.0, 0.0], [0.0, 1.0]]
+            )
+            np.testing.assert_array_equal(
+                model.forecast([1.0, 0.0], horizon=5), [1.0, 0.0]
+            )
+            np.testing.assert_array_equal(
+                model.filtered(np.array([[-1.0], [1.0]])),
+                [[1.0, 0.0], [1.0, 0.0]],
+            )
+            transition = np.array([[0.9, 0.1], [0.2, 0.8]])
+            model.set_parameters(
+                regimelab.HMMParameters(
+                    start_prob=np.array([0.6, 0.4]),
+                    transition=transition,
+                    means=np.array([[-1.0], [1.0]]),
+                    variances=np.array([[1.0], [1.0]]),
+                )
+            )
+            np.testing.assert_allclose(
+                model.forecast([0.6, 0.4], horizon=3),
+                np.array([0.6, 0.4]) @ np.linalg.matrix_power(transition, 3),
+                atol=1e-12,
+            )
+        finally:
+            model.close()
+
+    def test_invalid_parameter_tables_are_rejected(self):
+        model = regimelab.GaussianHMM(2, 1)
+        good = regimelab.HMMParameters(
+            start_prob=np.array([0.6, 0.4]),
+            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
+            means=np.array([[-1.0], [1.0]]),
+            variances=np.array([[1.0], [1.0]]),
+        )
+        try:
+            for bad in (
+                regimelab.HMMParameters(
+                    np.array([0.6, 0.5]), good.transition, good.means,
+                    good.variances
+                ),
+                regimelab.HMMParameters(
+                    good.start_prob, np.array([[0.9, 0.2], [0.2, 0.8]]),
+                    good.means, good.variances
+                ),
+                regimelab.HMMParameters(
+                    good.start_prob, good.transition, good.means,
+                    np.array([[1.0], [0.0]])
+                ),
+            ):
+                with self.assertRaises(RFluxError) as caught:
+                    model.set_parameters(bad)
+                self.assertEqual(caught.exception.status, 1)
+        finally:
+            model.close()
+
     def test_invalid_input(self):
         model = regimelab.GaussianHMM(2, 1)
         try:

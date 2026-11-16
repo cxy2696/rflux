@@ -190,6 +190,20 @@ class TestStatsAndRanking(unittest.TestCase):
         self.assertAlmostEqual(risk.var, 0.06)
         self.assertAlmostEqual(risk.cvar, 0.1)
 
+    def test_extreme_loss_sortino_does_not_overflow(self):
+        expected = -np.sqrt(252.0)
+        self.assertAlmostEqual(
+            qflux.sortino(np.array([-1e200, -1e200])), expected, places=8
+        )
+        self.assertAlmostEqual(
+            qflux.sortino(np.array([-1e200, -1e200]), 252.0, 0.0),
+            expected,
+            places=8,
+        )
+        self.assertAlmostEqual(
+            qflux.sharpe(np.array([-1e200, 1e200]), 252.0, 0.0), 0.0
+        )
+
     def test_rank_zscore_neutralize(self):
         values = np.array([3.0, 1.0, 1.0, np.nan, 5.0])
         np.testing.assert_allclose(

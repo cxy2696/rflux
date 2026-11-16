@@ -3,6 +3,28 @@
 Notable changes are listed here. Numerical definitions, missing-value rules and
 causal semantics are called out explicitly when they change.
 
+## Unreleased
+
+- Refactored HMM inference to cache log start/transition probabilities once per
+  EM iteration or public inference call instead of recomputing them inside every
+  transition loop.
+- Shared the pairwise-complete Pearson kernel between `pearson` and the
+  correlation matrix, and shared the rolling center/scale scan between
+  `rolling_std` and `rolling_zscore`.
+- `set_parameters` no longer floors explicit zeros, and `forecast` no longer
+  injects a probability floor; both now preserve structural zeros and the
+  documented linear forecast semantics.
+- Fixed an overflow in `sortino` for extreme losses and made Sharpe use the
+  same scale-safe arithmetic.
+- Reject `steps == SIZE_MAX` in risk diffusion before allocating `steps + 1`,
+  and ignore the diagonal in `correlation_to_distance` (written as zero).
+- Tightened integer argument validation for `forward_returns`,
+  `quantile_portfolio_returns` and `long_short_backtest`; Python risk diffusion
+  rejects an impossible step count before allocating the output.
+- Added regression tests for structural-zero HMMs, extreme-loss Sortino,
+  forecast identity transitions, ABI readiness errors, large diffusion steps and
+  distance diagonals.
+
 ## 0.4.2 — 2026-11-15
 
 - Added a direct command-line interface: `rflux version`, `rflux doctor` and

@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from . import qflux
-from ._common import as_f64_1d, as_f64_2d
+from ._common import as_f64_1d, as_f64_2d, as_size
 from .metrics import PerformanceMetrics, performance_summary
 
 
@@ -46,9 +46,7 @@ def forward_returns(
     array = np.asarray(prices, dtype=np.float64)
     if array.ndim not in (1, 2):
         raise ValueError("prices must be 1D or 2D")
-    if int(periods) <= 0:
-        raise ValueError("periods must be positive")
-    periods = int(periods)
+    periods = as_size(periods, "periods")
     out = np.full_like(array, np.nan, dtype=np.float64)
     if array.shape[0] <= periods:
         return out
@@ -102,10 +100,8 @@ def quantile_portfolio_returns(
     Returns shape ``(n_quantiles, n_periods)``; row 0 is the low-factor bucket
     and the last row is the high-factor bucket.  Empty buckets are NaN.
     """
-    if int(n_quantiles) < 2 or int(n_quantiles) != n_quantiles:
-        raise ValueError("n_quantiles must be an integer >= 2")
+    q = as_size(n_quantiles, "n_quantiles", minimum=2)
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
-    q = int(n_quantiles)
     out = np.full((q, factor_array.shape[0]), np.nan)
     for t in range(factor_array.shape[0]):
         buckets = _buckets(factor_array[t], forward_array[t], q)
@@ -189,15 +185,13 @@ def long_short_backtest(
     than 100% of its initial capital; the equity path is still returned, while
     geometric return/Calmar become NaN once equity is non-positive.
     """
-    if int(n_quantiles) < 2 or int(n_quantiles) != n_quantiles:
-        raise ValueError("n_quantiles must be an integer >= 2")
+    q = as_size(n_quantiles, "n_quantiles", minimum=2)
     if not np.isfinite(cost_bps) or cost_bps < 0.0:
         raise ValueError("cost_bps must be finite and non-negative")
     if not np.isfinite(periods_per_year) or periods_per_year <= 0.0:
         raise ValueError("periods_per_year must be finite and positive")
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
     periods, assets = factor_array.shape
-    q = int(n_quantiles)
 
     gross = np.zeros(periods, dtype=np.float64)
     costs = np.zeros(periods, dtype=np.float64)

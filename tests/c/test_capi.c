@@ -1,6 +1,7 @@
 #include "rflux/rflux.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -263,6 +264,30 @@ static int test_hmm(void) {
         double ll, aic, bic;
         CHECK(rflux_hmm_fit_summary(untouched, &iterations, &converged, &ll,
                                     &aic, &bic) == RFLUX_ERR_MODEL_NOT_READY);
+        double start[2], transition[4], means[2], variances[2];
+        CHECK(rflux_hmm_get_parameters(untouched, start, transition, means,
+                                       variances) == RFLUX_ERR_MODEL_NOT_READY);
+    }
+
+    {
+        double start[2] = {1.0, 0.0};
+        double transition[4] = {1.0, 0.0, 0.0, 1.0};
+        double means[2] = {-1.0, 1.0};
+        double variances[2] = {1.0, 1.0};
+        double check_start[2], check_transition[4], check_means[2];
+        double check_variances[2], forecast[2];
+        rflux_hmm* structured = NULL;
+        CHECK(rflux_hmm_create(2, 1, &structured) == RFLUX_OK);
+        CHECK(rflux_hmm_set_parameters(structured, start, transition, means,
+                                       variances) == RFLUX_OK);
+        CHECK(rflux_hmm_get_parameters(structured, check_start,
+                                       check_transition, check_means,
+                                       check_variances) == RFLUX_OK);
+        CHECK(memcmp(start, check_start, sizeof(start)) == 0);
+        CHECK(memcmp(transition, check_transition, sizeof(transition)) == 0);
+        CHECK(rflux_hmm_forecast(structured, start, 5, forecast) == RFLUX_OK);
+        CHECK(forecast[0] == 1.0 && forecast[1] == 0.0);
+        rflux_hmm_destroy(structured);
     }
 
     rflux_hmm_options options;
@@ -439,6 +464,15 @@ static int test_graphs(void) {
 
     CHECK(rflux_corr_to_distance(corr, 4, distance) == RFLUX_OK);
     CHECK(approx(distance[1], sqrt(2.0 * 0.1), 1e-12));
+    {
+        const double diagonal_free[4] = {0.0, 0.5, 0.5, 0.0};
+        double distance_2[4];
+        CHECK(rflux_corr_to_distance(diagonal_free, 2, distance_2) ==
+              RFLUX_OK);
+        CHECK(distance_2[0] == 0.0 && distance_2[3] == 0.0);
+        CHECK(approx(distance_2[1], 1.0, 1e-12));
+        CHECK(approx(distance_2[2], 1.0, 1e-12));
+    }
     CHECK(rflux_graph_components(corr, 4, 0.5, labels, &n_components,
                                  &largest) == RFLUX_OK);
     CHECK(n_components == 2 && largest == 2);
@@ -526,6 +560,9 @@ static int test_graphs(void) {
         for (size_t i = 0; i < 4; ++i) {
             CHECK(frequency[i] >= 0.0 && frequency[i] <= 1.0);
         }
+        CHECK(rflux_risk_diffusion(complete, 4, seeds, 1, 10.0, 0.0,
+                                   SIZE_MAX, 5, 9, curve, frequency) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
 
     {

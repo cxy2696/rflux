@@ -296,6 +296,8 @@ def risk_diffusion(
     matrix = as_square(adjacency, "adjacency")
     n = matrix.shape[0]
     steps = as_size(steps, "steps")
+    if steps == int(np.iinfo(np.uintp).max):
+        raise ValueError("steps is too large")
     repetitions = as_size(repetitions, "repetitions")
     seed = as_u64(seed, "seed")
     if not np.isfinite(beta) or beta < 0.0:

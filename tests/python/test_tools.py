@@ -109,6 +109,17 @@ class TestMetricsAndBacktest(unittest.TestCase):
         self.assertIsNotNone(leveraged.metrics)
         self.assertTrue(np.isnan(leveraged.metrics.annualized_return))
 
+    def test_integer_arguments_are_not_truncated(self):
+        prices = np.array([100.0, 101.0, 102.0, 103.0])
+        with self.assertRaises(TypeError):
+            backtest.forward_returns(prices, periods=1.5)
+        factor = np.array([[1.0, 2.0, 3.0], [3.0, 2.0, 1.0]])
+        forward = np.array([[0.1, 0.2, 0.3], [0.3, 0.2, 0.1]])
+        with self.assertRaises(TypeError):
+            backtest.quantile_portfolio_returns(factor, forward, n_quantiles=2.5)
+        with self.assertRaises(TypeError):
+            backtest.long_short_backtest(factor, forward, n_quantiles=2.5)
+
     def test_invalid_panels(self):
         with self.assertRaises(ValueError):
             backtest.factor_ic(np.zeros((2, 2)), np.zeros((3, 2)))

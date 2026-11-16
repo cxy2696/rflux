@@ -90,6 +90,13 @@ class TestGraphs(unittest.TestCase):
         )
         np.testing.assert_allclose(site.giant_mean, [0.0, 1.0])
 
+    def test_risk_diffusion_rejects_impossible_step_count(self):
+        adjacency = np.array([[0.0, 1.0], [1.0, 0.0]])
+        with self.assertRaises(ValueError):
+            percolab.risk_diffusion(
+                adjacency, [0], steps=int(np.iinfo(np.uintp).max)
+            )
+
     def test_risk_diffusion(self):
         result = percolab.risk_diffusion(
             COMPLETE,

@@ -172,7 +172,7 @@ RFLUX_API rflux_status rflux_atr(const double* high, const double* low,
 RFLUX_API rflux_status rflux_drawdown(const double* equity, size_t n,
                                       double* out);
 
-/* Rolling Pearson correlation.  out has length n. */
+/* Rolling Pearson correlation.  Window must be in [2, n]; out has length n. */
 RFLUX_API rflux_status rflux_rolling_corr(const double* x, const double* y,
                                           size_t n, size_t window,
                                           double* out);
@@ -373,7 +373,9 @@ RFLUX_API rflux_status rflux_hmm_score(const rflux_hmm* model,
 /*
  * Parameter buffers have lengths n_states, n_states*n_states, n_states*n_features
  * and n_states*n_features respectively: start probabilities, row-major
- * transition matrix, means, and diagonal variances.
+ * transition matrix, means, and diagonal variances.  The model must have been
+ * fitted or parameterised with rflux_hmm_set_parameters first; otherwise this
+ * returns RFLUX_ERR_MODEL_NOT_READY.
  */
 RFLUX_API rflux_status rflux_hmm_get_parameters(const rflux_hmm* model,
                                                 double* start_prob,
@@ -383,7 +385,8 @@ RFLUX_API rflux_status rflux_hmm_get_parameters(const rflux_hmm* model,
 
 /*
  * Install parameters, e.g. loaded from disk.  Makes the model ready for
- * inference; training diagnostics are invalidated.
+ * inference; training diagnostics are invalidated.  Values are validated but
+ * not re-floored, so exact structural zeros are preserved.
  */
 RFLUX_API rflux_status rflux_hmm_set_parameters(rflux_hmm* model,
                                                 const double* start_prob,
@@ -468,8 +471,9 @@ RFLUX_API rflux_status rflux_composite_regime(const int32_t* vol_labels,
 /* percolab: graph and percolation primitives                                */
 /* ------------------------------------------------------------------------- */
 
-/* dist[i,j] = sqrt(2 * (1 - corr[i,j])); corr must be a finite symmetric
- * n x n matrix with entries in [-1, 1].  out has length n*n. */
+/* dist[i,j] = sqrt(2 * (1 - corr[i,j])) for i != j; the diagonal is ignored
+ * and written as zero.  corr must be a finite symmetric n x n matrix with
+ * off-diagonal entries in [-1, 1].  out has length n*n. */
 RFLUX_API rflux_status rflux_corr_to_distance(const double* corr, size_t n,
                                               double* out);
 
