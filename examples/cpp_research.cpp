@@ -93,23 +93,61 @@ int main() {
               panel.end(), window.begin());
     const auto corr = rflux::qflux::correlation_matrix(
         window.data(), 120, assets);
-    const auto network =
-        rflux::percolab::connected_components(corr.data(), assets, 0.5);
+    std::vector<double> adjacency(assets * assets, 0.0);
+    for (std::size_t i = 0; i < assets; ++i) {
+        for (std::size_t j = i + 1; j < assets; ++j) {
+            const double value = corr[i * assets + j];
+            if (value >= 0.5) {
+                adjacency[i * assets + j] = value;
+                adjacency[j * assets + i] = value;
+            }
+        }
+    }
+    const auto network = rflux::percolab::connected_components(
+        adjacency.data(), assets, 0.5);
     std::printf("components=%zu largest=%zu\n", network.n_components,
                 network.largest_size);
     const auto strength =
-        rflux::percolab::strength(corr.data(), assets);
+        rflux::percolab::strength(adjacency.data(), assets);
     const auto centrality =
-        rflux::percolab::eigenvector_centrality(corr.data(), assets);
+        rflux::percolab::eigenvector_centrality(adjacency.data(), assets);
     for (std::size_t a = 0; a < assets; ++a) {
         std::printf("asset %zu: strength=%.3f eigen=%.3f\n", a,
                     strength[a], centrality[a]);
     }
+    const auto path =
+        rflux::percolab::path_statistics(adjacency.data(), assets);
+    std::printf(
+        "paths: efficiency=%.3f average=%.3f diameter=%zu connected=%s\n",
+        path.efficiency, path.average_path_length, path.diameter,
+        path.connected ? "yes" : "no");
+    const auto cores =
+        rflux::percolab::core_numbers(adjacency.data(), assets);
+    std::printf("core numbers:");
+    for (std::int32_t value : cores) std::printf(" %d", value);
+    std::printf(" | transitivity=%.3f\n",
+                rflux::percolab::transitivity(adjacency.data(), assets));
+
+    std::vector<std::uint32_t> removal_order(assets);
+    for (std::size_t a = 0; a < assets; ++a) {
+        removal_order[a] = static_cast<std::uint32_t>(a);
+    }
+    std::stable_sort(removal_order.begin(), removal_order.end(),
+                     [&](std::uint32_t left, std::uint32_t right) {
+                         return strength[left] > strength[right];
+                     });
+    const auto removal = rflux::percolab::targeted_removal(
+        adjacency.data(), assets, removal_order.data(), 5);
+    std::printf("targeted removal giant fraction:");
+    for (const auto& point : removal) {
+        std::printf(" %.2f", point.giant_fraction);
+    }
+    std::printf("\n");
 
     const std::vector<double> probabilities_scan = {0.0, 0.25, 0.5, 0.75,
                                                     1.0};
     const auto percolation = rflux::percolab::bond_percolation(
-        corr.data(), assets, probabilities_scan.data(),
+        adjacency.data(), assets, probabilities_scan.data(),
         probabilities_scan.size(), 200, 17);
     std::printf("bond percolation giant component:\n");
     for (const auto& point : percolation) {
@@ -120,7 +158,7 @@ int main() {
 
     const std::uint32_t seed_nodes[1] = {0};
     const auto diffusion = rflux::percolab::risk_diffusion(
-        corr.data(), assets, seed_nodes, 1, 2.0, 0.1, 20, 100, 17);
+        adjacency.data(), assets, seed_nodes, 1, 2.0, 0.1, 20, 100, 17);
     std::printf("risk diffusion final affected=%.3f\n",
                 diffusion.mean_affected.back());
     return 0;

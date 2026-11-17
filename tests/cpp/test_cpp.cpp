@@ -397,6 +397,125 @@ int test_graphs() {
     CHECK(approx(coefficients[1], 0.0));
     CHECK(std::isnan(coefficients[2]));
 
+    {
+        const std::vector<double> path4 = {
+            0, 1, 0, 0,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0};
+        const rflux::percolab::PathStats stats =
+            rflux::percolab::path_statistics(path4.data(), 4);
+        CHECK(approx(stats.efficiency, 13.0 / 18.0));
+        CHECK(approx(stats.average_path_length, 5.0 / 3.0));
+        CHECK(stats.diameter == 3);
+        CHECK(stats.n_reachable_pairs == 6);
+        CHECK(stats.connected);
+
+        const std::vector<double> split = {
+            0, 1, 0, 0,
+            1, 0, 0, 0,
+            0, 0, 0, 1,
+            0, 0, 1, 0};
+        const rflux::percolab::PathStats split_stats =
+            rflux::percolab::path_statistics(split.data(), 4);
+        CHECK(approx(split_stats.efficiency, 1.0 / 3.0));
+        CHECK(approx(split_stats.average_path_length, 1.0));
+        CHECK(split_stats.diameter == 1);
+        CHECK(split_stats.n_reachable_pairs == 2);
+        CHECK(!split_stats.connected);
+
+        const std::vector<double> single = {0.0};
+        const rflux::percolab::PathStats single_stats =
+            rflux::percolab::path_statistics(single.data(), 1);
+        CHECK(single_stats.efficiency == 0.0);
+        CHECK(std::isnan(single_stats.average_path_length));
+        CHECK(single_stats.diameter == 0);
+        CHECK(single_stats.n_reachable_pairs == 0);
+        CHECK(single_stats.connected);
+
+        const std::vector<std::int32_t> path_cores =
+            rflux::percolab::core_numbers(path4.data(), 4);
+        for (std::int32_t value : path_cores) CHECK(value == 1);
+
+        const std::vector<double> cycle4 = {
+            0, 1, 0, 1,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            1, 0, 1, 0};
+        const std::vector<std::int32_t> cycle_cores =
+            rflux::percolab::core_numbers(cycle4.data(), 4);
+        for (std::int32_t value : cycle_cores) CHECK(value == 2);
+
+        const std::vector<double> triangle_and_isolated = {
+            0, 1, 1, 0,
+            1, 0, 1, 0,
+            1, 1, 0, 0,
+            0, 0, 0, 0};
+        const std::vector<std::int32_t> mixed_cores =
+            rflux::percolab::core_numbers(triangle_and_isolated.data(), 4);
+        CHECK(mixed_cores[0] == 2 && mixed_cores[1] == 2);
+        CHECK(mixed_cores[2] == 2 && mixed_cores[3] == 0);
+
+        CHECK(approx(rflux::percolab::transitivity(path4.data(), 4), 0.0));
+        CHECK(approx(rflux::percolab::transitivity(cycle4.data(), 4), 0.0));
+        const std::vector<double> empty4(16, 0.0);
+        CHECK(std::isnan(rflux::percolab::transitivity(empty4.data(), 4)));
+
+        CHECK(approx(rflux::percolab::degree_assortativity(path4.data(), 4),
+                     -0.5));
+        const std::vector<double> star = {
+            0, 1, 1, 1,
+            1, 0, 0, 0,
+            1, 0, 0, 0,
+            1, 0, 0, 0};
+        CHECK(approx(rflux::percolab::degree_assortativity(star.data(), 4),
+                     -1.0));
+        const std::vector<double> complete4 = {
+            0, 1, 1, 1,
+            1, 0, 1, 1,
+            1, 1, 0, 1,
+            1, 1, 1, 0};
+        CHECK(approx(rflux::percolab::transitivity(complete4.data(), 4), 1.0));
+        const std::vector<std::int32_t> complete_cores =
+            rflux::percolab::core_numbers(complete4.data(), 4);
+        for (std::int32_t value : complete_cores) CHECK(value == 3);
+        CHECK(std::isnan(
+            rflux::percolab::degree_assortativity(complete4.data(), 4)));
+
+        const std::vector<double> two_triangles = {
+            0, 1, 1, 0, 0, 0,
+            1, 0, 1, 0, 0, 0,
+            1, 1, 0, 0, 0, 0,
+            0, 0, 0, 0, 1, 1,
+            0, 0, 0, 1, 0, 1,
+            0, 0, 0, 1, 1, 0};
+        const std::vector<std::int32_t> split_labels = {0, 0, 0, 1, 1, 1};
+        CHECK(approx(rflux::percolab::modularity(
+                         two_triangles.data(), 6, split_labels.data(), 2),
+                     0.5));
+        const std::vector<std::int32_t> one_label(6, 0);
+        CHECK(approx(rflux::percolab::modularity(
+                         two_triangles.data(), 6, one_label.data(), 1),
+                     0.0));
+        const std::vector<std::int32_t> halves = {0, 0, 1, 1};
+        CHECK(approx(rflux::percolab::modularity(
+                         complete4.data(), 4, halves.data(), 2),
+                     -1.0 / 6.0));
+
+        const std::vector<double> distances = {
+            0, 1, 3, 4,
+            1, 0, 2, 5,
+            3, 2, 0, 1,
+            4, 5, 1, 0};
+        const rflux::percolab::ComponentSummary clusters =
+            rflux::percolab::mst_clusters(distances.data(), 4, 1.5);
+        CHECK(clusters.n_components == 2);
+        CHECK(clusters.largest_size == 2);
+        CHECK(clusters.labels[0] == clusters.labels[1]);
+        CHECK(clusters.labels[2] == clusters.labels[3]);
+        CHECK(clusters.labels[0] != clusters.labels[2]);
+    }
+
     const std::vector<double> complete = {
         0, 1, 1, 1,
         1, 0, 1, 1,
@@ -429,6 +548,86 @@ int test_graphs() {
                 2, 20, 5);
         CHECK(approx(weighted_site[0].giant_mean, 0.0));
         CHECK(approx(weighted_site[1].giant_mean, 0.25));
+    }
+
+    {
+        const rflux::percolab::OccupationWeights none;
+        const std::vector<double> node_weights = {1.0, 0.0, 0.0, 0.0};
+        rflux::percolab::OccupationWeights site_weights;
+        site_weights.node = node_weights.data();
+        const std::vector<rflux::percolab::PercolationPoint> general_site =
+            rflux::percolab::percolation_scan(
+                complete.data(), 4, rflux::percolab::PercolationKind::site,
+                site_weights, probabilities.data(), 2, 20, 5);
+        CHECK(approx(general_site[1].giant_mean, 0.25));
+        const std::vector<rflux::percolab::PercolationPoint> general_bond =
+            rflux::percolab::percolation_scan(
+                complete.data(), 4, rflux::percolab::PercolationKind::bond,
+                none, probabilities.data(), 2, 20, 5);
+        CHECK(approx(general_bond[0].giant_mean, 0.25));
+        CHECK(approx(general_bond[1].giant_mean, 1.0));
+
+        bool threw = false;
+        try {
+            rflux::percolab::OccupationWeights invalid;
+            invalid.node = node_weights.data();
+            (void)rflux::percolab::percolation_scan(
+                complete.data(), 4, rflux::percolab::PercolationKind::bond,
+                invalid, probabilities.data(), 2, 20, 5);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        CHECK(threw);
+
+        const std::vector<double> empty_distribution =
+            rflux::percolab::cluster_size_distribution(
+                complete.data(), 4, rflux::percolab::PercolationKind::bond,
+                none, 0.0, 5, 7);
+        CHECK(empty_distribution.size() == 5);
+        CHECK(approx(empty_distribution[1], 4.0));
+        CHECK(approx(empty_distribution[4], 0.0));
+        const std::vector<double> full_distribution =
+            rflux::percolab::cluster_size_distribution(
+                complete.data(), 4, rflux::percolab::PercolationKind::bond,
+                none, 1.0, 5, 7);
+        CHECK(approx(full_distribution[4], 1.0));
+        const std::vector<double> site_empty_distribution =
+            rflux::percolab::cluster_size_distribution(
+                complete.data(), 4, rflux::percolab::PercolationKind::site,
+                none, 0.0, 5, 7);
+        for (double value : site_empty_distribution) CHECK(value == 0.0);
+
+        const std::uint32_t order[4] = {0, 1, 2, 3};
+        const std::vector<rflux::percolab::RemovalPoint> curve =
+            rflux::percolab::targeted_removal(complete.data(), 4, order, 4);
+        CHECK(curve.size() == 5);
+        const double expected_giant[5] = {1.0, 0.75, 0.5, 0.25, 0.0};
+        for (std::size_t i = 0; i < curve.size(); ++i) {
+            CHECK(curve[i].removed == i);
+            CHECK(approx(curve[i].giant_fraction, expected_giant[i]));
+            CHECK(approx(curve[i].finite_susceptibility, 0.0));
+        }
+        CHECK(curve[0].n_components == 1);
+        CHECK(curve[4].n_components == 0);
+
+        const std::vector<double> path4 = {
+            0, 1, 0, 0,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0};
+        const std::uint32_t path_order[4] = {1, 2, 0, 3};
+        const std::vector<rflux::percolab::RemovalPoint> path_curve =
+            rflux::percolab::targeted_removal(path4.data(), 4, path_order, 2);
+        CHECK(path_curve.size() == 3);
+        CHECK(path_curve[0].removed == 0);
+        CHECK(approx(path_curve[0].giant_fraction, 1.0));
+        CHECK(path_curve[1].removed == 2);
+        CHECK(approx(path_curve[1].giant_fraction, 0.25));
+        CHECK(approx(path_curve[1].finite_susceptibility, 0.25));
+        CHECK(path_curve[1].n_components == 2);
+        CHECK(path_curve[2].removed == 4);
+        CHECK(approx(path_curve[2].giant_fraction, 0.0));
+        CHECK(path_curve[2].n_components == 0);
     }
 
     const std::uint32_t seeds[1] = {0};

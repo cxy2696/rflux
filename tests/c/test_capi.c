@@ -531,6 +531,59 @@ static int test_graphs(void) {
     }
 
     {
+        const double path4[16] = {
+            0, 1, 0, 0,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0};
+        double efficiency = 0.0;
+        double average_path_length = 0.0;
+        size_t diameter = 0;
+        size_t reachable = 0;
+        int32_t connected = 0;
+        CHECK(rflux_network_path_stats(path4, 4, &efficiency,
+                                       &average_path_length, &diameter,
+                                       &reachable, &connected) == RFLUX_OK);
+        CHECK(approx(efficiency, 13.0 / 18.0, 1e-12));
+        CHECK(approx(average_path_length, 5.0 / 3.0, 1e-12));
+        CHECK(diameter == 3 && reachable == 6 && connected == 1);
+
+        int32_t cores[4];
+        CHECK(rflux_network_core_numbers(path4, 4, cores) == RFLUX_OK);
+        for (size_t i = 0; i < 4; ++i) CHECK(cores[i] == 1);
+
+        double global_clustering = 0.0;
+        CHECK(rflux_network_transitivity(path4, 4, &global_clustering) ==
+              RFLUX_OK);
+        CHECK(approx(global_clustering, 0.0, 1e-12));
+        double assortativity = 0.0;
+        CHECK(rflux_network_assortativity(path4, 4, &assortativity) ==
+              RFLUX_OK);
+        CHECK(approx(assortativity, -0.5, 1e-12));
+        const int32_t partition[4] = {0, 0, 1, 1};
+        double modularity = 0.0;
+        CHECK(rflux_network_modularity(path4, 4, partition, 2, &modularity) ==
+              RFLUX_OK);
+        CHECK(approx(modularity, 1.0 / 6.0, 1e-12));
+        CHECK(rflux_network_modularity(path4, 4, partition, 5, &modularity) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+        CHECK(rflux_network_path_stats(path4, 4, NULL, &average_path_length,
+                                       &diameter, &reachable, &connected) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+
+        const double distances[16] = {
+            0, 1, 3, 4,
+            1, 0, 2, 5,
+            3, 2, 0, 1,
+            4, 5, 1, 0};
+        CHECK(rflux_mst_clusters(distances, 4, 1.5, labels, &n_components,
+                                 &largest) == RFLUX_OK);
+        CHECK(n_components == 2 && largest == 2);
+        CHECK(labels[0] == labels[1] && labels[2] == labels[3]);
+        CHECK(labels[0] != labels[2]);
+    }
+
+    {
         uint32_t u[3], v[3];
         double w[3];
         CHECK(rflux_network_mst(distance, 4, u, v, w, &n_edges) == RFLUX_OK);
@@ -611,6 +664,57 @@ static int test_graphs(void) {
                   giant_std, susceptibility) == RFLUX_OK);
         CHECK(approx(giant[0], 0.0, 1e-12));
         CHECK(approx(giant[1], 0.25, 1e-12));
+    }
+
+    {
+        const double complete[16] = {
+            0, 1, 1, 1,
+            1, 0, 1, 1,
+            1, 1, 0, 1,
+            1, 1, 1, 0};
+        const double probabilities[2] = {0.0, 1.0};
+        const double node_weights[4] = {1.0, 0.0, 0.0, 0.0};
+        double giant[2], giant_std[2], susceptibility[2];
+        CHECK(rflux_percolation_scan(complete, 4, NULL, node_weights, 1,
+                                     probabilities, 2, 20, 3, giant, giant_std,
+                                     susceptibility) == RFLUX_OK);
+        CHECK(approx(giant[0], 0.0, 1e-12));
+        CHECK(approx(giant[1], 0.25, 1e-12));
+        CHECK(rflux_percolation_scan(complete, 4, NULL, node_weights, 2,
+                                     probabilities, 2, 20, 3, giant, giant_std,
+                                     susceptibility) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+        CHECK(rflux_percolation_scan(complete, 4, NULL, node_weights, 0,
+                                     probabilities, 2, 20, 3, giant, giant_std,
+                                     susceptibility) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+
+        double distribution[5];
+        CHECK(rflux_cluster_size_distribution(complete, 4, NULL, NULL, 0, 0.0,
+                                              5, 7, distribution) == RFLUX_OK);
+        CHECK(distribution[0] == 0.0);
+        CHECK(approx(distribution[1], 4.0, 1e-12));
+        CHECK(approx(distribution[4], 0.0, 1e-12));
+        CHECK(rflux_cluster_size_distribution(complete, 4, NULL, NULL, 0, 1.0,
+                                              5, 7, distribution) == RFLUX_OK);
+        CHECK(approx(distribution[4], 1.0, 1e-12));
+
+        const uint32_t order[4] = {0, 1, 2, 3};
+        size_t removed[5];
+        double giant_curve[5];
+        double susceptibility_curve[5];
+        size_t components[5];
+        CHECK(rflux_targeted_removal(complete, 4, order, 4, removed,
+                                     giant_curve, susceptibility_curve,
+                                     components) == RFLUX_OK);
+        CHECK(removed[0] == 0 && removed[4] == 4);
+        CHECK(approx(giant_curve[0], 1.0, 1e-12));
+        CHECK(approx(giant_curve[4], 0.0, 1e-12));
+        CHECK(components[0] == 1 && components[4] == 0);
+        CHECK(rflux_targeted_removal(complete, 4, order, 0, removed,
+                                     giant_curve, susceptibility_curve,
+                                     components) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
 
     {

@@ -200,6 +200,417 @@ class TestGraphs(unittest.TestCase):
         self.assertEqual(network.correlation.shape, (4, 4))
         self.assertEqual(network.components.labels.size, 4)
         self.assertEqual(network.mst.weight.size, 3)
+        self.assertEqual(network.core_numbers.shape, (4,))
+        self.assertTrue(np.isfinite(network.path_stats.efficiency))
+        self.assertIn(network.path_stats.connected, (True, False))
+
+    def test_path_statistics(self):
+        path4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        stats = percolab.path_statistics(path4)
+        self.assertAlmostEqual(stats.efficiency, 13.0 / 18.0, places=12)
+        self.assertAlmostEqual(
+            stats.average_path_length, 5.0 / 3.0, places=12
+        )
+        self.assertEqual(stats.diameter, 3)
+        self.assertEqual(stats.n_reachable_pairs, 6)
+        self.assertTrue(stats.connected)
+
+        split = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        split_stats = percolab.path_statistics(split)
+        self.assertAlmostEqual(split_stats.efficiency, 1.0 / 3.0, places=12)
+        self.assertAlmostEqual(split_stats.average_path_length, 1.0)
+        self.assertEqual(split_stats.diameter, 1)
+        self.assertEqual(split_stats.n_reachable_pairs, 2)
+        self.assertFalse(split_stats.connected)
+
+        single = percolab.path_statistics(np.zeros((1, 1)))
+        self.assertEqual(single.efficiency, 0.0)
+        self.assertTrue(np.isnan(single.average_path_length))
+        self.assertEqual(single.diameter, 0)
+        self.assertEqual(single.n_reachable_pairs, 0)
+        self.assertTrue(single.connected)
+
+        with self.assertRaises(RFluxError):
+            percolab.path_statistics(np.array([[0.0, 1.0], [0.0, 0.0]]))
+
+    def test_core_numbers(self):
+        path4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        np.testing.assert_array_equal(
+            percolab.core_numbers(path4), [1, 1, 1, 1]
+        )
+        cycle4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        np.testing.assert_array_equal(
+            percolab.core_numbers(cycle4), [2, 2, 2, 2]
+        )
+        complete = np.ones((4, 4)) - np.eye(4)
+        np.testing.assert_array_equal(
+            percolab.core_numbers(complete), [3, 3, 3, 3]
+        )
+        mixed = np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ]
+        )
+        np.testing.assert_array_equal(
+            percolab.core_numbers(mixed), [2, 2, 2, 0]
+        )
+        np.testing.assert_array_equal(
+            percolab.core_numbers(np.zeros((2, 2))), [0, 0]
+        )
+        np.testing.assert_array_equal(
+            percolab.core_numbers(np.zeros((1, 1))), [0]
+        )
+
+    def test_core_numbers_match_bruteforce(self):
+        rng = np.random.default_rng(7)
+        for _ in range(25):
+            n = 6
+            matrix = np.zeros((n, n))
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if rng.random() < 0.4:
+                        matrix[i, j] = matrix[j, i] = 1.0
+            expected = np.zeros(n, dtype=np.int32)
+            for k in range(1, n + 1):
+                alive = set(range(n))
+                while True:
+                    removed = {
+                        node
+                        for node in alive
+                        if sum(
+                            1
+                            for other in alive
+                            if other != node and matrix[node, other] > 0.0
+                        )
+                        < k
+                    }
+                    if not removed:
+                        break
+                    alive -= removed
+                for node in alive:
+                    expected[node] = max(expected[node], k)
+            np.testing.assert_array_equal(
+                percolab.core_numbers(matrix), expected
+            )
+
+    def test_transitivity_assortativity_modularity(self):
+        complete = np.ones((4, 4)) - np.eye(4)
+        self.assertAlmostEqual(percolab.transitivity(complete), 1.0)
+        path4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        self.assertAlmostEqual(percolab.transitivity(path4), 0.0)
+        self.assertTrue(np.isnan(percolab.transitivity(np.zeros((4, 4)))))
+        self.assertAlmostEqual(percolab.assortativity(path4), -0.5)
+        star = np.zeros((4, 4))
+        star[0, 1:] = 1.0
+        star[1:, 0] = 1.0
+        self.assertAlmostEqual(percolab.assortativity(star), -1.0)
+        self.assertTrue(np.isnan(percolab.assortativity(complete)))
+        self.assertTrue(np.isnan(percolab.transitivity(np.zeros((1, 1)))))
+        self.assertTrue(np.isnan(percolab.assortativity(np.zeros((1, 1)))))
+
+        two_triangles = np.zeros((6, 6))
+        for i, j in ((0, 1), (0, 2), (1, 2), (3, 4), (3, 5), (4, 5)):
+            two_triangles[i, j] = 1.0
+            two_triangles[j, i] = 1.0
+        labels = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+        self.assertAlmostEqual(
+            percolab.modularity(two_triangles, labels), 0.5
+        )
+        self.assertAlmostEqual(
+            percolab.modularity(two_triangles, np.zeros(6, dtype=np.int32)),
+            0.0,
+        )
+        self.assertAlmostEqual(
+            percolab.modularity(complete, np.array([0, 0, 1, 1])),
+            -1.0 / 6.0,
+        )
+        self.assertAlmostEqual(
+            percolab.modularity(0.5 * complete, np.array([0, 0, 1, 1])),
+            -1.0 / 6.0,
+        )
+        with self.assertRaises(ValueError):
+            percolab.modularity(two_triangles, [0, 0, 0])
+        with self.assertRaises(ValueError):
+            percolab.modularity(two_triangles, [-1, 0, 0, 1, 1, 1])
+        sparse_labels = np.array([0, 0, 0, 10, 10, 10])
+        self.assertAlmostEqual(
+            percolab.modularity(two_triangles, sparse_labels), 0.5
+        )
+        self.assertTrue(
+            np.isnan(percolab.modularity(np.zeros((2, 2)), [0, 1]))
+        )
+        with self.assertRaises(RFluxError):
+            percolab.modularity(
+                np.array([[0.0, np.nan], [np.nan, 0.0]]), [0, 1]
+            )
+
+    def test_mst_clusters(self):
+        distance = np.array(
+            [
+                [0.0, 1.0, 3.0, 4.0],
+                [1.0, 0.0, 2.0, 5.0],
+                [3.0, 2.0, 0.0, 1.0],
+                [4.0, 5.0, 1.0, 0.0],
+            ]
+        )
+        clusters = percolab.mst_clusters(distance, 1.5)
+        self.assertEqual(clusters.n_components, 2)
+        self.assertEqual(clusters.largest_size, 2)
+        self.assertEqual(clusters.labels[0], clusters.labels[1])
+        self.assertEqual(clusters.labels[2], clusters.labels[3])
+        self.assertNotEqual(clusters.labels[0], clusters.labels[2])
+        merged = percolab.mst_clusters(distance, 2.0)
+        self.assertEqual(merged.n_components, 1)
+        separated = percolab.mst_clusters(distance, 0.5)
+        self.assertEqual(separated.n_components, 4)
+        single = percolab.mst_clusters(np.zeros((1, 1)), 0.0)
+        self.assertEqual(single.n_components, 1)
+        self.assertEqual(single.largest_size, 1)
+
+    def test_general_percolation_and_distribution(self):
+        complete = np.ones((4, 4)) - np.eye(4)
+        probabilities = [0.0, 1.0]
+        baseline = percolab.bond_percolation(
+            complete, probabilities, repetitions=20, seed=3
+        )
+        generic = percolab.percolation_scan(
+            complete, probabilities, repetitions=20, seed=3
+        )
+        np.testing.assert_allclose(generic.giant_mean, baseline.giant_mean)
+        np.testing.assert_allclose(generic.giant_std, baseline.giant_std)
+        np.testing.assert_allclose(
+            generic.susceptibility, baseline.susceptibility
+        )
+
+        node_weights = [1.0, 0.0, 0.0, 0.0]
+        weighted = percolab.site_percolation_weighted(
+            complete, node_weights, probabilities, repetitions=20, seed=3
+        )
+        generic_site = percolab.percolation_scan(
+            complete,
+            probabilities,
+            kind="site",
+            node_weights=node_weights,
+            repetitions=20,
+            seed=3,
+        )
+        np.testing.assert_allclose(
+            generic_site.giant_mean, weighted.giant_mean
+        )
+
+        edge_weights = np.full((4, 4), 0.5)
+        np.fill_diagonal(edge_weights, 0.0)
+        separate = percolab.percolation_scan(
+            complete,
+            [0.0],
+            edge_weights=edge_weights,
+            repetitions=5,
+            seed=1,
+        )
+        np.testing.assert_allclose(separate.giant_mean, [0.25])
+
+        with self.assertRaises(ValueError):
+            percolab.percolation_scan(
+                complete, probabilities, kind="bond", node_weights=node_weights
+            )
+        with self.assertRaises(ValueError):
+            percolab.percolation_scan(
+                complete, probabilities, kind="site", edge_weights=edge_weights
+            )
+        with self.assertRaises(ValueError):
+            percolab.percolation_scan(complete, probabilities, kind="other")
+        with self.assertRaises(ValueError):
+            percolab.percolation_scan(complete, [])
+
+        bond_distribution = percolab.cluster_size_distribution(
+            complete, 0.0, repetitions=5, seed=7
+        )
+        np.testing.assert_allclose(
+            bond_distribution, [0.0, 4.0, 0.0, 0.0, 0.0]
+        )
+        full_distribution = percolab.cluster_size_distribution(
+            complete, 1.0, repetitions=5, seed=7
+        )
+        np.testing.assert_allclose(
+            full_distribution, [0.0, 0.0, 0.0, 0.0, 1.0]
+        )
+        site_distribution = percolab.cluster_size_distribution(
+            complete, 0.0, kind="site", repetitions=5, seed=7
+        )
+        np.testing.assert_allclose(site_distribution, np.zeros(5))
+        random_distribution = percolab.cluster_size_distribution(
+            complete, 0.5, repetitions=50, seed=11
+        )
+        bond_mass = sum(
+            size * random_distribution[size] for size in range(1, 5)
+        )
+        self.assertAlmostEqual(float(bond_mass), 4.0, places=12)
+        site_random = percolab.cluster_size_distribution(
+            complete, 0.5, kind="site", repetitions=50, seed=11
+        )
+        site_mass = sum(size * site_random[size] for size in range(1, 5))
+        self.assertGreaterEqual(float(site_mass), 0.0)
+        self.assertLessEqual(float(site_mass), 4.0)
+        edge_binary = np.zeros((4, 4))
+        edge_binary[0, 1] = edge_binary[1, 0] = 1.0
+        weighted_distribution = percolab.cluster_size_distribution(
+            complete, 1.0, edge_weights=edge_binary, repetitions=3, seed=7
+        )
+        np.testing.assert_allclose(
+            weighted_distribution, [0.0, 2.0, 1.0, 0.0, 0.0]
+        )
+        site_weighted_distribution = percolab.cluster_size_distribution(
+            complete,
+            1.0,
+            kind="site",
+            node_weights=[1.0, 0.0, 0.0, 0.0],
+            repetitions=3,
+            seed=7,
+        )
+        np.testing.assert_allclose(
+            site_weighted_distribution, [0.0, 1.0, 0.0, 0.0, 0.0]
+        )
+        with self.assertRaises(ValueError):
+            percolab.cluster_size_distribution(complete, 1.5)
+
+    def test_targeted_removal_and_core_percolation(self):
+        complete = np.ones((4, 4)) - np.eye(4)
+        curve = percolab.targeted_removal(
+            complete, order=[0, 1, 2, 3], checkpoints=4
+        )
+        np.testing.assert_array_equal(curve.removed, [0, 1, 2, 3, 4])
+        np.testing.assert_allclose(
+            curve.giant_fraction, [1.0, 0.75, 0.5, 0.25, 0.0]
+        )
+        np.testing.assert_allclose(curve.susceptibility, np.zeros(5))
+        np.testing.assert_array_equal(curve.n_components, [1, 1, 1, 1, 0])
+
+        path4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        path_curve = percolab.targeted_removal(
+            path4, order=[1, 2, 0, 3], checkpoints=2
+        )
+        np.testing.assert_array_equal(path_curve.removed, [0, 2, 4])
+        np.testing.assert_allclose(
+            path_curve.giant_fraction, [1.0, 0.25, 0.0]
+        )
+        np.testing.assert_allclose(
+            path_curve.susceptibility, [0.0, 0.25, 0.0]
+        )
+
+        for strategy in (
+            "strength",
+            "degree",
+            "eigenvector",
+            "betweenness",
+            "core",
+        ):
+            order = percolab.removal_order(complete, strategy)
+            np.testing.assert_array_equal(np.sort(order), np.arange(4))
+        star = np.zeros((4, 4))
+        star[0, 1:] = 1.0
+        star[1:, 0] = 1.0
+        self.assertEqual(int(percolab.removal_order(star, "degree")[0]), 0)
+        self.assertEqual(int(percolab.removal_order(star, "strength")[0]), 0)
+
+        with self.assertRaises(ValueError):
+            percolab.targeted_removal(complete, order=[0, 0, 1, 2])
+        with self.assertRaises(ValueError):
+            percolab.targeted_removal(complete, checkpoints=0)
+        dense = percolab.targeted_removal(
+            np.zeros((2, 2)), checkpoints=4
+        )
+        np.testing.assert_array_equal(dense.removed, [0, 0, 1, 1, 2])
+
+        core_curve = percolab.core_percolation(complete)
+        np.testing.assert_array_equal(core_curve.k, [1, 2, 3])
+        np.testing.assert_allclose(core_curve.core_fraction, [1.0, 1.0, 1.0])
+        np.testing.assert_array_equal(core_curve.n_nodes, [4, 4, 4])
+        empty_curve = percolab.core_percolation(np.zeros((3, 3)))
+        self.assertEqual(empty_curve.k.size, 0)
+        self.assertEqual(empty_curve.core_fraction.size, 0)
+
+    def test_scan_summary_helpers(self):
+        scan = percolab.bond_percolation(
+            COMPLETE, [0.0, 1.0], repetitions=20, seed=3
+        )
+        self.assertEqual(scan.critical_probability(), 0.0)
+        self.assertAlmostEqual(scan.max_susceptibility(), 0.75)
+        self.assertAlmostEqual(scan.giant_area(), 0.625)
+        empty = percolab.PercolationScan(
+            probabilities=np.array([]),
+            giant_mean=np.array([]),
+            giant_std=np.array([]),
+            susceptibility=np.array([]),
+        )
+        self.assertTrue(np.isnan(empty.critical_probability()))
+        self.assertTrue(np.isnan(empty.max_susceptibility()))
+        self.assertEqual(empty.giant_area(), 0.0)
+
+    def test_network_diagnostics(self):
+        triangle = np.full((3, 3), 0.8)
+        np.fill_diagonal(triangle, 1.0)
+        network = percolab.network_from_correlation(triangle, 0.5)
+        self.assertAlmostEqual(network.path_stats.efficiency, 1.0)
+        self.assertAlmostEqual(network.path_stats.average_path_length, 1.0)
+        self.assertEqual(network.path_stats.diameter, 1)
+        self.assertTrue(network.path_stats.connected)
+        np.testing.assert_array_equal(network.core_numbers, [2, 2, 2])
+        self.assertEqual(network.max_core, 2)
+        self.assertAlmostEqual(network.transitivity, 1.0)
+        self.assertTrue(np.isnan(network.assortativity))
+
+        network = percolab.network_from_correlation(CORR, 0.5)
+        self.assertEqual(network.components.n_components, 2)
+        self.assertFalse(network.path_stats.connected)
+        self.assertAlmostEqual(network.path_stats.efficiency, 1.0 / 3.0)
+        self.assertEqual(network.path_stats.n_reachable_pairs, 2)
+        np.testing.assert_array_equal(network.core_numbers, [1, 1, 1, 1])
+        self.assertEqual(network.max_core, 1)
 
 
 if __name__ == "__main__":

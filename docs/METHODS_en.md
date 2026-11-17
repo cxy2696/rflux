@@ -407,6 +407,7 @@ The MST uses Kruskal's algorithm and returns n-1 edges. The distance matrix must
 - Strength: $\sum_{j\ne i}w_{ij}$ on a non-negative symmetric adjacency.
 - Eigenvector centrality: L2-normalised power iteration on $A+I$ . Adding the identity does not change eigenvectors; it shifts the spectrum and prevents period-2 oscillation on bipartite graphs. An all-zero graph returns zeros. Non-convergence raises a numerical error.
 - Local clustering coefficient: actual neighbour-neighbour edges divided by possible edges. Degree below 2 gives NaN.
+- Global clustering coefficient (transitivity): with $t$ triangles and $q=\sum_i \binom{d_i}{2}$ connected triples, the value is $T=3t/q$ . It is NaN when $q=0$ .
 - PageRank: power iteration on a non-negative weighted directed adjacency with damping $d\in[0,1)$ . A dangling row (zero outgoing weight) spreads its current mass uniformly across all nodes, and each step adds the $(1-d)/n$ teleport term. Non-convergence raises a numerical error.
 - Brandes betweenness centrality: BFS from every source on an undirected unweighted graph, accumulating shortest-path dependencies. `normalized=1` divides by the maximum undirected betweenness $(n-1)(n-2)/2$.
 
@@ -418,9 +419,55 @@ $$
 
 $D$ is the set of dangling rows; rows with zero sum do not contribute to $P$. The final vector is normalised to sum to one.
 
-Except for PageRank, graph functions require a symmetric matrix and ignore the diagonal. PageRank uses directed adjacency, where a row lists outgoing edges.
+Except for PageRank, graph functions require a symmetric matrix and ignore the diagonal. `connected_components()` accepts any finite symmetric matrix because it only compares weights with a threshold, and `correlation_to_distance()` accepts correlations in $[-1,1]$ ; the remaining undirected graph functions require non-negative entries. PageRank uses directed adjacency, where a row lists outgoing edges.
 
-### 6.3 Bond and site percolation
+### 6.3 Shortest paths, k-cores, assortativity and modularity
+
+Path statistics, k-core numbers and degree assortativity treat $A_{ij}>0$ as an unweighted edge and ignore the diagonal; modularity uses the edge weights themselves.
+
+**Path statistics.** Run BFS from every source. For ordered pairs $i\ne j$ , let $d_{ij}$ be the shortest-path length, with $1/d_{ij}=0$ when no path exists. Global efficiency and average path length are
+
+$$
+E=\frac{1}{n(n-1)}\sum_{i\ne j}\frac{1}{d_{ij}},
+\qquad
+\bar d=\frac{1}{|\mathcal P|}\sum_{\{i,j\}\in\mathcal P} d_{ij}
+$$
+
+where $\mathcal P$ is the set of reachable unordered pairs. `diameter` is the largest finite $d_{ij}$ , and `connected` is true when every unordered pair is reachable. For $n=1$ , $E=0$ , $\bar d$ is NaN, `diameter` is 0 and `connected` is true. Average path length deliberately averages over reachable pairs only; the all-pairs value would be undefined for disconnected graphs.
+
+**k-core and core percolation.** The core number $c_v$ is the largest k such that v belongs to the k-core, the maximal induced subgraph with minimum degree at least k. Isolated nodes have $c_v=0$ . The implementation uses Batagelj-Zaveršnik degree-bucket peeling, which is $O(n^2)$ on a dense matrix. Removing every node with $c_v<k$ leaves exactly the k-core. This is the fixed point of the deterministic k-core pruning process (often called core percolation), not a random bootstrap percolation process. The fraction $\#\{v:c_v\ge k\}/n$ is the k-core size fraction; `core_percolation()` reports it without Monte Carlo. It counts all surviving nodes and does not require the k-core to be connected.
+
+**Degree assortativity.** Newman's edge-end correlation for an undirected unweighted graph with M edges:
+
+$$
+r=\frac{M^{-1}\sum_e j_e k_e-\left[M^{-1}\sum_e (j_e+k_e)/2\right]^2}
+{M^{-1}\sum_e (j_e^2+k_e^2)/2-\left[M^{-1}\sum_e (j_e+k_e)/2\right]^2}
+$$
+
+$j_e$ and $k_e$ are the degrees of the edge endpoints. The result is NaN when $M=0$ or all degrees are equal, because the denominator is zero.
+
+**Modularity.** For a partition with communities c, weighted adjacency $A_{ij}$ , strength $k_i=\sum_{j\ne i}A_{ij}$ and $2m=\sum_i k_i$ :
+
+$$
+Q=\sum_c\left(\frac{\sum_{i,j\in c}A_{ij}}{2m}
+-\left(\frac{\sum_{i\in c}k_i}{2m}\right)^2\right)
+$$
+
+The diagonal is ignored. The C and C++ entry points take an explicit $n\_labels$ in $[1,n]$ and require every label to lie in $[0,n\_labels)$ ; the Python wrapper accepts arbitrary non-negative labels and remaps them to contiguous communities. $Q$ is NaN when $2m=0$ . The result is not clipped, so floating-point round-off can put it a few ulps outside $[-1,1]$ .
+
+**MST single-linkage clusters.** Cutting MST edges with distance greater than `threshold` labels the remaining components. Because the MST preserves connectivity between any two nodes at every distance cutoff, this equals connected components of the graph of all edges with distance at most `threshold`. Labels follow each component's smallest node.
+
+### 6.4 Targeted node removal
+
+A removal order is a permutation $\pi$ of the node indices. After r removals only $\{\pi_{r+1},\dots,\pi_n\}$ remain and edges are those of the induced subgraph. `targeted_removal()` reports at $r_k=\lfloor k n / K\rfloor$ for $k=0,\dots,K$ :
+
+- `giant_fraction` $s_{max}/n$ ;
+- `susceptibility` $\sum_{C\ne C_{max}}|C|^2/n$ ;
+- `n_components`.
+
+`checkpoints` K must be positive; when it exceeds n some reported points repeat. The procedure is deterministic. `removal_order()` supplies strength, degree, eigenvector, betweenness or core-number ordering; ties keep ascending node order. This is a static attack curve: it does not recompute centrality after each removal.
+
+### 6.5 Bond and site percolation
 
 Bond:
 
@@ -435,6 +482,10 @@ Site:
 - Giant fractions always use the original node count n as denominator.
 Weighted variants multiply the probability by a weight and cap it at one: a bond edge $i,j$ is retained with $\min(1,p w_{ij})$; site node i survives with $\min(1,p v_i)$. Weights must be finite and non-negative. This lets correlation strength, exposure or custom CSV edge weights feed the same scan.
 
+The general `percolation_scan()` separates the candidate graph from occupation weights. Candidate edges are still $A_{ij}>0$ , but bond retention can use an independent symmetric edge-weight matrix and site survival can use an independent node-weight vector. The convenience wrappers set the edge weights to the adjacency or the node weights to the supplied vector. Passing a weight that does not belong to the selected kind is an invalid argument, so a misspelled argument cannot silently change the model.
+
+At one probability, `cluster_size_distribution()` reports the mean number of components of each size $1..n$ ; index 0 is always zero and the largest cluster is included. The Python scan helpers report `critical_probability()` as the probability with the largest susceptibility (first smallest p on ties), `max_susceptibility()` and `giant_area()`, the trapezoidal integral of the giant-fraction curve over the scanned probabilities. These are finite-size descriptive summaries, not extrapolated critical exponents.
+
 For each p and R repetitions:
 
 $$
@@ -446,9 +497,9 @@ $$
 \frac{\sum_{C\ne C_{max}}|C|^2}{n}
 $$
 
-`giant_std` is the population standard deviation of the giant fraction. `susceptibility` excludes the largest cluster and describes the growth of finite clusters near the critical region; it is not the strict infinite-system susceptibility.
+`giant_std` is the population standard deviation of the giant fraction, accumulated with Welford's recurrence. `susceptibility` excludes the largest cluster and describes the growth of finite clusters near the critical region; it is not the strict infinite-system susceptibility. For each repetition index, the scan reuses the same RNG seed at every probability (common random numbers), so points in one scan are coupled; this lowers difference noise but they are not independent samples. `cluster_size_distribution()` uses the same seed-per-repetition convention.
 
-### 6.4 SIR risk diffusion
+### 6.6 SIR risk diffusion
 
 Each step:
 

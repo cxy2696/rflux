@@ -3,6 +3,49 @@
 Notable changes are listed here. Numerical definitions, missing-value rules and
 causal semantics are called out explicitly when they change.
 
+## Unreleased
+
+No version bump and no release tag yet. The C ABI compatibility version remains
+`1`; this change adds functions only and does not alter existing layouts or
+signatures.
+
+- Added shortest-path statistics for undirected unweighted graphs: global
+  efficiency, average path length over reachable pairs, diameter, reachable-pair
+  count and a connectivity flag, through C++, the C ABI and Python.
+- Added Batagelj-Zaveršnik k-core decomposition, global transitivity (3 x
+  triangles / connected triples), Newman degree assortativity and Newman
+  modularity of a weighted partition, through C++, the C ABI and Python.
+  Python remaps arbitrary non-negative community labels to contiguous indices.
+- Added single-linkage MST clustering at a distance cutoff, sharing the Kruskal
+  implementation with the existing minimum spanning tree instead of validating
+  and sorting the matrix twice.
+- Added a generalized `percolation_scan` that separates the candidate graph
+  from optional edge- or node-occupation weights. The four existing bond/site
+  wrappers now delegate to it, removing duplicated scan and trial code.
+- Added mean cluster-size distributions at one occupation probability and
+  deterministic targeted node-removal (attack) curves through C++, the C ABI and
+  Python.
+- Added Python `core_percolation` (deterministic k-core pruning curve),
+  `removal_order` strategies (strength, degree, eigenvector, betweenness, core),
+  and percolation scan summaries (`critical_probability`, `max_susceptibility`,
+  `giant_area`).
+- Extended `CorrelationNetwork` with `path_stats`, `core_numbers`,
+  `transitivity`, `assortativity` and `max_core`, and included the new metrics
+  in the `analyze` network report.
+- Replaced the percolation `E[x^2] - E[x]^2` variance with Welford's
+  population-variance recurrence and verified it against independent
+  single-replicate calls; the finite-cluster susceptibility definition is
+  unchanged.
+- Shared graph labels in `graph_types.hpp`, a single unweighted-neighbour
+  builder, a single Kruskal implementation and one occupation-weight validator
+  to remove duplicate validation and traversal code.
+- Added analytic regression tests for paths, k-cores, transitivity,
+  assortativity, modularity, MST clusters, generalized percolation, cluster
+  distributions and targeted removal in the C, C++ and Python suites, plus
+  brute-force fuzz checks during development.
+- Added bilingual method notes, network-risk application notes, updated README
+  scope and examples. No tag or release was published.
+
 ## 0.5.0 — 2026-11-17
 
 This is the rflux 0.5.0 release. The C ABI compatibility version remains `1`;

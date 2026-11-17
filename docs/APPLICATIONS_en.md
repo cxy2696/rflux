@@ -1,8 +1,8 @@
-# Applications: portfolio risk and regime attribution
+# Applications: portfolio risk, regime attribution and network risk
 
 [中文](APPLICATIONS_cn.md) · [Back to English guide](../README_en.md)
 
-These two application-level functions sit on top of the tested `qflux` and `metrics` kernels. They add no new numerical kernel; they make the input, estimator and annualisation explicit so a result can be checked later.
+These application-level functions sit on top of the tested `qflux`, `percolab` and `metrics` kernels. They add no hidden numerical layer; they make the input, estimator, annualisation and graph conventions explicit so a result can be checked later.
 
 ## 1. Portfolio risk
 
@@ -94,7 +94,55 @@ print(report["transitions"]["counts"])
 
 Regime attribution is descriptive, not causal. State sample sizes can differ greatly, and `share_of_total_sum` is not additive across a compounded path; treat it as an arithmetic-period diagnostic. If labels come from an HMM, use the causal `filtered()` or `filtered_states()` output. `smoothed()` and Viterbi use the full sample and are not real-time labels.
 
-## 3. Command line
+## 3. Correlation-network risk diagnostics
+
+`percolab.network_from_correlation(corr, threshold)` turns a correlation matrix into a non-negative adjacency graph and reports local and global structure. The threshold is a modelling choice: an asset pair becomes an edge when the correlation is at least `threshold`, and edge weights are the non-negative correlations themselves.
+
+The `CorrelationNetwork` result contains:
+
+- `components`: labels, sizes, component count and the giant fraction;
+- `strength`, `eigenvector`, `clustering`, `average_clustering`;
+- `path_stats`: global efficiency, average path length over reachable pairs, diameter, reachable-pair count and a connectivity flag;
+- `core_numbers` and `max_core`: k-core shells, which separate the densely connected core from the periphery;
+- `transitivity`: global clustering;
+- `assortativity`: degree correlation, NaN for regular graphs;
+- `mst`, `density` and `n_edges`.
+
+`mst_clusters(network.distance, cutoff)` cuts the MST at a distance cutoff to produce single-linkage clusters; `modularity(adjacency, labels)` scores an existing sector or cluster partition. Neither function chooses the number of communities: the cutoff or labels carry that decision.
+
+Percolation and removal curves are stress descriptions. `bond_percolation` and `site_percolation` scan occupation probabilities with a fixed seed; the weighted variants and the general `percolation_scan` separate the candidate graph from edge or node occupation weights. `targeted_removal` removes nodes in a supplied or metric-based order and reports the giant fraction, finite-cluster susceptibility and component count. `core_percolation` is the deterministic k-core curve, and `cluster_size_distribution` reports the mean number of clusters of each size at one probability.
+
+```python
+import numpy as np
+import rflux
+
+corr = rflux.qflux.correlation_matrix(returns)
+net = rflux.percolab.network_from_correlation(corr, 0.45)
+print(net.components.giant_fraction, net.path_stats.efficiency, net.max_core)
+
+scan = rflux.percolab.bond_percolation(
+    net.adjacency, np.linspace(0.0, 1.0, 21), repetitions=200, seed=7
+)
+print(scan.critical_probability(), scan.max_susceptibility(), scan.giant_area())
+
+curve = rflux.percolab.targeted_removal(
+    net.adjacency, strategy="eigenvector", checkpoints=10
+)
+print(curve.giant_fraction)
+
+sectors = np.array([0, 0, 1, 1, 2, 2])  # one label per asset
+print(rflux.percolab.modularity(net.adjacency, sectors))
+```
+
+### Interpretation
+
+- Choose the threshold before looking at the result. Edge count and giant fraction are monotone in the threshold; a different threshold is a different graph, not a robust finding.
+- Monte Carlo curves carry sampling error and depend on the explicit seed. Increase `repetitions` and check stability across seeds before reading a crossing point.
+- `critical_probability()` is the scanned probability with maximum finite-cluster susceptibility. It is a finite-size descriptive estimate, not an extrapolated thermodynamic threshold.
+- `targeted_removal` is a static attack curve; it does not adapt the order after each removal. `removal_order` supports strength, degree, eigenvector, betweenness and core-number strategies.
+- Correlation is not causation, and a network snapshot does not model liquidity, borrow costs or trading capacity. Treat these diagnostics as conditioning variables and stress scenarios.
+
+## 4. Command line
 
 `rflux risk` converts a price CSV to returns and calls `portfolio_risk`:
 
@@ -108,9 +156,9 @@ PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
 
 Weights follow the CSV data-column order after the date column. Text output lists each asset's weight, annualised volatility, component contribution and share. JSON output also includes the covariance matrix, method metadata and portfolio metrics.
 
-`rflux analyze` remains the command for asset statistics, correlation networks and HMMs; `risk` only handles the weighted portfolio. Neither command needs pandas.
+`rflux analyze` remains the command for asset statistics, correlation networks and HMMs; its network report now includes efficiency, path length, diameter, transitivity, assortativity and maximum core number. `risk` only handles the weighted portfolio. Neither command needs pandas.
 
-## 4. Reproducibility
+## 5. Reproducibility
 
 The top-level `method` and `input` fields record the estimator, `ddof`, annualisation, risk-free rate, confidence, complete sample count and discarded rows. Save the full report when reproducing a result; do not keep only rounded returns.
 

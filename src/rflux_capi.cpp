@@ -758,6 +758,57 @@ rflux_status rflux_network_clustering(const double* weights, size_t n,
     });
 }
 
+rflux_status rflux_network_transitivity(const double* weights, size_t n,
+                                        double* out) {
+    return guarded_scalar("rflux_network_transitivity", out, "out", [&] {
+        return rflux::percolab::transitivity(weights, n);
+    });
+}
+
+rflux_status rflux_network_path_stats(const double* weights, size_t n,
+                                      double* efficiency,
+                                      double* average_path_length,
+                                      size_t* diameter,
+                                      size_t* n_reachable_pairs,
+                                      int32_t* connected) {
+    return api_guard("rflux_network_path_stats", [&] {
+        require_output(efficiency, "efficiency");
+        require_output(average_path_length, "average_path_length");
+        require_output(diameter, "diameter");
+        require_output(n_reachable_pairs, "n_reachable_pairs");
+        require_output(connected, "connected");
+        const rflux::percolab::PathStats stats =
+            rflux::percolab::path_statistics(weights, n);
+        *efficiency = stats.efficiency;
+        *average_path_length = stats.average_path_length;
+        *diameter = stats.diameter;
+        *n_reachable_pairs = stats.n_reachable_pairs;
+        *connected = stats.connected ? 1 : 0;
+    });
+}
+
+rflux_status rflux_network_core_numbers(const double* weights, size_t n,
+                                        int32_t* out) {
+    return guarded_i32("rflux_network_core_numbers", out, "out", [&] {
+        return rflux::percolab::core_numbers(weights, n);
+    });
+}
+
+rflux_status rflux_network_assortativity(const double* weights, size_t n,
+                                         double* out) {
+    return guarded_scalar("rflux_network_assortativity", out, "out", [&] {
+        return rflux::percolab::degree_assortativity(weights, n);
+    });
+}
+
+rflux_status rflux_network_modularity(const double* weights, size_t n,
+                                      const int32_t* labels, size_t n_labels,
+                                      double* out) {
+    return guarded_scalar("rflux_network_modularity", out, "out", [&] {
+        return rflux::percolab::modularity(weights, n, labels, n_labels);
+    });
+}
+
 rflux_status rflux_network_betweenness(const double* weights, size_t n,
                                       int32_t normalized, double* out) {
     return guarded_vector("rflux_network_betweenness", out, "out", [&] {
@@ -791,6 +842,21 @@ rflux_status rflux_network_mst(const double* distance, size_t n,
             edge_weight[i] = tree[i].weight;
         }
         *n_edges = tree.size();
+    });
+}
+
+rflux_status rflux_mst_clusters(const double* distance, size_t n,
+                                double threshold, int32_t* labels,
+                                size_t* n_components, size_t* largest_size) {
+    return api_guard("rflux_mst_clusters", [&] {
+        require_output(labels, "labels");
+        require_output(n_components, "n_components");
+        require_output(largest_size, "largest_size");
+        const rflux::percolab::ComponentSummary summary =
+            rflux::percolab::mst_clusters(distance, n, threshold);
+        copy_out_i32(summary.labels, labels);
+        *n_components = summary.n_components;
+        *largest_size = summary.largest_size;
     });
 }
 
@@ -843,6 +909,70 @@ rflux_status rflux_site_percolation_weighted(
                 adjacency, n, node_weights, probabilities, n_probabilities,
                 repetitions, seed);
         });
+}
+
+rflux_status rflux_percolation_scan(
+    const double* adjacency, size_t n, const double* edge_weights,
+    const double* node_weights, int32_t site, const double* probabilities,
+    size_t n_probabilities, size_t repetitions, uint64_t seed,
+    double* giant_mean, double* giant_std, double* susceptibility) {
+    return guarded_percolation(
+        "rflux_percolation_scan", giant_mean, giant_std, susceptibility, [&] {
+            if (site != 0 && site != 1) {
+                throw rflux::InvalidArgument("site must be 0 or 1");
+            }
+            rflux::percolab::OccupationWeights weights;
+            weights.edge = edge_weights;
+            weights.node = node_weights;
+            return rflux::percolab::percolation_scan(
+                adjacency, n,
+                site != 0 ? rflux::percolab::PercolationKind::site
+                          : rflux::percolab::PercolationKind::bond,
+                weights, probabilities, n_probabilities, repetitions, seed);
+        });
+}
+
+rflux_status rflux_cluster_size_distribution(
+    const double* adjacency, size_t n, const double* edge_weights,
+    const double* node_weights, int32_t site, double probability,
+    size_t repetitions, uint64_t seed, double* out) {
+    return api_guard("rflux_cluster_size_distribution", [&] {
+        require_output(out, "out");
+        if (site != 0 && site != 1) {
+            throw rflux::InvalidArgument("site must be 0 or 1");
+        }
+        rflux::percolab::OccupationWeights weights;
+        weights.edge = edge_weights;
+        weights.node = node_weights;
+        const std::vector<double> values =
+            rflux::percolab::cluster_size_distribution(
+                adjacency, n,
+                site != 0 ? rflux::percolab::PercolationKind::site
+                          : rflux::percolab::PercolationKind::bond,
+                weights, probability, repetitions, seed);
+        copy_out(values, out);
+    });
+}
+
+rflux_status rflux_targeted_removal(
+    const double* adjacency, size_t n, const uint32_t* order,
+    size_t checkpoints, size_t* removed, double* giant_fraction,
+    double* susceptibility, size_t* n_components) {
+    return api_guard("rflux_targeted_removal", [&] {
+        require_output(removed, "removed");
+        require_output(giant_fraction, "giant_fraction");
+        require_output(susceptibility, "susceptibility");
+        require_output(n_components, "n_components");
+        const std::vector<rflux::percolab::RemovalPoint> points =
+            rflux::percolab::targeted_removal(adjacency, n, order,
+                                              checkpoints);
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            removed[i] = points[i].removed;
+            giant_fraction[i] = points[i].giant_fraction;
+            susceptibility[i] = points[i].finite_susceptibility;
+            n_components[i] = points[i].n_components;
+        }
+    });
 }
 
 rflux_status rflux_risk_diffusion(

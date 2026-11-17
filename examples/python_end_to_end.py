@@ -115,6 +115,17 @@ def main() -> None:
         )
     )
     print("eigenvector centrality:", np.round(network.eigenvector, 4))
+    print(
+        "network topology: efficiency=%.3f diameter=%d connected=%s "
+        "transitivity=%.3f max_core=%d"
+        % (
+            network.path_stats.efficiency,
+            network.path_stats.diameter,
+            network.path_stats.connected,
+            network.transitivity,
+            network.max_core,
+        )
+    )
 
     scan = percolab.bond_percolation(
         network.adjacency,
@@ -123,6 +134,26 @@ def main() -> None:
         seed=args.seed,
     )
     print("percolation giant mean:", np.round(scan.giant_mean, 4))
+    print(
+        "percolation summary: critical=%.3f max_susceptibility=%.3f area=%.3f"
+        % (
+            scan.critical_probability(),
+            scan.max_susceptibility(),
+            scan.giant_area(),
+        )
+    )
+    core = percolab.core_percolation(network.adjacency)
+    print(
+        "core percolation:",
+        list(zip(core.k.tolist(), np.round(core.core_fraction, 3).tolist())),
+    )
+    removal = percolab.targeted_removal(
+        network.adjacency, strategy="eigenvector", checkpoints=5
+    )
+    print(
+        "targeted removal giant fraction:",
+        np.round(removal.giant_fraction, 4),
+    )
     diffusion = percolab.risk_diffusion(
         network.adjacency,
         [int(np.argmax(network.eigenvector))],

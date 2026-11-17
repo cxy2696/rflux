@@ -559,6 +559,52 @@ RFLUX_API rflux_status rflux_network_clustering(const double* weights, size_t n,
                                                 double* out);
 
 /*
+ * Global clustering coefficient (transitivity): 3 * triangles / connected
+ * triples.  NaN when the graph has no connected triple.
+ */
+RFLUX_API rflux_status rflux_network_transitivity(const double* weights,
+                                                  size_t n, double* out);
+
+/*
+ * Shortest-path summaries for an undirected unweighted graph (edges > 0).
+ * efficiency averages 1/d over all ordered pairs (unreachable pairs
+ * contribute zero); average_path_length averages over reachable unordered
+ * pairs only and is NaN when no pair is reachable; diameter is the largest
+ * finite distance, zero when no pair is reachable; n_reachable_pairs counts
+ * reachable unordered pairs; connected is 1 exactly when every unordered pair
+ * is reachable.  For n = 1 the graph is connected, efficiency is 0 and
+ * average_path_length is NaN.
+ */
+RFLUX_API rflux_status rflux_network_path_stats(
+    const double* weights, size_t n, double* efficiency,
+    double* average_path_length, size_t* diameter, size_t* n_reachable_pairs,
+    int32_t* connected);
+
+/*
+ * k-core decomposition.  out[i] is the largest k such that node i belongs to
+ * the k-core; isolated nodes receive zero.  n must fit in int32_t.
+ */
+RFLUX_API rflux_status rflux_network_core_numbers(const double* weights,
+                                                  size_t n, int32_t* out);
+
+/*
+ * Newman degree assortativity for an undirected unweighted graph.  NaN when
+ * the graph has no edges or every degree is identical.
+ */
+RFLUX_API rflux_status rflux_network_assortativity(const double* weights,
+                                                   size_t n, double* out);
+
+/*
+ * Newman modularity of a partition of an undirected weighted graph.  labels
+ * has length n, every entry must be in [0, n_labels), and n_labels must be in
+ * [1, n].  The diagonal is ignored.  NaN when the graph has no edge weight.
+ * The result lies in [-1, 1] up to floating-point round-off.
+ */
+RFLUX_API rflux_status rflux_network_modularity(const double* weights, size_t n,
+                                                const int32_t* labels,
+                                                size_t n_labels, double* out);
+
+/*
  * Brandes betweenness centrality for an undirected unweighted graph.  Edges
  * exist where weights[i,j] > 0 and i != j.  When normalized is non-zero,
  * values are divided by the maximum for an undirected graph of this size.
@@ -584,6 +630,19 @@ RFLUX_API rflux_status rflux_network_mst(const double* distance, size_t n,
                                          uint32_t* edge_u, uint32_t* edge_v,
                                          double* edge_weight,
                                          size_t* n_edges);
+
+/*
+ * Single-linkage clusters of a distance matrix: the minimum spanning tree is
+ * cut at edges with distance > threshold and the remaining components are
+ * labelled.  This is equivalent to connected components of all edges with
+ * distance <= threshold.  `labels` has length n and receives labels 0..C-1 in
+ * order of each component's smallest node; n_components and largest_size are
+ * outputs.
+ */
+RFLUX_API rflux_status rflux_mst_clusters(const double* distance, size_t n,
+                                          double threshold, int32_t* labels,
+                                          size_t* n_components,
+                                          size_t* largest_size);
 
 /*
  * Classical bond percolation on the graph defined by adjacency > 0.
@@ -637,6 +696,49 @@ RFLUX_API rflux_status rflux_site_percolation_weighted(
     const double* probabilities, size_t n_probabilities, size_t repetitions,
     uint64_t seed, double* giant_mean, double* giant_std,
     double* susceptibility);
+
+/*
+ * General percolation scan.  Candidate edges are adjacency > 0.  When site is
+ * zero (bond percolation) an edge (i,j) is retained with probability
+ * min(1, p * edge_weights[i*n+j]); edge_weights may be NULL for a multiplier
+ * of one.  When site is non-zero each node survives with probability
+ * min(1, p * node_weights[i]) and an edge is kept only when both endpoints
+ * survived; node_weights may be NULL.  A non-NULL edge-weight matrix must be
+ * finite, symmetric and non-negative; node_weights must contain n finite,
+ * non-negative entries.  Only the weights belonging to the selected kind may
+ * be non-NULL; passing the other one is an invalid argument.  Outputs follow
+ * the bond layout.
+ */
+RFLUX_API rflux_status rflux_percolation_scan(
+    const double* adjacency, size_t n, const double* edge_weights,
+    const double* node_weights, int32_t site, const double* probabilities,
+    size_t n_probabilities, size_t repetitions, uint64_t seed,
+    double* giant_mean, double* giant_std, double* susceptibility);
+
+/*
+ * Mean cluster-size distribution at one occupation probability.  out has
+ * n+1 entries; out[s] for s in 1..n is the mean number of components of size
+ * s across repetitions, including the largest component.  out[0] is always
+ * zero.  edge_weights/node_weights/site follow rflux_percolation_scan().
+ */
+RFLUX_API rflux_status rflux_cluster_size_distribution(
+    const double* adjacency, size_t n, const double* edge_weights,
+    const double* node_weights, int32_t site, double probability,
+    size_t repetitions, uint64_t seed, double* out);
+
+/*
+ * Deterministic node-removal (attack) curve.  order is a permutation of
+ * 0..n-1 and is removed from the front.  Points are reported at
+ * removed = floor(k*n/checkpoints) for k = 0..checkpoints, so checkpoints must
+ * be positive and every output buffer holds checkpoints+1 entries.  When
+ * checkpoints exceeds n some reported points repeat.
+ * giant_fraction and susceptibility use n as the denominator (site
+ * percolation convention); n_components counts non-empty components.
+ */
+RFLUX_API rflux_status rflux_targeted_removal(
+    const double* adjacency, size_t n, const uint32_t* order,
+    size_t checkpoints, size_t* removed, double* giant_fraction,
+    double* susceptibility, size_t* n_components);
 
 /*
  * Stochastic SIR risk diffusion on a symmetric non-negative weighted graph.

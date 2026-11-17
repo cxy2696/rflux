@@ -78,18 +78,6 @@ public:
         return true;
     }
 
-    std::size_t component_size(std::size_t node) {
-        return size_[find(node)];
-    }
-
-    std::size_t max_size() {
-        std::size_t largest = 0;
-        for (std::size_t i = 0; i < parent_.size(); ++i) {
-            if (parent_[i] == i) largest = std::max(largest, size_[i]);
-        }
-        return largest;
-    }
-
 private:
     std::vector<std::size_t> parent_;
     std::vector<std::size_t> size_;

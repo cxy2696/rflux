@@ -407,6 +407,7 @@ MST 使用 Kruskal 算法，输出 n-1 条边。距离矩阵必须有限、对�
 - 强度： $\sum_{j\ne i}w_{ij}$ ，要求非负对称邻接。
 - 特征向量中心性：对 $A+I$ 做 L2 归一化幂迭代。加单位阵不改变特征向量，但把谱整体平移，避免二部图上的周期 2 振荡；全零图返回全零，未收敛时抛数值错误。
 - 局部聚类系数：邻居之间实际边数除以可能边数；度小于 2 时为 NaN。
+- 全局聚类系数（传递性）：设三角形数为 $t$ ，连通三元组数为 $q=\sum_i \binom{d_i}{2}$ ，则 $T=3t/q$ ； $q=0$ 时为 NaN。
 - PageRank：对非负加权有向邻接做幂迭代，阻尼 $d\in[0,1)$ 。悬挂行（出边权重和为 0）把当前质量均匀分给所有节点，每轮加入 $(1-d)/n$ 的传送项；未收敛时抛数值错误。
 - Brandes 介数中心性：在无向、无权图上对每个源点做 BFS，累计最短路径依赖；`normalized=1` 时按无向图最大可能介数 $(n-1)(n-2)/2$ 归一化。
 
@@ -418,9 +419,55 @@ $$
 
 其中 $D$ 是悬挂行集合；行和为 0 时 $P$ 对应行不参与。最终向量归一化到和为 1。
 
-除 PageRank 外，图函数要求对称矩阵，忽略对角线。PageRank 使用有向邻接，行表示出边。
+除 PageRank 外，图函数要求对称矩阵，忽略对角线。`connected_components()` 只把权重与阈值比较，因此接受任意有限对称矩阵；`correlation_to_distance()` 接受 $[-1,1]$ 内的相关系数；其余无向图函数要求非负元素。PageRank 使用有向邻接，行表示出边。
 
-### 6.3 Bond 与 site 渗流
+### 6.3 最短路径、k-core、同配性与模块度
+
+路径统计、k-core 数和度同配性把 $A_{ij}>0$ 视为无权边并忽略对角线；模块度使用边权本身。
+
+**路径统计。** 从每个源点做 BFS。对有序点对 $i\ne j$ ，记最短路径长度为 $d_{ij}$ ，不可达时令 $1/d_{ij}=0$ 。全局效率与平均路径长度为
+
+$$
+E=\frac{1}{n(n-1)}\sum_{i\ne j}\frac{1}{d_{ij}},
+\qquad
+\bar d=\frac{1}{|\mathcal P|}\sum_{\{i,j\}\in\mathcal P} d_{ij}
+$$
+
+其中 $\mathcal P$ 是可达的无序点对集合。`diameter` 是最大的有限 $d_{ij}$ ；当所有无序点对都可达时 `connected` 为真。 $n=1$ 时 $E=0$ ， $\bar d$ 为 NaN，`diameter` 为 0，`connected` 为真。平均路径长度只对可达点对取平均，避免在非连通图上无定义。
+
+**k-core 与 core 渗流。** 节点 v 的 core 数 $c_v$ 是使 v 属于 k-core 的最大 k；k-core 是最大诱导子图，其中每个节点的度数至少为 k。孤立节点的 $c_v=0$ 。实现使用 Batagelj-Zaveršnik 度桶剥离，在稠密矩阵上为 $O(n^2)$ 。删除所有 $c_v<k$ 的节点后恰好剩下 k-core。这是确定性 k-core 剥离过程（常称 core percolation）的不动点，不是随机的 bootstrap 渗流过程。 $\#\{v:c_v\ge k\}/n$ 就是 k-core 的节点占比；`core_percolation()` 无需蒙特卡洛即可给出该曲线。该比例统计所有存活节点，不要求 k-core 连通。
+
+**度同配性。** 对无向无权图，Newman 的边端点度相关为（M 为边数）：
+
+$$
+r=\frac{M^{-1}\sum_e j_e k_e-\left[M^{-1}\sum_e (j_e+k_e)/2\right]^2}
+{M^{-1}\sum_e (j_e^2+k_e^2)/2-\left[M^{-1}\sum_e (j_e+k_e)/2\right]^2}
+$$
+
+$j_e$ 和 $k_e$ 是边两端节点的度。 $M=0$ 或所有度相同时分母为 0，结果为 NaN。
+
+**模块度。** 对划分为社区 c 的加权邻接 $A_{ij}$ ，令强度 $k_i=\sum_{j\ne i}A_{ij}$ 、 $2m=\sum_i k_i$ ：
+
+$$
+Q=\sum_c\left(\frac{\sum_{i,j\in c}A_{ij}}{2m}
+-\left(\frac{\sum_{i\in c}k_i}{2m}\right)^2\right)
+$$
+
+忽略对角线。C/C++ 入口显式接收 $n\_labels$ （需在 $[1,n]$ 内）并要求每个标签位于 $[0,n\_labels)$ ；Python 封装接受任意非负标签并自动重映射为连续社区编号。 $2m=0$ 时 $Q$ 为 NaN。结果不做截断，因此浮点舍入可能让它在 $[-1,1]$ 外差几个 ulp。
+
+**MST 单链聚类。** 将 MST 中距离大于 `threshold` 的边切断，剩余连通分量即为单链聚类。因为 MST 在每个距离阈值下都保持连通性，它等价于所有距离不超过 `threshold` 的边构成的图的连通分量。标签按每个分量中的最小节点编号。
+
+### 6.4 定向节点移除
+
+移除顺序是节点下标的一个排列 $\pi$ 。移除 r 个节点后只剩 $\{\pi_{r+1},\dots,\pi_n\}$ ，边取诱导子图。`targeted_removal()` 在 $r_k=\lfloor k n / K\rfloor$ （ $k=0,\dots,K$ ）处报告：
+
+- `giant_fraction` $s_{max}/n$ ；
+- `susceptibility` $\sum_{C\ne C_{max}}|C|^2/n$ ；
+- `n_components`。
+
+`checkpoints` K 必须为正；大于 n 时部分报告点会重复。整个过程是确定性的。`removal_order()` 提供 strength、degree、eigenvector、betweenness 或 core 数排序；相同分数按节点下标升序。该曲线是静态攻击曲线，不会在每次移除后重算中心性。
+
+### 6.5 Bond 与 site 渗流
 
 Bond：
 
@@ -435,6 +482,10 @@ Site：
 - 巨组分比例的分母始终是原始节点数 n。
 加权版本把概率乘上权重并截到 1：bond 的边 $i,j$ 以 $\min(1,p w_{ij})$ 保留；site 的节点 i 以 $\min(1,p v_i)$ 存活。权重必须有限非负；这允许将相关强度、暴露或自定义 CSV 的边权接入同一套扫描。
 
+通用 `percolation_scan()` 把候选图与占用权重分开：候选边仍然要求 $A_{ij}>0$ ，但 bond 保留概率可以使用独立的对称边权矩阵，site 存活概率可以使用独立的节点权重向量；便捷封装分别把邻接作为边权或把传入向量作为节点权重。传入与所选类型无关的权重会报非法参数，避免拼错参数时静默改变模型。
+
+在单个概率下，`cluster_size_distribution()` 报告大小为 $1..n$ 的簇的平均数量；下标 0 恒为 0，最大簇也计入。Python 扫描结果还提供 `critical_probability()`（susceptibility 最大处的概率，并列时取最小 p）、`max_susceptibility()` 和 `giant_area()`（巨组分曲线对扫描概率的梯形积分）。这些都是有限样本的描述性汇总，不是外推得到的临界指数。
+
 对每个 p 做 R 次重复：
 
 $$
@@ -446,9 +497,9 @@ $$
 \frac{\sum_{C\ne C_{max}}|C|^2}{n}
 $$
 
-`giant_std` 是巨组分比例的总体标准差。`susceptibility` 排除了最大簇，只描述有限簇在临界区附近的增长，不是无限系统的严格理论 susceptibility。
+`giant_std` 是巨组分比例的总体标准差，用 Welford 递推累计。`susceptibility` 排除了最大簇，只描述有限簇在临界区附近的增长，不是无限系统的严格理论 susceptibility。每个重复编号在所有概率上复用同一个随机种子（common random numbers），因此同一次扫描内的点彼此相关；这能降低差值噪声，但它们不是独立样本。`cluster_size_distribution()` 使用同样的按重复编号播种约定。
 
-### 6.4 SIR 风险扩散
+### 6.6 SIR 风险扩散
 
 每一步：
 

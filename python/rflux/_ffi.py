@@ -247,12 +247,25 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, uint32, c_double_p])
     bind("rflux_network_clustering", ctypes.c_int,
          [c_double_p, size_t, c_double_p])
+    bind("rflux_network_transitivity", ctypes.c_int,
+         [c_double_p, size_t, c_double_p])
+    bind("rflux_network_path_stats", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, c_double_p, c_size_p, c_size_p,
+          c_int32_p])
+    bind("rflux_network_core_numbers", ctypes.c_int,
+         [c_double_p, size_t, c_int32_p])
+    bind("rflux_network_assortativity", ctypes.c_int,
+         [c_double_p, size_t, c_double_p])
+    bind("rflux_network_modularity", ctypes.c_int,
+         [c_double_p, size_t, c_int32_p, size_t, c_double_p])
     bind("rflux_pagerank", ctypes.c_int,
          [c_double_p, size_t, double, size_t, double, c_double_p])
     bind("rflux_network_betweenness", ctypes.c_int,
          [c_double_p, size_t, ctypes.c_int, c_double_p])
     bind("rflux_network_mst", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, c_uint32_p, c_double_p, c_size_p])
+    bind("rflux_mst_clusters", ctypes.c_int,
+         [c_double_p, size_t, double, c_int32_p, c_size_p, c_size_p])
     bind("rflux_bond_percolation", ctypes.c_int,
          [c_double_p, size_t, c_double_p, size_t, size_t, uint64, c_double_p,
           c_double_p, c_double_p])
@@ -265,6 +278,15 @@ def _configure(lib: ctypes.CDLL) -> None:
     bind("rflux_site_percolation_weighted", ctypes.c_int,
          [c_double_p, size_t, c_double_p, c_double_p, size_t, size_t, uint64,
           c_double_p, c_double_p, c_double_p])
+    bind("rflux_percolation_scan", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, c_double_p, int32, c_double_p,
+          size_t, size_t, uint64, c_double_p, c_double_p, c_double_p])
+    bind("rflux_cluster_size_distribution", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, c_double_p, int32, double, size_t,
+          uint64, c_double_p])
+    bind("rflux_targeted_removal", ctypes.c_int,
+         [c_double_p, size_t, c_uint32_p, size_t, c_size_p, c_double_p,
+          c_double_p, c_size_p])
     bind("rflux_risk_diffusion", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, size_t, double, double, size_t,
           size_t, uint64, c_double_p, c_double_p])

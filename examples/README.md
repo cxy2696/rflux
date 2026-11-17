@@ -67,7 +67,7 @@ python examples/python_hmm_walkforward.py
 python examples/python_end_to_end.py
 ```
 
-从合成市场面板开始，计算特征、HMM 状态、最近 120 日相关网络、连通分量、特征向量中心性、bond percolation 扫描和 SIR 风险扩散，最后跑一个分位数多空回测。
+从合成市场面板开始，计算特征、HMM 状态、最近 120 日相关网络、连通分量、特征向量中心性、最短路径效率、k-core 分层、bond percolation 扫描、核心渗流、定向节点移除和 SIR 风险扩散，最后跑一个分位数多空回测。
 
 如果需要把网络部分单独接进研究流程，核心代码可以压缩成：
 
@@ -77,12 +77,19 @@ from rflux import percolab
 network = percolab.correlation_network(returns_panel, threshold=0.45)
 print(network.components.largest_size)
 print(network.eigenvector)
+print(network.path_stats.efficiency, network.max_core)
 
 scan = percolab.bond_percolation(
     network.adjacency, [0.0, 0.25, 0.5, 0.75, 1.0],
     repetitions=300, seed=42
 )
 print(scan.giant_mean, scan.susceptibility)
+print(scan.critical_probability(), scan.giant_area())
+
+removal = percolab.targeted_removal(
+    network.adjacency, strategy="eigenvector", checkpoints=10
+)
+print(removal.giant_fraction)
 ```
 
 ## 4. 真实数据接入

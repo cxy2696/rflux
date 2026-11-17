@@ -164,6 +164,15 @@ def analyze_prices(
                     "components": int(network.components.n_components),
                     "largest_component": int(network.components.largest_size),
                     "average_clustering": float(network.average_clustering),
+                    "transitivity": float(network.transitivity),
+                    "assortativity": float(network.assortativity),
+                    "efficiency": float(network.path_stats.efficiency),
+                    "average_path_length": float(
+                        network.path_stats.average_path_length
+                    ),
+                    "diameter": int(network.path_stats.diameter),
+                    "connected": bool(network.path_stats.connected),
+                    "max_core": int(network.max_core),
                     "mst_total_weight": float(network.mst.weight.sum()),
                     "top_eigenvector": [
                         {

@@ -125,9 +125,16 @@ Graph functions share these input rules:
 - any non-negativity requirement must match across header, implementation and docs;
 - random procedures take an explicit seed and are reproducible on the same platform and version;
 - when labels are `int32_t`, check that n fits in `INT32_MAX`;
-- Monte Carlo results explain the sample count, standard deviation, and whether the largest cluster is excluded.
+- Monte Carlo results explain the sample count, standard deviation, and whether the largest cluster is excluded;
+- deterministic algorithms (shortest paths, core numbers, modularity, MST clustering and targeted removal) must not consume random numbers;
+- similarity graphs use `weight >= threshold`, while distance graphs use `distance <= threshold`. Do not mix the two in one helper;
+- optional edge/node occupation weights must be validated as finite, symmetric where applicable and non-negative, and weights that belong to the other occupation kind should be rejected rather than ignored;
+- partition labels are `int32_t` in `[0, n_labels)` with `n_labels <= n`; document whether the diagonal and self-loops are ignored;
+- path statistics state explicitly whether averages are over reachable pairs or all pairs, and what the single-node case returns.
 
 If a metric needs directed edges, add a separate type or parameter. Do not quietly treat a symmetric matrix as directed.
+
+Compare a new deterministic metric with a brute-force implementation on small random graphs in the tests; for a new Monte Carlo kernel, verify the mean and population standard deviation against independent single-replicate calls before adding endpoints.
 
 ## 7. Before committing
 

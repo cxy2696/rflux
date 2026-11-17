@@ -82,10 +82,6 @@ inline void require_positive(double value, const char* what) {
     }
 }
 
-inline double clamp(double value, double low, double high) {
-    return std::max(low, std::min(high, value));
-}
-
 inline double safe_log(double value) {
     return value > 0.0 ? std::log(value) : -std::numeric_limits<double>::infinity();
 }
@@ -134,18 +130,6 @@ inline double mean_of(const std::vector<double>& values) {
     long double sum = 0.0L;
     for (double value : values) sum += static_cast<long double>(value);
     return static_cast<double>(sum / static_cast<long double>(values.size()));
-}
-
-inline double sample_variance_of(const std::vector<double>& values) {
-    if (values.size() < 2) return kNaN;
-    const double mean = mean_of(values);
-    long double sum = 0.0L;
-    for (double value : values) {
-        const long double diff = static_cast<long double>(value - mean);
-        sum += diff * diff;
-    }
-    return static_cast<double>(sum /
-                               static_cast<long double>(values.size() - 1));
 }
 
 /* xoshiro256** seeded through SplitMix64.  Deterministic across platforms. */

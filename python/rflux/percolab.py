@@ -15,10 +15,13 @@ import numpy as np
 from ._common import (
     as_f64_1d,
     as_f64_2d,
+    as_i32_1d,
     as_size,
     as_square,
     as_u32_1d,
     as_u64,
+    call_i32,
+    call_scalar,
     call_vector,
     double_ptr,
     empty_f64,
@@ -55,11 +58,62 @@ class MSTResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PathStats:
+    """Shortest-path summaries of an undirected unweighted graph."""
+
+    efficiency: float
+    average_path_length: float
+    diameter: int
+    n_reachable_pairs: int
+    connected: bool
+
+
+@dataclass(frozen=True, slots=True)
 class PercolationScan:
     probabilities: np.ndarray
     giant_mean: np.ndarray
     giant_std: np.ndarray
     susceptibility: np.ndarray
+
+    def critical_probability(self) -> float:
+        """Probability with the largest finite-cluster susceptibility."""
+        if self.susceptibility.size == 0:
+            return float("nan")
+        return float(self.probabilities[int(np.argmax(self.susceptibility))])
+
+    def max_susceptibility(self) -> float:
+        """Largest finite-cluster susceptibility in the scan."""
+        if self.susceptibility.size == 0:
+            return float("nan")
+        return float(np.max(self.susceptibility))
+
+    def giant_area(self) -> float:
+        """Trapezoidal integral of ``giant_mean`` over probabilities.
+
+        The scan probabilities should be increasing; the result is the area
+        under the giant-component curve and is a compact summary of how early
+        the network percolates.
+        """
+        if self.probabilities.size < 2:
+            return 0.0
+        widths = np.diff(self.probabilities)
+        heights = 0.5 * (self.giant_mean[1:] + self.giant_mean[:-1])
+        return float(np.sum(widths * heights))
+
+
+@dataclass(frozen=True, slots=True)
+class RemovalCurve:
+    removed: np.ndarray
+    giant_fraction: np.ndarray
+    susceptibility: np.ndarray
+    n_components: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class CoreScan:
+    k: np.ndarray
+    core_fraction: np.ndarray
+    n_nodes: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +138,15 @@ class CorrelationNetwork:
     mst: MSTResult
     density: float
     n_edges: int
+    path_stats: PathStats
+    core_numbers: np.ndarray
+    transitivity: float
+    assortativity: float
+
+    @property
+    def max_core(self) -> int:
+        """Largest k for which the correlation graph has a non-empty k-core."""
+        return int(self.core_numbers.max()) if self.core_numbers.size else 0
 
 
 def _components_from_summary(
@@ -159,6 +222,81 @@ def clustering(adjacency: Any) -> np.ndarray:
         get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
 
 
+def transitivity(adjacency: Any) -> float:
+    """Global clustering coefficient ``3 * triangles / connected triples``."""
+    matrix = as_square(adjacency, "adjacency")
+    return call_scalar(
+        "rflux_network_transitivity", get_lib().rflux_network_transitivity,
+        double_ptr(matrix), matrix.shape[0])
+
+
+def path_statistics(adjacency: Any) -> PathStats:
+    """Shortest-path efficiency, average path length and diameter."""
+    matrix = as_square(adjacency, "adjacency")
+    efficiency = ctypes.c_double(0.0)
+    average = ctypes.c_double(0.0)
+    diameter = ctypes.c_size_t(0)
+    reachable = ctypes.c_size_t(0)
+    connected = ctypes.c_int32(0)
+    check(
+        get_lib().rflux_network_path_stats(
+            double_ptr(matrix),
+            matrix.shape[0],
+            ctypes.byref(efficiency),
+            ctypes.byref(average),
+            ctypes.byref(diameter),
+            ctypes.byref(reachable),
+            ctypes.byref(connected),
+        ),
+        "rflux_network_path_stats",
+    )
+    return PathStats(
+        efficiency=float(efficiency.value),
+        average_path_length=float(average.value),
+        diameter=int(diameter.value),
+        n_reachable_pairs=int(reachable.value),
+        connected=bool(connected.value),
+    )
+
+
+def core_numbers(adjacency: Any) -> np.ndarray:
+    """k-core number of every node (isolated nodes receive zero)."""
+    matrix = as_square(adjacency, "adjacency")
+    return call_i32(
+        "rflux_network_core_numbers", matrix.shape[0],
+        get_lib().rflux_network_core_numbers,
+        double_ptr(matrix), matrix.shape[0],
+    )
+
+
+def assortativity(adjacency: Any) -> float:
+    """Newman degree assortativity; NaN for empty or regular graphs."""
+    matrix = as_square(adjacency, "adjacency")
+    return call_scalar(
+        "rflux_network_assortativity", get_lib().rflux_network_assortativity,
+        double_ptr(matrix), matrix.shape[0])
+
+
+def modularity(adjacency: Any, labels: Any) -> float:
+    """Newman modularity of a partition of a weighted undirected graph.
+
+    Labels may be arbitrary non-negative integers (for example sector codes);
+    they are remapped to contiguous community indices before the native call.
+    """
+    matrix = as_square(adjacency, "adjacency")
+    label_array = as_i32_1d(labels, "labels")
+    n = matrix.shape[0]
+    if label_array.size != n:
+        raise ValueError("labels must contain one entry per node")
+    if np.any(label_array < 0):
+        raise ValueError("labels must be non-negative")
+    communities, inverse = np.unique(label_array, return_inverse=True)
+    contiguous = np.ascontiguousarray(inverse, dtype=np.int32)
+    return call_scalar(
+        "rflux_network_modularity", get_lib().rflux_network_modularity,
+        double_ptr(matrix), n, int32_ptr(contiguous), communities.size)
+
+
 def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
     """Brandes betweenness for an undirected unweighted graph."""
     matrix = as_square(adjacency, "adjacency")
@@ -220,45 +358,99 @@ def mst_from_correlation(correlation: Any) -> MSTResult:
     return mst_from_distance(correlation_to_distance(correlation))
 
 
-def _percolation_scan(
+def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
+    """Single-linkage clusters obtained by cutting the MST above ``threshold``.
+
+    Nodes stay connected when every edge on their MST path has distance
+    ``<= threshold``; this equals connected components of all edges with
+    distance ``<= threshold``.
+    """
+    matrix = as_square(distance, "distance")
+    n = matrix.shape[0]
+    labels = np.empty(n, dtype=np.int32)
+    n_components = ctypes.c_size_t(0)
+    largest = ctypes.c_size_t(0)
+    check(
+        get_lib().rflux_mst_clusters(
+            double_ptr(matrix),
+            n,
+            float(threshold),
+            int32_ptr(labels),
+            ctypes.byref(n_components),
+            ctypes.byref(largest),
+        ),
+        "rflux_mst_clusters",
+    )
+    return _components_from_summary(labels, n_components.value, largest.value)
+
+
+def _occupation_inputs(
+    adjacency: Any,
+    kind: str,
+    edge_weights: Any,
+    node_weights: Any,
+) -> tuple[np.ndarray, str, np.ndarray | None, np.ndarray | None]:
+    matrix = as_square(adjacency, "adjacency")
+    normalized = str(kind).strip().lower()
+    if normalized not in ("bond", "site"):
+        raise ValueError("kind must be 'bond' or 'site'")
+    if normalized == "bond" and node_weights is not None:
+        raise ValueError("node_weights are only used by site percolation")
+    if normalized == "site" and edge_weights is not None:
+        raise ValueError("edge_weights are only used by bond percolation")
+    edge_array = None
+    if edge_weights is not None:
+        edge_array = as_square(edge_weights, "edge_weights")
+        if edge_array.shape[0] != matrix.shape[0]:
+            raise ValueError(
+                "edge_weights must have the same shape as adjacency"
+            )
+    node_array = None
+    if node_weights is not None:
+        node_array = as_f64_1d(node_weights, "node_weights")
+        if node_array.size != matrix.shape[0]:
+            raise ValueError("node_weights must have one entry per node")
+    return matrix, normalized, edge_array, node_array
+
+
+def percolation_scan(
     adjacency: Any,
     probabilities: Any,
-    repetitions: int,
-    seed: int,
-    kind: str,
+    *,
+    kind: str = "bond",
+    edge_weights: Any = None,
     node_weights: Any = None,
+    repetitions: int = 100,
+    seed: int = 42,
 ) -> PercolationScan:
-    matrix = as_square(adjacency, "adjacency")
+    """General bond/site percolation scan.
+
+    Candidate edges are ``adjacency > 0``.  Bond occupancy uses
+    ``min(1, p * edge_weight)``; site occupancy uses
+    ``min(1, p * node_weight)`` and keeps an edge only when both endpoints
+    survive.  Edge weights must be finite, symmetric and non-negative; node
+    weights must be finite and non-negative.  Passing weights that do not
+    belong to ``kind`` is an error.
+    """
+    matrix, normalized, edge_array, node_array = _occupation_inputs(
+        adjacency, kind, edge_weights, node_weights
+    )
     probability_array = as_f64_1d(probabilities, "probabilities")
     n_probabilities = probability_array.size
     if n_probabilities == 0:
         raise ValueError("probabilities must not be empty")
     repetitions = as_size(repetitions, "repetitions")
     seed = as_u64(seed, "seed")
-    call_names = {
-        "bond": "rflux_bond_percolation",
-        "site": "rflux_site_percolation",
-        "bond_weighted": "rflux_bond_percolation_weighted",
-        "site_weighted": "rflux_site_percolation_weighted",
-    }
-    function = {
-        "bond": get_lib().rflux_bond_percolation,
-        "site": get_lib().rflux_site_percolation,
-        "bond_weighted": get_lib().rflux_bond_percolation_weighted,
-        "site_weighted": get_lib().rflux_site_percolation_weighted,
-    }[kind]
-    prefix = [double_ptr(matrix), matrix.shape[0]]
-    if node_weights is not None:
-        weights = as_f64_1d(node_weights, "node_weights")
-        if weights.size != matrix.shape[0]:
-            raise ValueError("node_weights must have one entry per node")
-        prefix.append(double_ptr(weights))
     mean = empty_f64(n_probabilities)
     std = empty_f64(n_probabilities)
     susceptibility = empty_f64(n_probabilities)
     check(
-        function(
-            *prefix,
+        get_lib().rflux_percolation_scan(
+            double_ptr(matrix),
+            matrix.shape[0],
+            double_ptr(edge_array) if edge_array is not None else None,
+            double_ptr(node_array) if node_array is not None else None,
+            1 if normalized == "site" else 0,
             double_ptr(probability_array),
             n_probabilities,
             repetitions,
@@ -267,7 +459,7 @@ def _percolation_scan(
             double_ptr(std),
             double_ptr(susceptibility),
         ),
-        call_names[kind],
+        "rflux_percolation_scan",
     )
     return PercolationScan(
         probabilities=probability_array.copy(),
@@ -284,7 +476,10 @@ def bond_percolation(
     seed: int = 42,
 ) -> PercolationScan:
     """Bond percolation over edges where ``adjacency > 0``."""
-    return _percolation_scan(adjacency, probabilities, repetitions, seed, "bond")
+    return percolation_scan(
+        adjacency, probabilities, kind="bond", repetitions=repetitions,
+        seed=seed,
+    )
 
 
 def site_percolation(
@@ -294,7 +489,10 @@ def site_percolation(
     seed: int = 42,
 ) -> PercolationScan:
     """Site percolation; giant fraction is relative to the original n."""
-    return _percolation_scan(adjacency, probabilities, repetitions, seed, "site")
+    return percolation_scan(
+        adjacency, probabilities, kind="site", repetitions=repetitions,
+        seed=seed,
+    )
 
 
 def bond_percolation_weighted(
@@ -304,8 +502,9 @@ def bond_percolation_weighted(
     seed: int = 42,
 ) -> PercolationScan:
     """Bond percolation with edge retention probability ``p * weight``."""
-    return _percolation_scan(
-        adjacency, probabilities, repetitions, seed, "bond_weighted"
+    return percolation_scan(
+        adjacency, probabilities, kind="bond", edge_weights=adjacency,
+        repetitions=repetitions, seed=seed,
     )
 
 
@@ -317,10 +516,153 @@ def site_percolation_weighted(
     seed: int = 42,
 ) -> PercolationScan:
     """Site percolation with survival probability ``p * node_weight``."""
-    return _percolation_scan(
-        adjacency, probabilities, repetitions, seed, "site_weighted",
-        node_weights,
+    return percolation_scan(
+        adjacency, probabilities, kind="site", node_weights=node_weights,
+        repetitions=repetitions, seed=seed,
     )
+
+
+def cluster_size_distribution(
+    adjacency: Any,
+    probability: float,
+    *,
+    kind: str = "bond",
+    edge_weights: Any = None,
+    node_weights: Any = None,
+    repetitions: int = 100,
+    seed: int = 42,
+) -> np.ndarray:
+    """Mean number of clusters of each size at one occupation probability.
+
+    The result has ``n + 1`` entries; index ``s`` counts components of size
+    ``s`` (including the largest) and index 0 is always zero.
+    """
+    matrix, normalized, edge_array, node_array = _occupation_inputs(
+        adjacency, kind, edge_weights, node_weights
+    )
+    value = float(probability)
+    if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise ValueError("probability must be in [0, 1]")
+    repetitions = as_size(repetitions, "repetitions")
+    seed = as_u64(seed, "seed")
+    out = empty_f64(matrix.shape[0] + 1)
+    check(
+        get_lib().rflux_cluster_size_distribution(
+            double_ptr(matrix),
+            matrix.shape[0],
+            double_ptr(edge_array) if edge_array is not None else None,
+            double_ptr(node_array) if node_array is not None else None,
+            1 if normalized == "site" else 0,
+            value,
+            repetitions,
+            seed,
+            double_ptr(out),
+        ),
+        "rflux_cluster_size_distribution",
+    )
+    return out
+
+
+def removal_order(adjacency: Any, strategy: str = "strength") -> np.ndarray:
+    """Return a deterministic node-removal permutation.
+
+    ``strength`` removes the largest weighted degree first, ``degree`` the
+    largest unweighted degree, ``eigenvector`` the largest eigenvector
+    centrality, ``betweenness`` the largest Brandes betweenness and ``core``
+    the lowest core number.  Ties keep ascending node order.
+    """
+    matrix = as_square(adjacency, "adjacency")
+    normalized = str(strategy).strip().lower()
+    if normalized == "strength":
+        scores = network_strength(matrix)
+    elif normalized == "degree":
+        mask = matrix > 0.0
+        np.fill_diagonal(mask, False)
+        scores = mask.sum(axis=1).astype(np.float64)
+    elif normalized == "eigenvector":
+        scores = centrality(matrix, "eigenvector")
+    elif normalized == "betweenness":
+        scores = betweenness(matrix, normalized=False)
+    elif normalized == "core":
+        scores = -core_numbers(matrix).astype(np.float64)
+    else:
+        raise ValueError(
+            "strategy must be 'strength', 'degree', 'eigenvector', "
+            "'betweenness' or 'core'"
+        )
+    order = np.argsort(-scores, kind="stable")
+    return np.ascontiguousarray(order, dtype=np.uint32)
+
+
+def targeted_removal(
+    adjacency: Any,
+    order: Any = None,
+    *,
+    checkpoints: int = 10,
+    strategy: str = "strength",
+) -> RemovalCurve:
+    """Deterministic node-removal curve (attack tolerance).
+
+    Nodes are removed in ``order`` (a permutation of ``0..n-1``) or in the
+    order produced by :func:`removal_order`.  Points are reported at
+    ``floor(k * n / checkpoints)`` removals for ``k = 0..checkpoints``; when
+    ``checkpoints`` exceeds ``n`` some points repeat.
+    """
+    matrix = as_square(adjacency, "adjacency")
+    n = matrix.shape[0]
+    checkpoints = as_size(checkpoints, "checkpoints")
+    if order is None:
+        order_array = removal_order(matrix, strategy)
+    else:
+        order_array = as_u32_1d(order, "order")
+        if order_array.size != n:
+            raise ValueError("order must contain one entry per node")
+        if not np.array_equal(np.sort(order_array), np.arange(n)):
+            raise ValueError("order must be a permutation of 0..n-1")
+
+    removed = np.empty(checkpoints + 1, dtype=np.uintp)
+    giant = empty_f64(checkpoints + 1)
+    susceptibility = empty_f64(checkpoints + 1)
+    n_components = np.empty(checkpoints + 1, dtype=np.uintp)
+    check(
+        get_lib().rflux_targeted_removal(
+            double_ptr(matrix),
+            n,
+            uint32_ptr(order_array),
+            checkpoints,
+            removed.ctypes.data_as(ctypes.POINTER(ctypes.c_size_t)),
+            double_ptr(giant),
+            double_ptr(susceptibility),
+            n_components.ctypes.data_as(ctypes.POINTER(ctypes.c_size_t)),
+        ),
+        "rflux_targeted_removal",
+    )
+    return RemovalCurve(
+        removed=removed.astype(np.int64),
+        giant_fraction=giant,
+        susceptibility=susceptibility,
+        n_components=n_components.astype(np.int64),
+    )
+
+
+def core_percolation(adjacency: Any) -> CoreScan:
+    """Deterministic k-core (core-percolation) curve from core numbers.
+
+    For threshold ``k`` the surviving set is the k-core: the fixed point of
+    repeatedly deleting nodes with fewer than ``k`` neighbours inside the
+    remaining graph.  The curve requires no sampling and is not a random
+    bootstrap percolation process.
+    """
+    matrix = as_square(adjacency, "adjacency")
+    core = core_numbers(matrix)
+    n = core.size
+    maximum = int(core.max()) if n else 0
+    ks = np.arange(1, maximum + 1, dtype=np.int64)
+    n_nodes = np.array(
+        [int(np.count_nonzero(core >= k)) for k in ks], dtype=np.int64
+    )
+    fraction = n_nodes.astype(np.float64) / float(n)
+    return CoreScan(k=ks, core_fraction=fraction, n_nodes=n_nodes)
 
 
 def risk_diffusion(
@@ -434,6 +776,10 @@ def network_from_correlation(
     density = (
         2.0 * n_edges / (n * (n - 1)) if n > 1 else 0.0
     )
+    path = path_statistics(adjacency)
+    cores = core_numbers(adjacency)
+    global_clustering = transitivity(adjacency)
+    degree_assortativity = assortativity(adjacency)
     return CorrelationNetwork(
         correlation=matrix.copy(),
         adjacency=adjacency,
@@ -446,6 +792,10 @@ def network_from_correlation(
         mst=tree,
         density=float(density),
         n_edges=n_edges,
+        path_stats=path,
+        core_numbers=cores,
+        transitivity=global_clustering,
+        assortativity=degree_assortativity,
     )
 
 
@@ -462,26 +812,40 @@ def correlation_network(
 
 
 __all__ = [
+    "CoreScan",
     "CorrelationNetwork",
     "DiffusionResult",
     "GraphComponents",
     "MSTResult",
+    "PathStats",
     "PercolationScan",
+    "RemovalCurve",
+    "assortativity",
     "betweenness",
     "bond_percolation",
     "bond_percolation_weighted",
     "centrality",
+    "cluster_size_distribution",
     "clustering",
+    "core_numbers",
+    "core_percolation",
     "correlation_adjacency",
     "correlation_network",
     "correlation_to_distance",
+    "modularity",
+    "mst_clusters",
     "mst_from_correlation",
     "mst_from_distance",
     "network_from_correlation",
     "network_strength",
     "pagerank",
+    "path_statistics",
+    "percolation_scan",
+    "removal_order",
     "risk_diffusion",
     "site_percolation",
     "site_percolation_weighted",
+    "targeted_removal",
     "threshold_components",
+    "transitivity",
 ]

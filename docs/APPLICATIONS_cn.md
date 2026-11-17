@@ -1,8 +1,8 @@
-# 应用：组合风险与状态归因
+# 应用：组合风险、状态归因与网络风险
 
 [English](APPLICATIONS_en.md) · [返回中文说明](../README_cn.md)
 
-这里记录两个直接可调用的应用层函数。它们不引入新的数值内核，而是用 `qflux` 和 `metrics` 中已经测试过的口径组合出研究结论。结果字典带有估计量、年化方式和输入样本信息，便于复查。
+这里记录三组直接可调用的应用层能力：组合风险、状态归因和网络风险诊断。它们不引入隐藏的数值层，而是用 `qflux`、`percolab`、`metrics` 中已经测试过的口径组合出研究结论。结果字典带有估计量、年化方式、图约定和输入样本信息，便于复查。
 
 ## 1. 组合风险
 
@@ -94,7 +94,55 @@ print(report["transitions"]["counts"])
 
 状态归因是描述性统计，不是因果分解。不同状态的样本数可能差别很大；`share_of_total_sum` 对复利路径没有可加性，只适合检查状态在算术收益中的占比。状态标签若来自 HMM，必须使用因果的 `filtered()` 或 `filtered_states()`；`smoothed()` 和 Viterbi 使用全样本，不能直接当作实时标签。
 
-## 3. 命令行
+## 3. 相关网络风险诊断
+
+`percolab.network_from_correlation(corr, threshold)` 把相关矩阵转成非负邻接图，并同时给出局部和全局结构。阈值是一个建模选择：相关系数不低于 `threshold` 的资产对之间才连边，边权取非负相关系数本身。
+
+`CorrelationNetwork` 结果包含：
+
+- `components`：标签、各分量大小、分量数和巨组分比例；
+- `strength`、`eigenvector`、`clustering`、`average_clustering`；
+- `path_stats`：全局效率、可达点对上的平均路径长度、直径、可达点对数以及连通标记；
+- `core_numbers` 与 `max_core`：k-core 分层，把密集核心和边缘节点分开；
+- `transitivity`：全局聚类系数；
+- `assortativity`：度同配性，正则图为 NaN；
+- `mst`、`density`、`n_edges`。
+
+`mst_clusters(network.distance, cutoff)` 在距离阈值处切断 MST，得到单链聚类；`modularity(adjacency, labels)` 对已有的行业或聚类划分打分。二者都不替使用者选择社区数量：切点或标签本身承载了这个决定。
+
+渗流与移除曲线是压力描述。`bond_percolation` 和 `site_percolation` 用固定 seed 扫描占用概率；加权版本和通用 `percolation_scan` 把候选图与边/节点占用权重分开。`targeted_removal` 按给定顺序或度量顺序移除节点，报告巨组分比例、有限簇 susceptibility 和分量数。`core_percolation` 是确定性的 k-core 曲线，`cluster_size_distribution` 给出单个概率下各大小簇的平均数量。
+
+```python
+import numpy as np
+import rflux
+
+corr = rflux.qflux.correlation_matrix(returns)
+net = rflux.percolab.network_from_correlation(corr, 0.45)
+print(net.components.giant_fraction, net.path_stats.efficiency, net.max_core)
+
+scan = rflux.percolab.bond_percolation(
+    net.adjacency, np.linspace(0.0, 1.0, 21), repetitions=200, seed=7
+)
+print(scan.critical_probability(), scan.max_susceptibility(), scan.giant_area())
+
+curve = rflux.percolab.targeted_removal(
+    net.adjacency, strategy="eigenvector", checkpoints=10
+)
+print(curve.giant_fraction)
+
+sectors = np.array([0, 0, 1, 1, 2, 2])  # 每个资产一个标签
+print(rflux.percolab.modularity(net.adjacency, sectors))
+```
+
+### 解释边界
+
+- 先定阈值再看结果。边数和巨组分比例随阈值单调变化；换阈值就是换了一张图，不是稳健性结论。
+- 蒙特卡洛曲线有抽样误差，并依赖显式 seed。解读交叉点前应增加 `repetitions` 并检查多个 seed 的稳定性。
+- `critical_probability()` 是扫描点上 susceptibility 最大的概率，属于有限样本描述，不是外推得到的热力学临界点。
+- `targeted_removal` 是静态攻击曲线，不会在每次移除后自适应调整顺序。`removal_order` 支持 strength、degree、eigenvector、betweenness 和 core 数排序。
+- 相关不等于因果，网络快照也不模拟流动性、融券成本或交易容量。把这些诊断当作条件变量和压力情景，而不是交易信号。
+
+## 4. 命令行
 
 `rflux risk` 从价格 CSV 计算收益并调用 `portfolio_risk`：
 
@@ -110,7 +158,7 @@ PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
 
 `rflux analyze` 仍负责资产统计、相关网络和 HMM；`risk` 只处理带权组合。两者都不需要 pandas。
 
-## 4. 可复查性
+## 5. 可复查性
 
 返回结果顶层的 `method` 和 `input` 记录了估计量、`ddof`、年化方式、风险无风险利率、置信水平、完整样本数和丢弃行数。复现实验时保存完整结果即可；不要只保存四舍五入后的收益率。
 

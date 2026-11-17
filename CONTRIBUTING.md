@@ -26,6 +26,7 @@ ctest --test-dir build/cmake --output-on-failure
 2. Implement it under `src/`.
 3. Add a numeric test with known inputs, including NaN/zero-variance/edge cases where relevant.
 4. If it needs to be used from other languages, add a C function in `include/rflux/rflux.h` and `src/rflux_capi.cpp`, then a ctypes binding and a C ABI test.
+5. For deterministic graph kernels, test known graphs and compare against a brute-force implementation on a small random graph. For Monte Carlo kernels, verify the mean and population standard deviation against independent single-replicate calls.
 
 ## Adding a C ABI function
 
