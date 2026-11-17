@@ -111,7 +111,8 @@ print("sma", rflux.qflux.sma(np.arange(6.0), 3).tolist())
 # ---------------------------------------------------------------------------
 # 1. native build and C/C++ tests
 # ---------------------------------------------------------------------------
-run_step "cmake configure (dev)" cmake --preset dev -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+run_step "cmake configure (dev)" cmake --preset dev \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DPython_EXECUTABLE="$PYTHON"
 run_step "cmake build (dev)" cmake --build --preset dev
 run_step "ctest (dev)" ctest --preset dev --output-on-failure
 
