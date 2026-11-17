@@ -8,7 +8,7 @@
 
 CC       ?= cc
 CXX      ?= c++
-PYTHON   ?= python3
+PYTHON   ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 OPT      ?= -O2 -g
 CSTD     ?= -std=c11
 CXXSTD   ?= -std=c++17
