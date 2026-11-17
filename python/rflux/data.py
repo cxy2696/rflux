@@ -51,6 +51,29 @@ def _akshare():
     return ak
 
 
+def _akshare_etf_endpoint(ak: Any) -> Any:
+    endpoint = getattr(ak, "fund_etf_hist_em", None)
+    if endpoint is None:
+        raise DataSourceError(
+            "akshare does not provide fund_etf_hist_em; upgrade akshare"
+        )
+    return endpoint
+
+
+def _akshare_asset_type(asset_type: str, symbol: str) -> str:
+    normalized = str(asset_type).strip().lower()
+    if normalized == "auto":
+        return "etf" if _akshare_is_etf(symbol) else "stock"
+    if normalized not in {"etf", "stock"}:
+        raise ValueError("asset_type must be 'auto', 'etf' or 'stock'")
+    return normalized
+
+
+def _akshare_is_etf(symbol: str) -> bool:
+    code = normalize_symbol(symbol).split(".", 1)[0]
+    return code.startswith("5") or code.startswith(("15", "16"))
+
+
 def _akshare_hist_endpoint(ak: Any) -> Any:
     endpoint = getattr(ak, "stock_zh_a_hist_em", None)
     if endpoint is None:
@@ -239,11 +262,14 @@ def load_akshare(
     adjust: str = "qfq",
     price_column: str = "收盘",
     period: str = "daily",
+    asset_type: str = "auto",
 ) -> Any:
-    """Load A-share daily closes from akshare.
+    """Load A-share stock or ETF daily closes from akshare.
 
-    ``symbols`` are akshare symbols such as ``"000001"``.  akshare's Chinese
-    schema is normalized to a date-indexed wide frame.
+    ``symbols`` are canonical or akshare symbols such as ``"600519"`` or
+    ``"510300.SH"``.  ``asset_type="auto"`` uses ``fund_etf_hist_em`` for ETF
+    codes and the stock endpoint otherwise.  akshare's Chinese schema is
+    normalized to a date-indexed wide frame.
     """
     pd = _pandas()
     ak = _akshare()
@@ -257,7 +283,11 @@ def load_akshare(
         "akshare",
         "日期",
         price_column,
-        lambda symbol: _akshare_hist_endpoint(ak)(
+        lambda symbol: (
+            _akshare_etf_endpoint(ak)
+            if _akshare_asset_type(asset_type, symbol) == "etf"
+            else _akshare_hist_endpoint(ak)
+        )(
             symbol=symbol,
             period=period,
             start_date=start_date,
@@ -751,7 +781,12 @@ class LocalCsvLoader(DataLoader):
 
 
 class AkShareLoader(DataLoader):
-    """A-share daily OHLCV adapter for akshare."""
+    """A-share stock or ETF daily OHLCV adapter for akshare.
+
+    ``asset_type="auto"`` selects ``fund_etf_hist_em`` for ETF codes and
+    ``stock_zh_a_hist_em`` otherwise.  Pass ``asset_type="etf"`` for a fund
+    that does not match the usual code prefixes.
+    """
 
     source_name = "akshare"
 
@@ -762,9 +797,13 @@ class AkShareLoader(DataLoader):
         period: str = "daily",
         volume_multiplier: float = 100.0,
         column_map: dict[str, str] | None = None,
+        asset_type: str = "auto",
     ):
         self.adjust = adjust
         self.period = period
+        self.asset_type = str(asset_type).strip().lower()
+        if self.asset_type not in {"auto", "etf", "stock"}:
+            raise ValueError("asset_type must be 'auto', 'etf' or 'stock'")
         self.volume_multiplier = float(volume_multiplier)
         self.column_map = dict(column_map or {})
 
@@ -774,7 +813,11 @@ class AkShareLoader(DataLoader):
         end_date = _compact_date(
             end, datetime.now().strftime("%Y%m%d"), "akshare end"
         )
-        endpoint = _akshare_hist_endpoint(ak)
+        endpoint = (
+            _akshare_etf_endpoint(ak)
+            if _akshare_asset_type(self.asset_type, symbol) == "etf"
+            else _akshare_hist_endpoint(ak)
+        )
         try:
             raw = endpoint(
                 symbol=provider_symbol(symbol, "akshare"),

@@ -107,7 +107,7 @@ loader.close()
 
 ## Provider 说明
 
-- `AkShareLoader` 使用 `stock_zh_a_hist_em`（旧版 SDK 回退到 `stock_zh_a_hist`），支持 `adjust="qfq"|"hfq"|""`。
+- `AkShareLoader` 支持 A 股股票和 ETF。默认 `asset_type="auto"` 对 ETF 代码使用 `fund_etf_hist_em`，其余使用 `stock_zh_a_hist_em`；可用 `asset_type="etf"|"stock"` 强制指定。支持 `adjust="qfq"|"hfq"|""`。
 - `YFinanceLoader` 使用 `Ticker.history`，默认 `auto_adjust=True`。
 - `LocalCsvLoader` 支持 per-symbol 目录或单个长表。
 

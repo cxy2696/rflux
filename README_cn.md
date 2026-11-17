@@ -8,7 +8,7 @@
 rflux 是一个 C++17 + Python 量化研究库。计算核心用 C++ 实现，通过稳定的 C ABI
 和 pybind11 扩展供 Python 调用；数据适配、回测和命令行工具放在 Python 层。
 
-当前版本 `0.7.0`，C ABI 版本 `1`。
+当前版本 `0.7.1`，C ABI 版本 `1`。
 
 ## 安装
 
@@ -81,8 +81,8 @@ rflux advice examples/data/sample_prices.csv --no-hmm
   k-truss、MST、bond/site 渗流、簇大小分布和风险扩散。
 - **算法层**：动量、量价反转、VWAP、Amihud、HRP/NCO 风格配置、Huber 回归、
   图平滑、Almgren-Chriss 执行和盘口指标。
-- **数据层**：本地 CSV、AKShare、yfinance 统一为长表 OHLCV，包含代码归一、
-  校验、SQLite 缓存和重试。
+- **数据层**：本地 CSV、AKShare（A 股股票与 ETF）、yfinance 统一为长表
+  OHLCV，包含代码归一、校验、SQLite 缓存和重试。
 - **C ABI**：因子、HRP、Almgren-Chriss、Huber、渗流和下单前风控均可从 C 调用，
   也可作为 Python ctypes 回退。
 

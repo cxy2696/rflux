@@ -76,10 +76,34 @@ class PercolationScan:
     susceptibility: np.ndarray
 
     def critical_probability(self) -> float:
-        """Probability with the largest finite-cluster susceptibility."""
+        """Scanned probability with the largest finite-cluster susceptibility.
+
+        On sparse graphs the susceptibility can peak at ``p = 0`` because all
+        nodes are isolated.  That endpoint is not a usable percolation
+        threshold; use :meth:`p_half_giant` for a giant-component-based
+        descriptive threshold.
+        """
         if self.susceptibility.size == 0:
             return float("nan")
         return float(self.probabilities[int(np.argmax(self.susceptibility))])
+
+    def p_half_giant(self) -> float:
+        """First scanned probability whose giant fraction reaches half its
+        final value.
+
+        This is a finite-sample descriptive threshold.  It avoids the
+        ``p = 0`` susceptibility degeneracy on sparse graphs and is the
+        recommended summary for correlation networks.
+        """
+        if self.probabilities.size == 0 or self.giant_mean.size == 0:
+            return float("nan")
+        terminal = float(self.giant_mean[-1])
+        if not np.isfinite(terminal) or terminal <= 0.0:
+            return float("nan")
+        hits = np.flatnonzero(self.giant_mean >= 0.5 * terminal)
+        if hits.size == 0:
+            return float("nan")
+        return float(self.probabilities[int(hits[0])])
 
     def max_susceptibility(self) -> float:
         """Largest finite-cluster susceptibility in the scan."""

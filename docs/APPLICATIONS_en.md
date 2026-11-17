@@ -143,7 +143,7 @@ print(rflux.percolab.modularity(net.adjacency, sectors))
 
 - Choose the threshold before looking at the result. Edge count and giant fraction are monotone in the threshold; a different threshold is a different graph, not a robust finding.
 - Monte Carlo curves carry sampling error and depend on the explicit seed. Increase `repetitions` and check stability across seeds before reading a crossing point.
-- `critical_probability()` is the scanned probability with maximum finite-cluster susceptibility. It is a finite-size descriptive estimate, not an extrapolated thermodynamic threshold.
+- `critical_probability()` is the scanned probability with maximum finite-cluster susceptibility. On sparse graphs the `p = 0` endpoint can win because all nodes are isolated; prefer `p_half_giant()` for a giant-fraction-based descriptive threshold. Neither is an extrapolated thermodynamic threshold.
 - `targeted_removal` is a static attack curve; it does not adapt the order after each removal. `removal_order` supports strength, degree, eigenvector, betweenness and core-number strategies.
 - Correlation is not causation, and a network snapshot does not model liquidity, borrow costs or trading capacity. Treat these diagnostics as conditioning variables and stress scenarios.
 

@@ -48,7 +48,7 @@ extern "C" {
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
 #define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 0
+#define RFLUX_VERSION_PATCH 1
 
 typedef enum rflux_status {
     RFLUX_OK = 0,
@@ -66,7 +66,7 @@ typedef enum rflux_status {
 
 RFLUX_API uint32_t rflux_abi_version(void);
 
-/* Returns a static string such as "0.7.0". */
+/* Returns a static string such as "0.7.1". */
 RFLUX_API const char* rflux_version_string(void);
 
 /*

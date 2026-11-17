@@ -10,7 +10,7 @@
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
 #define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 0
+#define RFLUX_VERSION_PATCH 1
 ```
 
 运行时：
@@ -28,7 +28,7 @@ const char* rflux_version_string(void);
 - 增加函数、增加新枚举值属于向后兼容，发布时应提升次版本号；未发布改动可以先保留在开发分支。
 - 删除函数、改变参数/返回类型、改变错误语义、扩张 ABI-v1 options 结构，必须提升 ABI 版本。
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
-- 当前版本 `0.7.0` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
+- 当前版本 `0.7.1` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
 - 0.7 的因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控均已提供 C ABI 入口；新增函数均为追加符号。
 
 ## 2. 状态码与异常

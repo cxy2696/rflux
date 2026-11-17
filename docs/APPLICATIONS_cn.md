@@ -143,7 +143,7 @@ print(rflux.percolab.modularity(net.adjacency, sectors))
 
 - 先定阈值再看结果。边数和巨组分比例随阈值单调变化；换阈值就是换了一张图，不是稳健性结论。
 - 蒙特卡洛曲线有抽样误差，并依赖显式 seed。解读交叉点前应增加 `repetitions` 并检查多个 seed 的稳定性。
-- `critical_probability()` 是扫描点上 susceptibility 最大的概率，属于有限样本描述，不是外推得到的热力学临界点。
+- `critical_probability()` 是扫描点上 susceptibility 最大的概率。稀疏图上 `p=0` 端点是所有节点孤立，可能成为最大值；应优先用 `p_half_giant()` 作为巨组分达到终值一半的描述性阈值。两者都不是外推得到的热力学临界点。
 - `targeted_removal` 是静态攻击曲线，不会在每次移除后自适应调整顺序。`removal_order` 支持 strength、degree、eigenvector、betweenness 和 core 数排序。
 - 相关不等于因果，网络快照也不模拟流动性、融券成本或交易容量。把这些诊断当作条件变量和压力情景，而不是交易信号。
 

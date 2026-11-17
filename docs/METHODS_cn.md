@@ -529,7 +529,7 @@ Site：
 
 通用 `percolation_scan()` 把候选图与占用权重分开：候选边仍然要求 $A_{ij}>0$ ，但 bond 保留概率可以使用独立的对称边权矩阵，site 存活概率可以使用独立的节点权重向量；便捷封装分别把邻接作为边权或把传入向量作为节点权重。传入与所选类型无关的权重会报非法参数，避免拼错参数时静默改变模型。
 
-在单个概率下，`cluster_size_distribution()` 报告大小为 $1..n$ 的簇的平均数量；下标 0 恒为 0，最大簇也计入。Python 扫描结果还提供 `critical_probability()`（susceptibility 最大处的概率，并列时取最小 p）、`max_susceptibility()` 和 `giant_area()`（巨组分曲线对扫描概率的梯形积分）。这些都是有限样本的描述性汇总，不是外推得到的临界指数。
+在单个概率下，`cluster_size_distribution()` 报告大小为 $1..n$ 的簇的平均数量；下标 0 恒为 0，最大簇也计入。Python 扫描结果还提供 `critical_probability()`（susceptibility 最大处的概率，并列时取最小 p）、`max_susceptibility()` 和 `giant_area()`（巨组分曲线对扫描概率的梯形积分）。稀疏图上 `p = 0` 可能因所有节点孤立而具有最大 susceptibility，该端点不能当作阈值；应使用 `p_half_giant()`，即巨组分达到终值一半的第一个扫描概率。这些都是有限样本的描述性汇总，不是外推得到的临界指数。
 
 对每个 p 做 R 次重复：
 
@@ -652,14 +652,14 @@ $$
 设数量为 $Q$，切片数为 $N$，时间跨度为 $T$， $\tau=T/N$。 $x_j$ 是第 $j$ 片后的持仓， $x_0=Q$、 $x_N=0$；第 $j$ 片交易 $n_j=x_{j-1}-x_j$。规划器采用
 
 $$
-\mathrm{TC}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\mathrm{TC}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2\tau,
 \qquad
 \mathrm{PC}=\frac{1}{2}\gamma Q^2,
 $$
 
 $$
 \mathrm{EC}=\frac{1}{2}\gamma Q^2+
-\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2\tau,
 $$
 
 $$
@@ -680,7 +680,7 @@ $$
 x(t)=Q\,\frac{\sinh\left(\kappa(T-t)\right)}{\sinh(\kappa T)}.
 $$
 
-实现按离散切片计算同一比值，并把最后一片目标持仓设为零。当 $\kappa T$ 数值上可忽略时，采用风险中性线性调度 $x_j=Q(1-j/N)$，此时 $n_j=Q/N$，且 $\sigma=0$ 时方差为零。`expected_cost` 和 `expected_variance` 使用的就是上面的离散公式，没有隐藏的年化。
+实现按离散切片计算同一比值，并把最后一片目标持仓设为零。当 $\kappa T$ 数值上可忽略时，采用风险中性线性调度 $x_j=Q(1-j/N)$，此时 $n_j=Q/N$、 $\sigma=0$ 时方差为零，临时成本为 $\eta Q^2/T$，与切片数无关。`expected_cost` 和 `expected_variance` 使用的就是上面的离散公式，没有隐藏的年化。
 
 ### 8.5 Huber 回归
 

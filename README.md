@@ -9,7 +9,7 @@ rflux is a C++17 + Python quantitative research library. The calculation core
 is C++; a stable C ABI and a pybind11 extension expose it to Python. Data
 adapters, backtests and command-line tools live in the Python layer.
 
-Current version: `0.7.0`. C ABI version: `1`.
+Current version: `0.7.1`. C ABI version: `1`.
 
 ## Install
 
@@ -88,8 +88,9 @@ sizing. It is not personalised investment advice and does not promise returns.
 - **Algorithms**: momentum, volume reversal, VWAP, Amihud, HRP/NCO-style
   allocation, Huber regression, graph smoothing, Almgren-Chriss execution and
   top-of-book metrics.
-- **Data**: local CSV, AKShare and yfinance normalised to one long OHLCV
-  contract, with symbol normalisation, validation, SQLite cache and retries.
+- **Data**: local CSV, AKShare (A-share stocks and ETFs) and yfinance
+  normalised to one long OHLCV contract, with symbol normalisation, validation,
+  SQLite cache and retries.
 - **C ABI**: factor, HRP, Almgren-Chriss, Huber, percolation and pre-trade risk
   kernels are callable from C and from the Python ctypes fallback.
 

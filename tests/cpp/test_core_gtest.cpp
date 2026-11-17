@@ -189,7 +189,7 @@ TEST(ExecutionGTest, LinearScheduleAtZeroRisk) {
     for (double trade : plan.trades) {
         EXPECT_NEAR(trade, 2.5, 1e-12);
     }
-    EXPECT_NEAR(plan.expected_cost, 400.0, 1e-10);
+    EXPECT_NEAR(plan.expected_cost, 100.0, 1e-10);
     EXPECT_DOUBLE_EQ(plan.expected_variance, 0.0);
 }
 

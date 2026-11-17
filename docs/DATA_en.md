@@ -115,7 +115,7 @@ should add a TTL/trading-calendar coverage policy on top.
 
 ## Provider notes
 
-- `AkShareLoader` uses `stock_zh_a_hist_em` (falling back to `stock_zh_a_hist` on older SDKs) and supports `adjust="qfq"|"hfq"|""`.
+- `AkShareLoader` supports A-share stocks and ETFs. `asset_type="auto"` (default) uses `fund_etf_hist_em` for ETF codes and `stock_zh_a_hist_em` otherwise; `asset_type="etf"|"stock"` overrides the inference. `adjust="qfq"|"hfq"|""` is supported.
 - `YFinanceLoader` uses `Ticker.history`; `auto_adjust=True` is the default.
 - `LocalCsvLoader` supports a directory of per-symbol files or one long panel.
 

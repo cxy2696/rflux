@@ -533,7 +533,7 @@ Weighted variants multiply the probability by a weight and cap it at one: a bond
 
 The general `percolation_scan()` separates the candidate graph from occupation weights. Candidate edges are still $A_{ij}>0$ , but bond retention can use an independent symmetric edge-weight matrix and site survival can use an independent node-weight vector. The convenience wrappers set the edge weights to the adjacency or the node weights to the supplied vector. Passing a weight that does not belong to the selected kind is an invalid argument, so a misspelled argument cannot silently change the model.
 
-At one probability, `cluster_size_distribution()` reports the mean number of components of each size $1..n$ ; index 0 is always zero and the largest cluster is included. The Python scan helpers report `critical_probability()` as the probability with the largest susceptibility (first smallest p on ties), `max_susceptibility()` and `giant_area()`, the trapezoidal integral of the giant-fraction curve over the scanned probabilities. These are finite-size descriptive summaries, not extrapolated critical exponents.
+At one probability, `cluster_size_distribution()` reports the mean number of components of each size $1..n$ ; index 0 is always zero and the largest cluster is included. The Python scan helpers report `critical_probability()` as the probability with the largest susceptibility (first smallest p on ties), `max_susceptibility()` and `giant_area()`, the trapezoidal integral of the giant-fraction curve over the scanned probabilities. On sparse graphs `p = 0` can have the largest susceptibility because every node is isolated; that endpoint is not a threshold. Use `p_half_giant()`, the first scanned p whose giant fraction reaches half of its terminal value, for a giant-component-based descriptive threshold. These are finite-size summaries, not extrapolated critical exponents.
 
 For each p and R repetitions:
 
@@ -677,14 +677,14 @@ $\tau=T/N$. Let $x_j$ be the holdings after slice $j$, with $x_0=Q$ and
 $x_N=0$, and let $n_j=x_{j-1}-x_j$ be the trade in slice $j$. The planner uses
 
 $$
-\text{temporary cost}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\text{temporary cost}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2\tau,
 \qquad
 \text{permanent cost}=\frac{1}{2}\gamma Q^2,
 $$
 
 $$
 \text{expected cost}=\frac{1}{2}\gamma Q^2+
-\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2\tau,
 $$
 
 $$
@@ -706,7 +706,8 @@ $$
 The implementation evaluates the same ratio at the discrete slice times and
 sets the final target to zero. When $\kappa T$ is numerically negligible, it
 uses the risk-neutral linear schedule $x_j=Q(1-j/N)$, which gives
-$n_j=Q/N$ and zero variance when $\sigma=0$. The discrete formulas above are
+$n_j=Q/N$, zero variance when $\sigma=0$, and temporary cost
+$\eta Q^2/T$ independent of the slice count. The discrete formulas above are
 the ones used by `expected_cost` and `expected_variance`; there is no hidden
 annualisation.
 

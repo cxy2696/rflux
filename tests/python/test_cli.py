@@ -106,8 +106,8 @@ class TestCommandLine(unittest.TestCase):
         status, output, _ = self._run(["version", "--json"])
         self.assertEqual(status, 0)
         payload = json.loads(output)
-        self.assertEqual(payload["version"], "0.7.0")
-        self.assertEqual(payload["native_version"], "0.7.0")
+        self.assertEqual(payload["version"], "0.7.1")
+        self.assertEqual(payload["native_version"], "0.7.1")
 
         status, output, _ = self._run(["doctor", "--json"])
         self.assertEqual(status, 0)

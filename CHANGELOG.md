@@ -2,7 +2,7 @@
 
 **English** · [中文](CHANGELOG_cn.md)
 
-## 0.7.0 - 2026-11-17
+## 0.7.1 - 2026-11-18
 
 C ABI remains `1`. This release adds the C++ algorithm contracts, the unified
 data layer and the native Python bridge without changing existing C signatures
@@ -39,6 +39,13 @@ or struct layouts.
   PyPI.
 - Fixed `largest_component` truncating the mean across Monte Carlo trials; it
   now rounds to the nearest integer.
+- Added AKShare ETF routing (`fund_etf_hist_em`) with stock/ETF auto-detection.
+- Added `PercolationScan.p_half_giant()` for sparse correlation networks where
+  the susceptibility peak degenerates at `p = 0`.
+- Fixed `trade_advice` covariance estimation when the first returns row is NaN.
+- Corrected the Almgren-Chriss temporary cost to the continuous-time
+  convention $\eta\sum(n_j/\tau)^2\tau$; with a fixed coefficient the
+  risk-neutral cost no longer grows with the slice count.
 - Added `rflux advice`: a research rebalance proposal using HRP base weights,
   momentum/trend/RSI adjustments, volatility targeting, an optional HMM risk
   state, position actions and risk estimates.
@@ -49,4 +56,4 @@ or struct layouts.
 
 - Made English the default README language, added Chinese mirrors for every Markdown document and added explicit notation/derivation sections for the HMM, HRP, Almgren-Chriss, Huber, percolation and advice formulas.
 
-Earlier versions are available from git history before the 0.7.0 tag.
+Earlier versions are available from git history before the 0.7.1 tag.

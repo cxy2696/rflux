@@ -81,7 +81,7 @@ core::ExecutionPlan AlmgrenChrissPlanner::plan(double quantity,
         result.trades[j - 1] = trade;
         const long double rate = static_cast<long double>(trade) /
                                  static_cast<long double>(tau);
-        temp_cost += rate * rate;
+        temp_cost += rate * rate * static_cast<long double>(tau);
         variance += static_cast<long double>(tau) *
                     static_cast<long double>(target) *
                     static_cast<long double>(target);

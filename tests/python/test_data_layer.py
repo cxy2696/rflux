@@ -136,6 +136,40 @@ class TestUnifiedDataLayer(unittest.TestCase):
         self.assertEqual(int(frame["volume"].iloc[0]), 1000)
         self.assertTrue(str(frame.index.dtype).startswith("datetime64"))
 
+    def test_akshare_etf_routing(self):
+        import pandas as pd
+
+        raw = pd.DataFrame(
+            {
+                "日期": ["2024-01-02", "2024-01-03"],
+                "开盘": [3.0, 3.1],
+                "最高": [3.2, 3.3],
+                "最低": [2.9, 3.0],
+                "收盘": [3.1, 3.2],
+                "成交量": [100.0, 120.0],
+            }
+        )
+        calls = {"stock": 0, "etf": 0}
+        fake = types.ModuleType("akshare")
+        fake.stock_zh_a_hist_em = lambda **kwargs: calls.__setitem__(
+            "stock", calls["stock"] + 1
+        ) or raw.copy()
+        fake.fund_etf_hist_em = lambda **kwargs: calls.__setitem__(
+            "etf", calls["etf"] + 1
+        ) or raw.copy()
+        with mock.patch.dict(sys.modules, {"akshare": fake}):
+            frame = data.AkShareLoader().load(
+                ["510300.SH"], start="2024-01-01", end="2024-01-31"
+            )
+        self.assertEqual(frame["symbol"].iloc[0], "510300.SH")
+        self.assertEqual(calls, {"stock": 0, "etf": 1})
+        with mock.patch.dict(sys.modules, {"akshare": fake}):
+            frame = data.AkShareLoader(asset_type="stock").load(
+                ["600519.SH"], start="2024-01-01", end="2024-01-31"
+            )
+        self.assertEqual(frame["symbol"].iloc[0], "600519.SH")
+        self.assertEqual(calls, {"stock": 1, "etf": 1})
+
     def test_yfinance_adapter(self):
         import pandas as pd
 

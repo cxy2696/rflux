@@ -18,7 +18,7 @@ Python 研究层          参数校验、数据适配、CLI、配置
 ```python
 import rflux
 print(rflux.native_info())
-# {'available': True, 'version': '0.7.0', 'stable_abi': True,
+# {'available': True, 'version': '0.7.1', 'stable_abi': True,
 #  'gil_released': True, 'module': '.../_native.abi3.so'}
 ```
 

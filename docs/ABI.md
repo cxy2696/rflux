@@ -12,7 +12,7 @@ cross-version C++ ABI promise.
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
 #define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 0
+#define RFLUX_VERSION_PATCH 1
 ```
 
 Runtime checks:
@@ -35,7 +35,7 @@ Version rules:
   extending an ABI-v1 options struct requires a new ABI version.
 - A release may add optional functions without forcing old clients to
   recompile.
-- `0.7.0` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
+- `0.7.1` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
   native bridge are additive.
 - Factors, HRP, Almgren-Chriss, Huber, site-percolation detection and the
   pre-trade gate have C entry points; all new symbols are additive.

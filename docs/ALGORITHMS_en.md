@@ -106,7 +106,10 @@ contract.
 
 - `almgren_chriss`: optimal deterministic liquidation with linear temporary and
   permanent impact, risk aversion and a requested slice count.  Returns trades,
-  expected cost, cost variance and `kappa`.
+  expected cost, cost variance and `kappa`.  Temporary cost uses the
+  continuous-time convention $\eta\sum_j(n_j/\tau)^2\tau$; with a fixed
+  coefficient the risk-neutral cost is $\eta Q^2/T$, independent of the slice
+  count.
 - `order_book_metrics`: level-1 spread, mid, microprice and size imbalance from
   caller-supplied top-of-book snapshots.
 

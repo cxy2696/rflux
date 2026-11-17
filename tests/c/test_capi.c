@@ -24,7 +24,7 @@ static int test_status(void) {
     double out[5];
     const double x[5] = {1, 2, 3, 4, 5};
     CHECK(rflux_abi_version() == RFLUX_ABI_VERSION);
-    CHECK(strcmp(rflux_version_string(), "0.7.0") == 0);
+    CHECK(strcmp(rflux_version_string(), "0.7.1") == 0);
     CHECK(strcmp(rflux_status_name(RFLUX_OK), "RFLUX_OK") == 0);
     CHECK(strcmp(rflux_status_name(999), "RFLUX_ERR_UNKNOWN") ==
           0);
@@ -816,7 +816,7 @@ static int test_algorithms(void) {
         CHECK(rflux_almgren_chriss_plan(100.0, 10, 1.0, 0.01, 0.001, 0.02,
                                         0.0, trades, &cost, &variance,
                                         &kappa) == RFLUX_OK);
-        CHECK(approx(cost, 1005.0, 1e-9));
+        CHECK(approx(cost, 105.0, 1e-9));
         double total = 0.0;
         for (int i = 0; i < 10; ++i) total += trades[i];
         CHECK(approx(total, 100.0, 1e-9));

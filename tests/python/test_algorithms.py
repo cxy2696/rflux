@@ -157,7 +157,7 @@ class TestExecution(unittest.TestCase):
             10.0, slices=4, horizon=1.0, temporary_impact=1.0
         )
         np.testing.assert_allclose(linear.trades, [2.5] * 4)
-        self.assertAlmostEqual(linear.expected_cost, 400.0)
+        self.assertAlmostEqual(linear.expected_cost, 100.0)
         curved = execution.almgren_chriss(
             1000.0,
             slices=10,

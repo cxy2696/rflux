@@ -738,6 +738,7 @@ class TestGraphs(unittest.TestCase):
             COMPLETE, [0.0, 1.0], repetitions=20, seed=3
         )
         self.assertEqual(scan.critical_probability(), 0.0)
+        self.assertEqual(scan.p_half_giant(), 1.0)
         self.assertAlmostEqual(scan.max_susceptibility(), 0.75)
         self.assertAlmostEqual(scan.giant_area(), 0.625)
         empty = percolab.PercolationScan(
@@ -747,6 +748,7 @@ class TestGraphs(unittest.TestCase):
             susceptibility=np.array([]),
         )
         self.assertTrue(np.isnan(empty.critical_probability()))
+        self.assertTrue(np.isnan(empty.p_half_giant()))
         self.assertTrue(np.isnan(empty.max_susceptibility()))
         self.assertEqual(empty.giant_area(), 0.0)
 
