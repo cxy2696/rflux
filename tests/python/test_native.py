@@ -1,6 +1,7 @@
 import importlib.util
 import threading
 import time
+import os
 import unittest
 from pathlib import Path
 
@@ -23,7 +24,12 @@ class TestNativeBridge(unittest.TestCase):
         self.assertTrue(info["gil_released"])
         module_path = Path(info["module"])
         if native_module.STABLE_ABI:
-            self.assertIn(".abi3.", module_path.name)
+            # CPython stable-ABI wheels use the .abi3 suffix on POSIX.  Windows
+            # CPython still loads the stable-ABI module from a plain .pyd.
+            if os.name == "nt":
+                self.assertTrue(module_path.name.endswith(".pyd"))
+            else:
+                self.assertIn(".abi3.", module_path.name)
 
     def test_series_into_is_zero_copy(self):
         values = np.arange(20.0)
