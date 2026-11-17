@@ -23,4 +23,6 @@ C ABI 仍为 `1`。本版本新增 C++ 算法接口层、统一数据层和原�
 - 新增 `rflux advice` 研究再平衡提案：HRP 基础权重、动量/趋势/RSI 调整、波动率目标与 HMM 风险状态、逐资产动作和风险估计。
 - 补齐算法族工厂：`AllocatorFactory`、`PredictorFactory`、`ExecutionPlannerFactory`、`PercolationDetectorFactory`、`RegimeDetectorFactory`，统一使用参数化线程安全注册表。
 
+- README 默认改为英文；所有 Markdown 文档增加中英文跳转；补充 HMM、HRP、Almgren-Chriss、Huber、渗流和建议公式的记号与推导。
+
 更早版本请查看 git 标签。

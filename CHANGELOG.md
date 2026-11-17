@@ -47,4 +47,6 @@ or struct layouts.
   `PercolationDetectorFactory` and `RegimeDetectorFactory`, all using the
   parameterised thread-safe registry.
 
+- Made English the default README language, added Chinese mirrors for every Markdown document and added explicit notation/derivation sections for the HMM, HRP, Almgren-Chriss, Huber, percolation and advice formulas.
+
 Earlier versions are available from git history before the 0.7.0 tag.
