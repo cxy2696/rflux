@@ -95,6 +95,7 @@ sdist.include = [
   "tests/cpp/*.cpp",
   "docs/**",
   "scripts/*.py",
+  "scripts/*.sh",
   "python/rflux/*.py",
   "python/rflux/py.typed",
   "python/rflux/_lib/.gitkeep",

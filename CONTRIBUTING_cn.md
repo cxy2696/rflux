@@ -11,6 +11,10 @@ make -j
 make check
 ```
 
+本地完整验证（构建、CTest、pytest、CLI、示例和文档）可运行
+`bash scripts/vscode_verify.sh`；日志写到 `artifacts/validation/`，失败时返回
+非零。
+
 `make check` 包含 Markdown 检查（`scripts/check_docs.py`，检查相对链接、
 代码围栏和 GitHub 数学分隔符）以及 `scripts/check_version.py`，后者保证
 CMake、C 头和 Python 元数据版本一致。
