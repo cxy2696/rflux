@@ -40,6 +40,8 @@ $$
 
 A zero denominator produces NaN because the z-score is undefined.
 
+Rolling quantiles use the Type-7 definition: sort the finite values in the window, compute the position $h=(w-1)q$ , and interpolate between adjacent order statistics. The implementation compresses coordinates and maintains window counts in a Fenwick tree, so each slide and query is $O(\log n)$; `rolling_median` is $q=0.5$. A window containing a missing value still returns NaN.
+
 The implementation does not use the sliding “sum of squares minus square of sum” formula. It keeps mergeable Welford moments in a two-stack queue, so a price level around $10^9$ with a window range of 0.1 does not wipe out the significant digits. Push and pop are amortised O(1), with O(window) memory. Rolling correlation, beta, slope and R² use the same idea with a second cross-moment.
 
 ### 1.3 EMA and MACD

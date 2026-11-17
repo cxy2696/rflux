@@ -24,7 +24,7 @@ static int test_status(void) {
     double out[5];
     const double x[5] = {1, 2, 3, 4, 5};
     CHECK(rflux_abi_version() == RFLUX_ABI_VERSION);
-    CHECK(strcmp(rflux_version_string(), "0.4.2") == 0);
+    CHECK(strcmp(rflux_version_string(), "0.5.0") == 0);
     CHECK(strcmp(rflux_status_name(RFLUX_OK), "RFLUX_OK") == 0);
     CHECK(strcmp(rflux_status_name(999), "RFLUX_ERR_UNKNOWN") ==
           0);
@@ -230,6 +230,10 @@ static int test_ranking(void) {
         CHECK(rflux_zscore(sample, 3, 0, out) == RFLUX_OK);
         CHECK(approx(out[0], -1.22474487139, 1e-9));
         CHECK(approx(out[1], 0.0, 1e-12));
+        CHECK(rflux_rolling_quantile(sample, 3, 3, 0.5, out) == RFLUX_OK);
+        CHECK(approx(out[2], 2.0, 1e-12));
+        CHECK(rflux_rolling_quantile(sample, 3, 3, 1.1, out) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
 
     {

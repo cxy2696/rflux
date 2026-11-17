@@ -285,6 +285,12 @@ rflux_status rflux_rolling_zscore(const double* x, size_t n, size_t window,
     });
 }
 
+rflux_status rflux_rolling_quantile(const double* x, size_t n, size_t window,
+                                    double q, double* out) {
+    return guarded_vector("rflux_rolling_quantile", out, "out",
+                          [&] { return rflux::qflux::rolling_quantile(x, n, window, q); });
+}
+
 rflux_status rflux_ema(const double* x, size_t n, size_t span, double* out) {
     return guarded_vector("rflux_ema", out, "out",
                           [&] { return rflux::qflux::ema(x, n, span); });

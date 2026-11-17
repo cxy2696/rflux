@@ -10,8 +10,8 @@ from rflux._ffi import RFluxError
 class TestLibraryAndIndicators(unittest.TestCase):
     def test_native_identity(self):
         self.assertEqual(rflux.abi_version(), 1)
-        self.assertEqual(rflux.native_version(), "0.4.2")
-        self.assertEqual(rflux.__version__, "0.4.2")
+        self.assertEqual(rflux.native_version(), "0.5.0")
+        self.assertEqual(rflux.__version__, "0.5.0")
 
     def test_returns_and_sma(self):
         prices = np.arange(1.0, 11.0)
@@ -85,6 +85,11 @@ class TestLibraryAndIndicators(unittest.TestCase):
         stable_std = qflux.rolling_std(stable_gap, 2)
         self.assertTrue(np.isnan(stable_std[2]) and np.isnan(stable_std[3]))
         np.testing.assert_allclose(stable_std[4:], 0.5)
+        median = qflux.rolling_median(prices, 3)
+        np.testing.assert_allclose(median[2:], [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+        quantile = qflux.rolling_quantile(prices, 3, 0.25)
+        np.testing.assert_allclose(quantile[2:], [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5])
+        self.assertTrue(np.isnan(quantile[1]))
         stable_corr = qflux.rolling_corr(
             stable_gap, 2.0 * stable_gap + 1.0, 2
         )

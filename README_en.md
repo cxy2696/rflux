@@ -4,13 +4,13 @@
 
 rflux is a quantitative research library with a stable C ABI, a C++17 calculation core and a Python research layer. Python calls the shared library through `ctypes`, so the same binary serves every supported Python version. Other languages can use the C header without dealing with C++ types or exceptions.
 
-The current release is `0.4.2`; the C ABI version is `1`.
+The current release is `0.5.0`; the compatible C ABI version is `1`.
 
 ## What is included
 
 | Area | Contents |
 | --- | --- |
-| `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
+| `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, quantiles/median, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
 | `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, expected durations, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
 | `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector centrality, clustering, minimum spanning trees, bond/site percolation with weighted variants and SIR diffusion |
 | Python tools | Optional akshare/yfinance/tushare/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |

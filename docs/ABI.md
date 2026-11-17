@@ -7,8 +7,8 @@
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 4
-#define RFLUX_VERSION_PATCH 2
+#define RFLUX_VERSION_MINOR 5
+#define RFLUX_VERSION_PATCH 0
 ```
 
 运行时：
@@ -28,6 +28,7 @@ const char* rflux_version_string(void);
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
 - 0.2.0 新增 `rflux_rolling_beta` 与 `rflux_hmm_score`，ABI 仍为 1。
 - 0.4.2 仍使用 ABI 1；新增的 Python 高层分析和 CLI 不改变 C 接口。
+- 0.5.0 继续使用 ABI 1；新增算法都是向后兼容的函数，没有修改已有布局或签名。
 
 ## 2. 状态码与异常
 
@@ -90,7 +91,7 @@ void rflux_clear_error(void);
 | --- | --- |
 | `rflux_returns` | n |
 | `rflux_sma` / `rflux_rolling_sum` | n |
-| `rflux_rolling_std` / `rflux_rolling_min` / `rflux_rolling_max` / `rflux_rolling_zscore` | n |
+| `rflux_rolling_std` / `rflux_rolling_min` / `rflux_rolling_max` / `rflux_rolling_zscore` / `rflux_rolling_quantile` | n |
 | `rflux_ema` / `rflux_rsi` / `rflux_atr` / `rflux_drawdown` | n |
 | `rflux_rolling_corr` / `rflux_rolling_cov` / `rflux_rolling_beta` / `rflux_rolling_slope` / `rflux_rolling_r2` | n |
 | `rflux_macd` | 三个长度为 n 的数组（macd、signal、histogram） |

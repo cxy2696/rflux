@@ -138,6 +138,8 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, size_t, c_double_p])
     bind("rflux_rolling_zscore", ctypes.c_int,
          [c_double_p, size_t, size_t, size_t, c_double_p])
+    bind("rflux_rolling_quantile", ctypes.c_int,
+         [c_double_p, size_t, size_t, ctypes.c_double, c_double_p])
     bind("rflux_ema", ctypes.c_int,
          [c_double_p, size_t, size_t, c_double_p])
     bind("rflux_rsi", ctypes.c_int,

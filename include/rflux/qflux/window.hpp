@@ -23,6 +23,8 @@ std::vector<double> rolling_max(const double* values, std::size_t n,
                                 std::size_t window);
 std::vector<double> rolling_zscore(const double* values, std::size_t n,
                                    std::size_t window, std::size_t ddof);
+std::vector<double> rolling_quantile(const double* values, std::size_t n,
+                                     std::size_t window, double q);
 std::vector<double> rolling_corr(const double* x, const double* y, std::size_t n,
                                  std::size_t window);
 std::vector<double> rolling_cov(const double* x, const double* y, std::size_t n,

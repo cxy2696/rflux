@@ -47,8 +47,8 @@ extern "C" {
 
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 4
-#define RFLUX_VERSION_PATCH 2
+#define RFLUX_VERSION_MINOR 5
+#define RFLUX_VERSION_PATCH 0
 
 typedef enum rflux_status {
     RFLUX_OK = 0,
@@ -66,7 +66,7 @@ typedef enum rflux_status {
 
 RFLUX_API uint32_t rflux_abi_version(void);
 
-/* Returns a static string such as "0.4.2". */
+/* Returns a static string such as "0.5.0". */
 RFLUX_API const char* rflux_version_string(void);
 
 /*
@@ -123,6 +123,14 @@ RFLUX_API rflux_status rflux_rolling_max(const double* x, size_t n,
 RFLUX_API rflux_status rflux_rolling_zscore(const double* x, size_t n,
                                             size_t window, size_t ddof,
                                             double* out);
+
+/*
+ * Rolling Type-7 quantile over complete windows.  q is in [0, 1]; missing
+ * values invalidate the window.  out has length n.
+ */
+RFLUX_API rflux_status rflux_rolling_quantile(const double* x, size_t n,
+                                              size_t window, double q,
+                                              double* out);
 
 /*
  * Exponentially weighted moving average with span >= 1 and

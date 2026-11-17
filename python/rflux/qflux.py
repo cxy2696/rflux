@@ -120,6 +120,21 @@ def rolling_zscore(values: Any, window: int, ddof: int = 0) -> np.ndarray:
         as_size(ddof, "ddof", minimum=0))
 
 
+def rolling_quantile(
+    values: Any, window: int, q: float
+) -> np.ndarray:
+    """Rolling Type-7 quantile over complete windows."""
+    data = _one_input(values)
+    return call_vector(
+        "rflux_rolling_quantile", data.size, get_lib().rflux_rolling_quantile,
+        double_ptr(data), data.size, as_size(window, "window"), float(q))
+
+
+def rolling_median(values: Any, window: int) -> np.ndarray:
+    """Rolling median, equivalent to ``rolling_quantile(..., 0.5)``."""
+    return rolling_quantile(values, window, 0.5)
+
+
 def ema(values: Any, span: int) -> np.ndarray:
     """EMA with alpha = 2/(span+1), seeded on the first finite value."""
     data = _one_input(values)
@@ -415,7 +430,9 @@ __all__ = [
     "rolling_cov",
     "rolling_max",
     "rolling_mean",
+    "rolling_median",
     "rolling_min",
+    "rolling_quantile",
     "rolling_r2",
     "rolling_slope",
     "rolling_std",

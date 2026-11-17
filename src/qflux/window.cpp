@@ -66,6 +66,36 @@ CenterScale rolling_center_scale(const double* values, std::size_t n,
     return result;
 }
 
+class Fenwick {
+public:
+    explicit Fenwick(std::size_t n) : tree_(n + 1, 0) {}
+
+    void add(std::size_t index, std::ptrdiff_t delta) {
+        for (std::size_t i = index + 1; i < tree_.size(); i += i & (~i + 1)) {
+            tree_[i] += delta;
+        }
+    }
+
+    /* 1-based rank -> zero-based compressed index. */
+    std::size_t kth(std::size_t rank) const {
+        std::size_t index = 0;
+        std::size_t bit = 1;
+        while ((bit << 1) < tree_.size()) bit <<= 1;
+        for (; bit != 0; bit >>= 1) {
+            const std::size_t next = index + bit;
+            if (next < tree_.size() &&
+                tree_[next] < static_cast<std::ptrdiff_t>(rank)) {
+                index = next;
+                rank -= static_cast<std::size_t>(tree_[next]);
+            }
+        }
+        return index;
+    }
+
+private:
+    std::vector<std::ptrdiff_t> tree_;
+};
+
 template <typename Emit>
 void for_each_pair_window(const double* x, const double* y, std::size_t n,
                           std::size_t window, Emit emit) {
@@ -93,6 +123,67 @@ void for_each_pair_window(const double* x, const double* y, std::size_t n,
 }
 
 }  // namespace
+
+std::vector<double> rolling_quantile(const double* values, std::size_t n,
+                                     std::size_t window, double q) {
+    require_pointer(values, "values must not be NULL");
+    require(n > 0, "n must be positive");
+    require(window > 0 && window <= n, "window must be in [1, n]");
+    require(std::isfinite(q) && q >= 0.0 && q <= 1.0,
+            "q must be in [0, 1]");
+
+    std::vector<double> coordinates;
+    coordinates.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::isfinite(values[i])) coordinates.push_back(values[i]);
+    }
+    std::sort(coordinates.begin(), coordinates.end());
+    coordinates.erase(std::unique(coordinates.begin(), coordinates.end()),
+                      coordinates.end());
+    Fenwick fenwick(coordinates.size());
+    std::vector<std::size_t> compressed(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::isfinite(values[i])) {
+            compressed[i] = static_cast<std::size_t>(
+                std::lower_bound(coordinates.begin(), coordinates.end(),
+                                 values[i]) -
+                coordinates.begin());
+        }
+    }
+
+    std::vector<double> out(n, kNaN);
+    std::size_t missing = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::isfinite(values[i])) {
+            fenwick.add(compressed[i], 1);
+        } else {
+            ++missing;
+        }
+        if (i >= window) {
+            const std::size_t old = i - window;
+            if (std::isfinite(values[old])) {
+                fenwick.add(compressed[old], -1);
+            } else {
+                --missing;
+            }
+        }
+        if (i + 1 < window || missing != 0) continue;
+
+        const double position =
+            q * static_cast<double>(window - 1);
+        const std::size_t lower =
+            static_cast<std::size_t>(std::floor(position));
+        const std::size_t upper = std::min(lower + 1, window - 1);
+        const double low_value =
+            coordinates[fenwick.kth(lower + 1)];
+        const double high_value =
+            coordinates[fenwick.kth(upper + 1)];
+        const double fraction =
+            position - static_cast<double>(lower);
+        out[i] = low_value + fraction * (high_value - low_value);
+    }
+    return out;
+}
 
 std::vector<double> rolling_sum(const double* values, std::size_t n,
                                 std::size_t window) {

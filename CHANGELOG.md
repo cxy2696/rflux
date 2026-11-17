@@ -3,15 +3,21 @@
 Notable changes are listed here. Numerical definitions, missing-value rules and
 causal semantics are called out explicitly when they change.
 
-## Unreleased
+## 0.5.0 — 2026-11-17
+
+This is the rflux 0.5.0 release. The C ABI compatibility version remains `1`;
+the release adds functions only and does not change existing layouts or
+signatures.
 
 - Extracted shared provider-series and provider-frame normalization for the
   akshare and tushare loaders.
 - Shared edge and node percolation trial kernels between weighted and
   unweighted scans.
-- Added HMM expected state durations through C++, the C ABI and Python.
+- Added rolling Type-7 quantiles and median through C++, the C ABI and Python,
+  using coordinate compression and a Fenwick tree for O(n log n) scans.
 - Added Brandes betweenness centrality for undirected graphs through C++, the
   C ABI and Python.
+- Added HMM expected state durations through C++, the C ABI and Python.
 - Extracted the partial-pivoting dense solver into a reusable internal linear
   algebra helper for the HMM stationary distribution.
 - Reduced Python binding boilerplate with shared `call_vector`, `call_i32` and

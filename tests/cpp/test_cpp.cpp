@@ -51,6 +51,12 @@ int test_qflux() {
         rflux::qflux::rolling_zscore(prices.data(), prices.size(), 2, 0);
     CHECK(approx(zscore.back(), 1.0));
 
+    const std::vector<double> median =
+        rflux::qflux::rolling_quantile(prices.data(), prices.size(), 3, 0.5);
+    CHECK(std::isnan(median[1]));
+    CHECK(approx(median[2], 2.0));
+    CHECK(approx(median.back(), 9.0));
+
     const std::vector<double> ema =
         rflux::qflux::ema(prices.data(), prices.size(), 3);
     CHECK(approx(ema[1], 1.5));
