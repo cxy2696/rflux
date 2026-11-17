@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
-project(rflux VERSION 0.5.0 LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.26)
+project(rflux VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -10,7 +10,22 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(RFLUX_BUILD_TESTS "Build C and C++ tests" ON)
 option(RFLUX_BUILD_EXAMPLES "Build example programs" ON)
+option(RFLUX_BUILD_PYTHON "Build the pybind11 Python extension" OFF)
+option(RFLUX_PYTHON_PACKAGE "Install the Python wheel layout" OFF)
+option(RFLUX_STABLE_ABI "Build the Python extension against the CPython stable ABI" OFF)
+option(RFLUX_BUILD_GTEST "Build the GoogleTest suite when GoogleTest is available" ON)
+option(RFLUX_FETCH_GTEST "Download GoogleTest when it is not installed" OFF)
 option(RFLUX_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if(SKBUILD)
+    set(RFLUX_BUILD_PYTHON ON)
+    set(RFLUX_PYTHON_PACKAGE ON)
+    set(RFLUX_BUILD_TESTS OFF)
+    set(RFLUX_BUILD_EXAMPLES OFF)
+    if(SKBUILD_SABI_VERSION)
+        set(RFLUX_STABLE_ABI ON)
+    endif()
+endif()
 
 set(RFLUX_CORE_SOURCES
     src/qflux/window.cpp
@@ -20,7 +35,20 @@ set(RFLUX_CORE_SOURCES
     src/regimelab/hmm.cpp
     src/regimelab/regime.cpp
     src/percolab/percolation.cpp
-    src/percolab/network.cpp)
+    src/percolab/network.cpp
+    src/percolab/detector.cpp
+    src/percolab/factory.cpp
+    src/risk/pretrade.cpp
+    src/factorlab/factors.cpp
+    src/factorlab/factory.cpp
+    src/portfoliolab/hrp.cpp
+    src/portfoliolab/factory.cpp
+    src/execution/almgren_chriss.cpp
+    src/execution/factory.cpp
+    src/regimelab/detector.cpp
+    src/regimelab/factory.cpp
+    src/mllab/huber.cpp
+    src/mllab/factory.cpp)
 
 add_library(rflux_core STATIC ${RFLUX_CORE_SOURCES})
 target_include_directories(rflux_core
@@ -69,6 +97,50 @@ elseif(MSVC)
     endif()
 endif()
 
+if(RFLUX_BUILD_PYTHON)
+    if(RFLUX_STABLE_ABI)
+        find_package(Python REQUIRED COMPONENTS Interpreter Development.Module
+                     Development.SABIModule)
+        if(Python_VERSION VERSION_LESS 3.12)
+            message(FATAL_ERROR "RFLUX_STABLE_ABI requires CPython 3.12 or newer")
+        endif()
+        find_package(pybind11 3.2 CONFIG QUIET)
+        if(NOT pybind11_FOUND)
+            set(pybind11_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pybind11/share/cmake/pybind11")
+            find_package(pybind11 3.2 CONFIG REQUIRED)
+        endif()
+        pybind11_add_module(rflux_native STABLE_ABI src/python/bindings.cpp)
+    else()
+        find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
+        find_package(pybind11 3.0 CONFIG QUIET)
+        if(NOT pybind11_FOUND)
+            set(pybind11_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pybind11/share/cmake/pybind11")
+            find_package(pybind11 3.0 CONFIG REQUIRED)
+        endif()
+        pybind11_add_module(rflux_native MODULE src/python/bindings.cpp)
+    endif()
+    target_link_libraries(rflux_native PRIVATE rflux_core)
+    target_include_directories(rflux_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(rflux_native PRIVATE
+        RFLUX_VERSION_STRING="${PROJECT_VERSION}"
+        RFLUX_NATIVE_STABLE_ABI=$<IF:$<BOOL:${RFLUX_STABLE_ABI}>,1,0>)
+    set_target_properties(rflux_native PROPERTIES
+        OUTPUT_NAME "_native"
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(rflux_native PRIVATE -Wall -Wextra -Wpedantic)
+        if(RFLUX_WARNINGS_AS_ERRORS)
+            target_compile_options(rflux_native PRIVATE -Werror)
+        endif()
+    elseif(MSVC)
+        target_compile_options(rflux_native PRIVATE /W4)
+        if(RFLUX_WARNINGS_AS_ERRORS)
+            target_compile_options(rflux_native PRIVATE /WX)
+        endif()
+    endif()
+endif()
+
 if(RFLUX_BUILD_EXAMPLES)
     add_executable(rflux_example_c examples/c_basic.c)
     target_link_libraries(rflux_example_c PRIVATE rflux)
@@ -98,33 +170,73 @@ if(RFLUX_BUILD_TESTS)
     target_include_directories(rflux_test_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     set_target_properties(rflux_test_cpp PROPERTIES OUTPUT_NAME test_cpp)
     add_test(NAME rflux_cpp_core COMMAND rflux_test_cpp)
+
+    if(RFLUX_BUILD_GTEST)
+        find_package(GTest QUIET)
+        if(NOT GTest_FOUND AND RFLUX_FETCH_GTEST)
+            include(FetchContent)
+            set(GTEST_CMAKE_CXX_STANDARD 17 CACHE STRING "" FORCE)
+            set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+            set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+            FetchContent_Declare(
+                googletest
+                GIT_REPOSITORY https://github.com/google/googletest.git
+                GIT_TAG v1.15.2
+                GIT_SHALLOW TRUE)
+            FetchContent_MakeAvailable(googletest)
+        endif()
+        if(TARGET GTest::gtest_main)
+            add_executable(rflux_test_gtest tests/cpp/test_core_gtest.cpp)
+            target_link_libraries(rflux_test_gtest PRIVATE rflux_core GTest::gtest_main)
+            target_include_directories(rflux_test_gtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+            add_test(NAME rflux_cpp_gtest COMMAND rflux_test_gtest)
+        else()
+            message(WARNING
+                "GoogleTest was not found. Install it, or configure with "
+                "-DRFLUX_FETCH_GTEST=ON to download it; skipping gtest target.")
+        endif()
+    endif()
 endif()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-install(TARGETS rflux
-    EXPORT rfluxTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS rflux_core
-    EXPORT rfluxTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(DIRECTORY include/rflux DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(EXPORT rfluxTargets
-    FILE rfluxTargets.cmake
-    NAMESPACE rflux::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
 
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/rfluxConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion)
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
+if(RFLUX_PYTHON_PACKAGE)
+    # A wheel owns only the importable payload.  The C ABI shared library is
+    # shipped beside the Python package so ctypes remains a supported fallback.
+    install(TARGETS rflux
+        LIBRARY DESTINATION rflux/_lib
+        RUNTIME DESTINATION rflux/_lib)
+    if(RFLUX_BUILD_PYTHON)
+        install(TARGETS rflux_native
+            LIBRARY DESTINATION rflux
+            RUNTIME DESTINATION rflux)
+    endif()
+else()
+    install(TARGETS rflux
+        EXPORT rfluxTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(TARGETS rflux_core
+        EXPORT rfluxTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(DIRECTORY include/rflux DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(EXPORT rfluxTargets
+        FILE rfluxTargets.cmake
+        NAMESPACE rflux::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/rfluxConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/rfluxConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rflux)
+endif()

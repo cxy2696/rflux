@@ -30,6 +30,7 @@ from ._common import (
     int32_ptr,
 )
 from ._ffi import HMMOptions, RFluxError, check, get_lib
+from ._native_backend import native_module, raise_as_rflux
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +76,19 @@ class TrendRegimeResult:
     labels: np.ndarray
 
 
+@dataclass(frozen=True, slots=True)
+class StickyRegimeResult:
+    """Filtered HMM probabilities with duration and hysteresis constraints."""
+
+    probabilities: np.ndarray
+    labels: np.ndarray
+    switches: np.ndarray
+
+    @property
+    def n_switches(self) -> int:
+        return int(self.switches.size)
+
+
 def _as_observations(observations: Any, n_features: int) -> np.ndarray:
     array = np.asarray(observations, dtype=np.float64)
     if array.ndim == 1:
@@ -107,7 +121,19 @@ class GaussianHMM:
     def __init__(self, n_states: int, n_features: int = 1):
         self._n_states = as_size(n_states, "n_states")
         self._n_features = as_size(n_features, "n_features")
+        self._native_model: Any = None
+        self._backend = "ctypes"
         self._handle: ctypes.c_void_p | None = ctypes.c_void_p()
+        if native_module is not None:
+            try:
+                self._native_model = native_module.GaussianHMM(
+                    self._n_states, self._n_features
+                )
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_create", exc)
+            self._backend = "native"
+            self._handle = None
+            return
         handle = ctypes.c_void_p()
         check(
             get_lib().rflux_hmm_create(
@@ -126,6 +152,8 @@ class GaussianHMM:
         return self._n_features
 
     def _require_handle(self) -> ctypes.c_void_p:
+        if self._native_model is not None:
+            raise RuntimeError("native GaussianHMM has no ctypes handle")
         if self._handle is None:
             raise RuntimeError("GaussianHMM handle is closed")
         return self._handle
@@ -137,6 +165,8 @@ class GaussianHMM:
         return probabilities
 
     def close(self) -> None:
+        if self._native_model is not None:
+            self._native_model = None
         if self._handle is not None:
             get_lib().rflux_hmm_destroy(self._handle)
             self._handle = None
@@ -154,10 +184,12 @@ class GaussianHMM:
             pass
 
     def __repr__(self) -> str:
-        state = "closed" if self._handle is None else "open"
+        open_model = self._native_model is not None or self._handle is not None
+        state = "open" if open_model else "closed"
         return (
             f"GaussianHMM(n_states={self._n_states}, "
-            f"n_features={self._n_features}, {state})"
+            f"n_features={self._n_features}, {state}, "
+            f"backend={self._backend})"
         )
 
     def __copy__(self) -> "GaussianHMM":
@@ -204,6 +236,20 @@ class GaussianHMM:
             raise ValueError("max_iter must fit in uint32")
         if n_init > 2**32 - 1:
             raise ValueError("n_init must fit in uint32")
+        if self._native_model is not None:
+            try:
+                self._native_model.fit(
+                    data,
+                    max_iter=max_iter,
+                    n_init=n_init,
+                    tol=float(tol),
+                    variance_floor=float(variance_floor),
+                    seed=as_u64(seed, "seed"),
+                    sort_states=bool(sort_states),
+                )
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_fit", exc)
+            return self
         options = HMMOptions()
         options_pointer = ctypes.byref(options)
         check(
@@ -231,6 +277,24 @@ class GaussianHMM:
 
     @property
     def fit_info(self) -> HMMFitInfo:
+        if self._native_model is not None:
+            try:
+                (
+                    iterations,
+                    converged,
+                    log_likelihood,
+                    aic,
+                    bic,
+                ) = self._native_model.fit_info
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_fit_summary", exc)
+            return HMMFitInfo(
+                int(iterations),
+                bool(converged),
+                float(log_likelihood),
+                float(aic),
+                float(bic),
+            )
         iterations = ctypes.c_size_t(0)
         converged = ctypes.c_int32(0)
         log_likelihood = np.empty(1, dtype=np.float64)
@@ -262,6 +326,11 @@ class GaussianHMM:
         walk-forward or holdout model selection.
         """
         data = _as_observations(observations, self._n_features)
+        if self._native_model is not None:
+            try:
+                return float(self._native_model.score(data))
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_score", exc)
         return call_scalar(
             "rflux_hmm_score", get_lib().rflux_hmm_score,
             self._require_handle(), double_ptr(data), data.shape[0])
@@ -291,6 +360,17 @@ class GaussianHMM:
 
     @property
     def parameters(self) -> HMMParameters:
+        if self._native_model is not None:
+            try:
+                (
+                    start,
+                    transition,
+                    means,
+                    variances,
+                ) = self._native_model.parameters
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_get_parameters", exc)
+            return HMMParameters(start, transition, means, variances)
         k = self._n_states
         d = self._n_features
         start = empty_f64(k)
@@ -331,6 +411,14 @@ class GaussianHMM:
             raise ValueError(f"means must have shape ({k}, {d})")
         if variances.shape != (k, d):
             raise ValueError(f"variances must have shape ({k}, {d})")
+        if self._native_model is not None:
+            try:
+                self._native_model.set_parameters(
+                    start, transition, means, variances
+                )
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_set_parameters", exc)
+            return self
         check(
             get_lib().rflux_hmm_set_parameters(
                 self._require_handle(),
@@ -346,6 +434,11 @@ class GaussianHMM:
     def viterbi(self, observations: Any) -> np.ndarray:
         """Full-sample Viterbi path (non-causal)."""
         data = _as_observations(observations, self._n_features)
+        if self._native_model is not None:
+            try:
+                return self._native_model.viterbi(data)
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_viterbi", exc)
         return call_i32(
             "rflux_hmm_viterbi", data.shape[0], get_lib().rflux_hmm_viterbi,
             self._require_handle(), double_ptr(data), data.shape[0])
@@ -353,6 +446,11 @@ class GaussianHMM:
     def filtered(self, observations: Any) -> np.ndarray:
         """Causal filtered probabilities, shape (n_obs, n_states)."""
         data = _as_observations(observations, self._n_features)
+        if self._native_model is not None:
+            try:
+                return self._native_model.filtered(data)
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_filtered", exc)
         out = call_vector(
             "rflux_hmm_filtered", data.shape[0] * self._n_states,
             get_lib().rflux_hmm_filtered,
@@ -362,6 +460,11 @@ class GaussianHMM:
     def smoothed(self, observations: Any) -> np.ndarray:
         """Full-sample smoothed probabilities, shape (n_obs, n_states)."""
         data = _as_observations(observations, self._n_features)
+        if self._native_model is not None:
+            try:
+                return self._native_model.smoothed(data)
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_smoothed", exc)
         out = call_vector(
             "rflux_hmm_smoothed", data.shape[0] * self._n_states,
             get_lib().rflux_hmm_smoothed,
@@ -372,6 +475,11 @@ class GaussianHMM:
         """Prior hidden-state distribution ``state_probs @ transition**horizon``."""
         probabilities = self._state_probabilities(state_probs)
         horizon = as_size(horizon, "horizon", minimum=0)
+        if self._native_model is not None:
+            try:
+                return self._native_model.forecast(probabilities, horizon)
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_forecast", exc)
         return call_vector(
             "rflux_hmm_forecast", self._n_states, get_lib().rflux_hmm_forecast,
             self._require_handle(), double_ptr(probabilities), horizon)
@@ -397,6 +505,11 @@ class GaussianHMM:
                 f"observation must have shape (1, {self._n_features})"
             )
         single = np.ascontiguousarray(single)
+        if self._native_model is not None:
+            try:
+                return self._native_model.filter_step(probabilities, single)
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_filter_step", exc)
         return call_vector(
             "rflux_hmm_filter_step", self._n_states,
             get_lib().rflux_hmm_filter_step, self._require_handle(),
@@ -404,12 +517,22 @@ class GaussianHMM:
 
     def stationary_distribution(self) -> np.ndarray:
         """Long-run distribution implied by the current transition matrix."""
+        if self._native_model is not None:
+            try:
+                return self._native_model.stationary_distribution()
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_stationary", exc)
         return call_vector(
             "rflux_hmm_stationary", self._n_states,
             get_lib().rflux_hmm_stationary, self._require_handle())
 
     def expected_durations(self) -> np.ndarray:
         """Expected sojourn length of each state from the transition diagonal."""
+        if self._native_model is not None:
+            try:
+                return self._native_model.expected_durations()
+            except native_module.NativeError as exc:
+                raise_as_rflux("rflux_hmm_expected_durations", exc)
         return call_vector(
             "rflux_hmm_expected_durations", self._n_states,
             get_lib().rflux_hmm_expected_durations, self._require_handle())
@@ -450,6 +573,60 @@ class GaussianHMM:
                 model.close()
                 raise
         return model
+
+
+def sticky_regime(
+    model: GaussianHMM,
+    observations: Any,
+    *,
+    min_duration: int = 5,
+    entry_threshold: float = 0.6,
+    exit_threshold: float = 0.4,
+) -> StickyRegimeResult:
+    """Hysteresis-smoothed causal regime labels.
+
+    A challenger state must reach ``entry_threshold`` while the incumbent falls
+    to ``exit_threshold`` and the incumbent has lasted ``min_duration`` bars.
+    This suppresses one-bar HMM flicker and the turnover it would cause.
+    """
+    if not hasattr(model, "filtered"):
+        raise TypeError("model must provide filtered(observations)")
+    min_duration = as_size(min_duration, "min_duration")
+    entry = float(entry_threshold)
+    exit_ = float(exit_threshold)
+    if not (np.isfinite(entry) and np.isfinite(exit_)):
+        raise ValueError("thresholds must be finite")
+    if not 0.0 < exit_ < entry <= 1.0:
+        raise ValueError("require 0 < exit_threshold < entry_threshold <= 1")
+    probabilities = model.filtered(observations)
+    if probabilities.shape[0] == 0:
+        return StickyRegimeResult(
+            probabilities,
+            np.empty(0, dtype=np.int32),
+            np.empty(0, dtype=np.int32),
+        )
+    labels = np.empty(probabilities.shape[0], dtype=np.int32)
+    current = int(np.argmax(probabilities[0]))
+    labels[0] = current
+    last_switch = 0
+    switches: list[int] = []
+    for t in range(1, probabilities.shape[0]):
+        challenger = int(np.argmax(probabilities[t]))
+        if (
+            challenger != current
+            and probabilities[t, challenger] >= entry
+            and probabilities[t, current] <= exit_
+            and t - last_switch >= min_duration
+        ):
+            current = challenger
+            last_switch = t
+            switches.append(t)
+        labels[t] = current
+    return StickyRegimeResult(
+        probabilities,
+        labels,
+        np.asarray(switches, dtype=np.int32),
+    )
 
 
 def fit_hmm(observations: Any, n_states: int = 2, **kwargs: Any) -> GaussianHMM:
@@ -781,6 +958,7 @@ __all__ = [
     "HMMParameters",
     "RFluxError",
     "StateAlignment",
+    "StickyRegimeResult",
     "TrendRegimeResult",
     "VolatilityRegimeResult",
     "align_labels",
@@ -789,6 +967,7 @@ __all__ = [
     "composite_regime",
     "fit_hmm",
     "match_states",
+    "sticky_regime",
     "trend_regime",
     "volatility_regime",
 ]

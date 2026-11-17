@@ -228,6 +228,35 @@ void validate_emission_parameters(const HmmParameters& parameters) {
     }
 }
 
+long double squared_distance(const double* observations, std::size_t left,
+                           std::size_t right, std::size_t d) {
+    long double distance = 0.0L;
+    for (std::size_t j = 0; j < d; ++j) {
+        const long double diff =
+            static_cast<long double>(observations[left * d + j]) -
+            static_cast<long double>(observations[right * d + j]);
+        distance += diff * diff;
+    }
+    return distance;
+}
+
+std::size_t nearest_center(const double* observations, std::size_t row,
+                          const std::vector<std::size_t>& centers,
+                          std::size_t k, std::size_t d) {
+    long double best_distance =
+        std::numeric_limits<long double>::infinity();
+    std::size_t best = 0;
+    for (std::size_t c = 0; c < k; ++c) {
+        const long double distance =
+            squared_distance(observations, row, centers[c], d);
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = c;
+        }
+    }
+    return best;
+}
+
 void sort_states(HmmParameters& parameters, std::size_t k, std::size_t d) {
     std::vector<std::size_t> order(k);
     std::iota(order.begin(), order.end(), 0);
@@ -495,24 +524,7 @@ HmmParameters kmeans_initial_parameters(
     for (std::size_t iteration = 0; iteration < 50; ++iteration) {
         bool changed = false;
         for (std::size_t i = 0; i < n; ++i) {
-            long double best_distance =
-                std::numeric_limits<long double>::infinity();
-            std::size_t best = 0;
-            for (std::size_t c = 0; c < k; ++c) {
-                long double distance = 0.0L;
-                for (std::size_t j = 0; j < d; ++j) {
-                    const long double diff =
-                        static_cast<long double>(observations[i * d + j]) -
-                        static_cast<long double>(
-                            observations[centers[c] * d + j]);
-                    distance += diff * diff;
-                }
-                if (distance < best_distance) {
-                    best_distance = distance;
-                    best = c;
-                }
-            }
-            labels[i] = best;
+            labels[i] = nearest_center(observations, i, centers, k, d);
             if (labels[i] != previous_labels[i]) changed = true;
         }
         if (!changed) break;
@@ -531,13 +543,8 @@ HmmParameters kmeans_initial_parameters(
                 std::numeric_limits<long double>::infinity();
             for (std::size_t i = 0; i < n; ++i) {
                 if (labels[i] != c) continue;
-                long double distance = 0.0L;
-                for (std::size_t j = 0; j < d; ++j) {
-                    const long double diff =
-                        static_cast<long double>(observations[i * d + j]) -
-                        static_cast<long double>(observations[centers[c] * d + j]);
-                    distance += diff * diff;
-                }
+                const long double distance =
+                    squared_distance(observations, i, centers[c], d);
                 if (distance < nearest_distance) {
                     nearest_distance = distance;
                     nearest = i;
@@ -551,22 +558,8 @@ HmmParameters kmeans_initial_parameters(
     std::vector<std::size_t> counts(k, 0);
     std::vector<long double> sums(k * d, 0.0L);
     for (std::size_t i = 0; i < n; ++i) {
-        long double best_distance =
-            std::numeric_limits<long double>::infinity();
-        std::size_t best = 0;
-        for (std::size_t c = 0; c < k; ++c) {
-            long double distance = 0.0L;
-            for (std::size_t j = 0; j < d; ++j) {
-                const long double diff =
-                    static_cast<long double>(observations[i * d + j]) -
-                    static_cast<long double>(observations[centers[c] * d + j]);
-                distance += diff * diff;
-            }
-            if (distance < best_distance) {
-                best_distance = distance;
-                best = c;
-            }
-        }
+        const std::size_t best =
+            nearest_center(observations, i, centers, k, d);
         labels[i] = best;
         ++counts[best];
         for (std::size_t j = 0; j < d; ++j) {

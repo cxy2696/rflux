@@ -1,6 +1,6 @@
 """Application-level portfolio and regime diagnostics.
 
-The functions here are deliberately thin: they turn a return panel and a
+The functions here are thin: they turn a return panel and a
 label series into JSON-friendly reports using the same qflux kernels as the
 rest of the package.  The formulas and assumptions are documented in
 ``docs/APPLICATIONS_cn.md`` and ``docs/APPLICATIONS_en.md``.

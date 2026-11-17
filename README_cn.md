@@ -4,9 +4,9 @@
 
 rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳定的 ABI，C++ 层实现计算，Python 层负责数据接入和研究流程。
 
-这样分层的目的很实际：Python 调用不需要为每个解释器版本重新编译扩展；C++ 代码可以被单独复用；其他语言只依赖 `rflux.h`，不需要理解 C++ 类型。
+这样分层的目的很实际：Python 优先使用 pybind11 扩展（CPython 3.12+ 为 abi3），不可用时回退到 ctypes C ABI；C++ 代码可以被单独复用；其他语言只依赖 `rflux.h`，不需要理解 C++ 类型。
 
-当前发布版本 `0.5.0`，C ABI 兼容版本为 1。尚未发布的 `main` 分支新增内容见 [CHANGELOG](CHANGELOG.md)。
+当前发布版本 `0.7.0`，C ABI 兼容版本为 1。新增 C++ 算法矩阵（因子/状态/组合/机器学习/执行）、pybind11 原生桥、GIL 释放、abi3 wheel、配置驱动模型和共享内存数组，详见 [CHANGELOG](CHANGELOG.md) 和 [算法矩阵](docs/ALGORITHMS_cn.md)。
 
 ## 内容
 
@@ -15,7 +15,9 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 | `qflux` | 收益率、SMA、EMA、RSI、MACD、Bollinger、ATR、回撤；滚动均值、波动率、最小/最大值、z-score、分位数/中位数、相关系数、协方差、beta、斜率、R²；描述统计、分位数、Sharpe、Sortino、VaR/CVaR；排序、percentile、z-score、缩尾、分组中性化、成对相关矩阵 |
 | `regimelab` | 对角高斯 HMM：多起点 EM、filtered/smoothed 状态概率、Viterbi、状态预测、单步过滤、平稳分布、期望持续期、样本外评分、状态对齐；因果波动率、趋势和复合 regime |
 | `percolab` | 相关距离、阈值图、连通分量、加权度、特征向量/度中心性、PageRank、介数中心性、局部/全局聚类系数、最短路径效率与直径、k-core 分解、度同配性、模块度、割边、割点、k-truss 分解、最小生成树与单链聚类、bond/site 渗流（加权或独立占用权重）、簇大小分布、定向节点移除曲线、SIR 风险扩散 |
-| Python 工具 | akshare / yfinance / tushare / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测，组合风险贡献和状态归因 |
+| Python 工具 | akshare / yfinance / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测，组合风险贡献和状态归因 |
+| 统一数据层 | 长表 OHLCV 契约、`DataLoaderFactory`、本地 CSV/AKShare/yfinance 适配器、标的代码归一、严格校验、SQLite 缓存和重试包装。见 [docs/DATA_cn.md](docs/DATA_cn.md) |
+| 算法矩阵 | C++ `BaseFactor` / `BaseRegimeDetector` / `BaseAllocator` / `BasePredictor` / `BaseExecutionPlanner` 契约；动量、量价反转、VWAP、Amihud、HRP/NCO 风格配置、sticky HMM、尾部相依、Huber 回归、图平滑和 Almgren-Chriss 执行 |
 
 滚动波动、z-score、相关、beta、斜率和 R² 使用可合并的 Welford 块矩，不会因为价格水平很大而丢掉窗口内的微小波动。所有随机过程接收显式 seed，同一版本、同一平台的结果可复现。
 
@@ -32,8 +34,7 @@ PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
 安装编辑版之后，命令简化为 `rflux analyze ...`：
 
 ```bash
-make python-lib
-python -m pip install -e python
+python -m pip install -e .
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
 rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
@@ -62,6 +63,8 @@ print(risk["portfolio"]["annualized_volatility"])
 
 完整参数见 `python -m rflux analyze --help` 和 `python -m rflux risk --help`。命令行只依赖 NumPy 和标准库；需要 pandas 的数据适配器是另一条路径。
 
+新算法层说明见 [docs/ALGORITHMS_cn.md](docs/ALGORITHMS_cn.md)，核心数据结构、注册表与渗流契约见 [docs/CORE_cn.md](docs/CORE_cn.md)，C++ 接口位于 [include/rflux/core/algorithm.hpp](include/rflux/core/algorithm.hpp)。
+
 ## 使用案例
 
 可以直接运行的脚本和命令汇总在 [examples/README.md](examples/README.md)。
@@ -76,7 +79,7 @@ print(risk["portfolio"]["annualized_volatility"])
 
 ## 构建
 
-需要 C11 编译器、C++17 编译器和 GNU Make。Python 绑定需要 Python 3.10+ 与 NumPy。
+核心需要 C11 编译器、C++17 编译器和 GNU Make。原生 Python wheel 还需要 CMake 3.26+ 与 Ninja；运行时需要 Python 3.10+ 和 NumPy。
 
 ```bash
 git clone https://github.com/cxy2696/rflux.git
@@ -94,13 +97,13 @@ make check
 
 `make check` 运行 C ABI 测试、C++ 测试、Python 测试和 Markdown 文档检查。
 
-CMake：
+CMake + Ninja preset：
 
 ```bash
-cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build/cmake -j
-ctest --test-dir build/cmake --output-on-failure
-cmake --install build/cmake --prefix "$PWD/dist"
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev --output-on-failure
+cmake --install build/dev --prefix "$PWD/dist"
 ```
 
 安装后 CMake 提供 `rflux::rflux`（C ABI 共享库）和 `rflux::rflux_core`（C++ 核心）两个 target。
@@ -112,17 +115,18 @@ cmake --install build/cmake --prefix "$PWD/dist"
 ```bash
 export PYTHONPATH="$PWD/python"
 export RFLUX_LIBRARY="$PWD/build/librflux.dylib"   # Linux: build/librflux.so
-python -c "import rflux; print(rflux.native_version())"
+python -c "import rflux; print(rflux.native_info())"
 ```
 
-不设置 `RFLUX_LIBRARY` 时，加载器会依次查找 `python/rflux/_lib/`、仓库 `build/` 和系统库。
-
-需要安装成 Python 包时：
+安装 Python 包（会编译 pybind11 扩展，并把 C ABI 共享库一起放进 wheel 作为回退）：
 
 ```bash
-make python-lib
-python -m pip install -e python
+python -m pip install -e ".[test]"
+python -m pytest tests/python -q
 ```
+
+Python 3.12+ 构建 abi3 扩展，3.10/3.11 使用版本相关扩展。零拷贝、
+GIL 释放、共享内存和配置驱动 HMM 见 [原生桥文档](docs/NATIVE_cn.md)。
 
 可选数据依赖：
 
@@ -130,10 +134,9 @@ python -m pip install -e python
 python -m pip install pandas
 python -m pip install akshare
 python -m pip install yfinance
-python -m pip install tushare
 ```
 
-CSV 和 tushare 的宽表入口：
+CSV 的宽表入口：
 
 ```python
 from rflux import data
@@ -144,14 +147,9 @@ custom = data.load_csv(
     columns=["AAA", "BBB"],
     sep=",",
 )
-ts_prices = data.load_tushare(
-    ["000001.SZ", "600519.SH"],
-    start="2024-01-01",
-    token="YOUR_TUSHARE_TOKEN",   # 也可设置 TUSHARE_TOKEN
-)
 ```
 
-`load_csv` 支持自定义日期列和列选择，也接受 `pandas.read_csv` 的参数。`rflux analyze`/`rflux risk` 的 CSV 读取不依赖 pandas，适合直接分析自有宽表。tushare 返回原始日收盘价，复权处理由调用方负责。
+`load_csv` 支持自定义日期列和列选择，也接受 `pandas.read_csv` 的参数。`rflux analyze`/`rflux risk` 的 CSV 读取不依赖 pandas，适合直接分析自有宽表。
 
 当前没有发布独立 wheel。Python 包需要同平台的 native 共享库，安装前先构建；`_lib/` 中的二进制不提交到仓库。C++ 用户可以直接包含 `rflux/rflux.hpp` 获取全部公共头。
 

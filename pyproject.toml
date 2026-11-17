@@ -1,0 +1,133 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.11",
+  "cmake>=3.26",
+  "ninja>=1.11",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "rflux"
+version = "0.7.0"
+description = "Native C++17 quantitative engine with a stable ABI, abi3 wheels, Gaussian HMMs and correlation-network tools"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "cxy2696"}]
+maintainers = [{name = "cxy2696"}]
+keywords = [
+  "quantitative-finance", "factors", "hmm", "percolation", "graph",
+  "backtesting", "pybind11", "abi3", "zero-copy",
+]
+dependencies = ["numpy>=1.23"]
+
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: C",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Homepage = "https://github.com/cxy2696/rflux"
+Documentation = "https://github.com/cxy2696/rflux#documentation"
+Repository = "https://github.com/cxy2696/rflux"
+Issues = "https://github.com/cxy2696/rflux/issues"
+
+[project.scripts]
+rflux = "rflux.cli:main"
+
+[project.optional-dependencies]
+data = ["pandas>=1.5"]
+akshare = ["pandas>=1.5", "akshare>=1.12"]
+yfinance = ["pandas>=1.5", "yfinance>=0.2.40"]
+config = [
+  "tomli>=2.0; python_version < '3.11'",
+  "PyYAML>=6.0",
+]
+test = ["pytest>=8", "pandas>=1.5", "tomli>=2.0; python_version < '3.11'"]
+all = [
+  "pandas>=1.5",
+  "akshare>=1.12",
+  "yfinance>=0.2.40",
+  "tomli>=2.0; python_version < '3.11'",
+  "PyYAML>=6.0",
+]
+
+[tool.scikit-build]
+cmake.source-dir = "."
+cmake.build-type = "Release"
+cmake.args = [
+  "-DRFLUX_BUILD_PYTHON=ON",
+  "-DRFLUX_PYTHON_PACKAGE=ON",
+  "-DRFLUX_BUILD_TESTS=OFF",
+  "-DRFLUX_BUILD_EXAMPLES=OFF",
+]
+wheel.packages = { "rflux" = "python/rflux" }
+wheel.py-api = "cp312"
+build-dir = "build/{wheel_tag}"
+sdist.include = [
+  "pyproject.toml",
+  "CMakeLists.txt",
+  "CMakePresets.json",
+  "Makefile",
+  "cmake/**",
+  "include/**",
+  "src/**",
+  "third_party/pybind11/**",
+  "examples/*.py",
+  "examples/*.c",
+  "examples/*.cpp",
+  "examples/README.md",
+  "examples/data/**",
+  "tests/python/*.py",
+  "tests/c/*.c",
+  "tests/cpp/*.cpp",
+  "docs/**",
+  "scripts/*.py",
+  "python/rflux/*.py",
+  "python/rflux/py.typed",
+  "python/rflux/_lib/.gitkeep",
+  "README.md",
+  "README_en.md",
+  "README_cn.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "LICENSE",
+]
+sdist.exclude = [
+  "build/**",
+  "dist/**",
+  ".venv/**",
+  "python/rflux/_lib/*.so",
+  "python/rflux/_lib/*.dylib",
+  "python/rflux/_lib/*.dll",
+  "python/rflux/_native*.so",
+  "python/rflux/_native*.dylib",
+  "python/rflux/_native*.pyd",
+  "**/__pycache__/**",
+  "**/*.pyc",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "-ra"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-*"
+skip = "*-musllinux_i686 *-manylinux_i686 *-win32"
+test-requires = ["pytest>=8", "numpy>=1.23", "tomli>=2.0; python_version < '3.11'"]
+test-command = "pytest {project}/tests/python -q"
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"

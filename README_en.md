@@ -2,9 +2,9 @@
 
 [中文说明](README_cn.md) · [Project home](README.md) · [CI](https://github.com/cxy2696/rflux/actions/workflows/ci.yml)
 
-rflux is a quantitative research library with a stable C ABI, a C++17 calculation core and a Python research layer. Python calls the shared library through `ctypes`, so the same binary serves every supported Python version. Other languages can use the C header without dealing with C++ types or exceptions.
+rflux is a quantitative research library with a stable C ABI, a C++17 calculation core and a Python research layer. Python prefers a pybind11 extension (abi3 on CPython 3.12+) and falls back to the C ABI through `ctypes`; the ctypes path keeps the same shared library usable from every supported Python version. Other languages can use the C header without dealing with C++ types or exceptions.
 
-The current release is `0.5.0`; the compatible C ABI version is `1`. Unreleased `main` additions are listed in the [changelog](CHANGELOG.md).
+The current release is `0.7.0`; the compatible C ABI version is `1`. It adds the C++ algorithm matrix (factor/regime/portfolio/ML/execution), a pybind11 native bridge, GIL-released kernels, abi3 wheels, configuration-driven models and shared-memory arrays; see the [changelog](CHANGELOG.md) and [algorithm matrix](docs/ALGORITHMS_en.md).
 
 ## What is included
 
@@ -13,7 +13,9 @@ The current release is `0.5.0`; the compatible C ABI version is `1`. Unreleased 
 | `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, quantiles/median, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
 | `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, expected durations, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
 | `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, bridges, articulation points, k-truss decomposition, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node removal and SIR diffusion |
-| Python tools | Optional akshare/yfinance/tushare/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
+| Python tools | Optional akshare/yfinance/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
+| Unified data | Canonical long OHLCV contract, `DataLoaderFactory`, local CSV/AKShare/yfinance adapters, symbol normalization, strict validation, SQLite cache and retry wrapper.  See [docs/DATA_en.md](docs/DATA_en.md) |
+| Algorithm matrix | C++ `BaseFactor` / `BaseRegimeDetector` / `BaseAllocator` / `BasePredictor` / `BaseExecutionPlanner` contracts; momentum, volume-reversal, VWAP, Amihud, HRP/NCO-style allocation, sticky HMM, tail dependence, Huber regression, graph smoothing and Almgren-Chriss execution |
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
 
@@ -30,8 +32,7 @@ PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
 After an editable install, the command is just `rflux`:
 
 ```bash
-make python-lib
-python -m pip install -e python
+python -m pip install -e .
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
 rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
@@ -60,6 +61,8 @@ print(risk["portfolio"]["annualized_volatility"])
 
 See `python -m rflux analyze --help` and `python -m rflux risk --help` for all options. The CLI uses only NumPy and the standard library; pandas remains optional for the provider adapters.
 
+The new algorithm layer is documented in [docs/ALGORITHMS_en.md](docs/ALGORITHMS_en.md); its C++ interfaces are in [include/rflux/core/algorithm.hpp](include/rflux/core/algorithm.hpp) and the deeper data/registry/percolation contracts in [docs/CORE_en.md](docs/CORE_en.md).
+
 ## Use cases
 
 Runnable scripts and commands are indexed in [examples/README.md](examples/README.md).
@@ -74,7 +77,7 @@ Runnable scripts and commands are indexed in [examples/README.md](examples/READM
 
 ## Build and test
 
-You need a C11 compiler, a C++17 compiler and GNU Make. The Python bindings need Python 3.10+ and NumPy.
+You need a C11 compiler, a C++17 compiler and GNU Make for the core. The native Python wheel path additionally needs CMake 3.26+ and Ninja; Python 3.10+ and NumPy are required at runtime.
 
 ```bash
 git clone https://github.com/cxy2696/rflux.git
@@ -90,13 +93,13 @@ Outputs:
 - `build/test_capi`, `build/test_cpp`
 - `build/example_c_basic`, `build/example_cpp_research`
 
-CMake is also supported:
+CMake + Ninja presets are also supported:
 
 ```bash
-cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build/cmake -j
-ctest --test-dir build/cmake --output-on-failure
-cmake --install build/cmake --prefix "$PWD/dist"
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev --output-on-failure
+cmake --install build/dev --prefix "$PWD/dist"
 ```
 
 The installed CMake targets are `rflux::rflux` for the C ABI library and `rflux::rflux_core` for the C++ core.
@@ -108,17 +111,20 @@ For development from the repository:
 ```bash
 export PYTHONPATH="$PWD/python"
 export RFLUX_LIBRARY="$PWD/build/librflux.dylib"   # Linux: build/librflux.so
-python -c "import rflux; print(rflux.native_version())"
+python -c "import rflux; print(rflux.native_info())"
 ```
 
-Without `RFLUX_LIBRARY`, the loader checks `python/rflux/_lib/`, the repository `build/` directory and then the system library path.
-
-To install the Python package:
+To install the Python package (builds the pybind11 extension, and packages the
+C ABI shared library as a fallback):
 
 ```bash
-make python-lib
-python -m pip install -e python
+python -m pip install -e ".[test]"
+python -m pytest tests/python -q
 ```
+
+Python 3.12+ builds an abi3 extension; 3.10/3.11 use a version-specific one.
+See the [native bridge guide](docs/NATIVE_en.md) for zero-copy, GIL release,
+shared memory and configuration-driven HMMs.
 
 Optional data dependencies:
 
@@ -126,10 +132,9 @@ Optional data dependencies:
 python -m pip install pandas
 python -m pip install akshare
 python -m pip install yfinance
-python -m pip install tushare
 ```
 
-CSV and tushare entry points:
+CSV entry point:
 
 ```python
 from rflux import data
@@ -140,14 +145,9 @@ custom = data.load_csv(
     columns=["AAA", "BBB"],
     sep=",",
 )
-ts_prices = data.load_tushare(
-    ["000001.SZ", "600519.SH"],
-    start="2024-01-01",
-    token="YOUR_TUSHARE_TOKEN",   # or set TUSHARE_TOKEN
-)
 ```
 
-`load_csv` accepts a custom date column, selected columns and `pandas.read_csv` options. The `rflux analyze`/`rflux risk` CSV path does not require pandas, which is useful for user-supplied wide tables. Tushare prices are raw daily closes; adjustment factors are the caller's responsibility.
+`load_csv` accepts a custom date column, selected columns and `pandas.read_csv` options. The `rflux analyze`/`rflux risk` CSV path does not require pandas, which is useful for user-supplied wide tables.
 
 There is no standalone wheel yet. The Python package needs a native shared library for the same platform, so build it first. `_lib/` binaries are not committed. C++ users can include `rflux/rflux.hpp` for the full public interface.
 

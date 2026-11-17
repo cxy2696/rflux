@@ -7,7 +7,7 @@
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 5
+#define RFLUX_VERSION_MINOR 7
 #define RFLUX_VERSION_PATCH 0
 ```
 
@@ -23,13 +23,11 @@ const char* rflux_version_string(void);
 版本策略：
 
 - 同一 `RFLUX_ABI_VERSION` 内，已有函数签名、结构布局和语义保持兼容。
-- 增加函数、增加新枚举值属于向后兼容，发布时应提升次版本号；未发布的分支可以先累积在 Unreleased 中。
+- 增加函数、增加新枚举值属于向后兼容，发布时应提升次版本号；未发布改动可以先保留在开发分支。
 - 删除函数、改变参数/返回类型、改变错误语义、扩张 ABI-v1 options 结构，必须提升 ABI 版本。
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
-- 0.2.0 新增 `rflux_rolling_beta` 与 `rflux_hmm_score`，ABI 仍为 1。
-- 0.4.2 仍使用 ABI 1；新增的 Python 高层分析和 CLI 不改变 C 接口。
-- 0.5.0 继续使用 ABI 1；新增算法都是向后兼容的函数，没有修改已有布局或签名。
-- 未发布的 `main` 分支继续使用 ABI 1；新增 percolab 函数（路径统计、k-core、同配性、模块度、割边/割点、k-truss、MST 聚类、通用渗流扫描、簇大小分布、定向移除）都是向后兼容的追加函数，没有修改已有布局或签名，也尚未提升版本号。
+- 当前版本 `0.7.0` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
+- 0.7 的因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控均已提供 C ABI 入口；新增函数均为追加符号。
 
 ## 2. 状态码与异常
 
@@ -50,7 +48,7 @@ typedef enum rflux_status {
 | C++ | C |
 | --- | --- |
 | 正常返回 | `RFLUX_OK` |
-| `rflux::InvalidArgument` | `RFLUX_ERR_INVALID_ARGUMENT` |
+| `rflux::InvalidArgument` / `std::invalid_argument` | `RFLUX_ERR_INVALID_ARGUMENT` |
 | `rflux::NonFinite` | `RFLUX_ERR_NONFINITE` |
 | `rflux::NotReady` | `RFLUX_ERR_MODEL_NOT_READY` |
 | `rflux::NumericalError` | `RFLUX_ERR_NUMERICAL` |
@@ -122,6 +120,21 @@ void rflux_clear_error(void);
 | `rflux_trend_regime` | labels n、fast_ma n、slow_ma n |
 | `rflux_composite_regime` | n |
 
+### 0.7 算法层
+
+| 函数 | 输出 |
+| --- | --- |
+| `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`，行主序 |
+| `rflux_hrp_weights` | n_assets，long-only，和为 1 |
+| `rflux_hrp_order` | n_assets 个 `size_t` 叶序 |
+| `rflux_almgren_chriss_plan` | trades 长度 `slices`；cost/variance/kappa 可选但必须成组传入 |
+| `rflux_huber_regression` | coefficients 长度 `n_features`；intercept、scale、iterations、converged |
+| `rflux_site_percolation_analyze` | giant、std、susceptibility、largest_component、systemic |
+| `rflux_site_percolation_threshold` | 1 个标量 |
+| `rflux_pretrade_check` | allowed 0/1 与 NUL 结尾 reason |
+
+`largest_component` 是多次 trial 的平均最大连通分量大小，四舍五入到最近的整数。
+
 ### percolab
 
 | 函数 | 输出 |
@@ -177,3 +190,9 @@ typedef struct rflux_hmm_options {
 4. `rflux_hmm_options` 的 `struct_size` 和字段偏移是否未变。
 5. 错误码是否保持语义，特别是 `MODEL_NOT_READY` 和 `NONFINITE`。
 6. 所有输出长度和 NaN 约定是否有文档和测试。
+
+## 9. Python 原生桥与 ABI
+
+当前 Python 包优先使用 pybind11 扩展 `rflux._native`，ctypes 仍走本文描述的 C ABI。原生扩展直接链接 `rflux_core`，不导出新的 C 符号，也不改变 `rflux.h`、状态码或 `rflux_hmm_options` 布局。
+
+pybind11 扩展把 `rflux::InvalidArgument`、`NonFinite`、`NotReady`、`NumericalError` 映射为带 `status` 属性的 `NativeError`，Python 层再转换为 `RFluxError`；状态码与 C ABI 保持一致。原生扩展的二进制兼容策略（CPython 3.12+ abi3、3.10/3.11 版本相关 wheel）见 [NATIVE_cn.md](NATIVE_cn.md)，不属于 C ABI 兼容承诺。

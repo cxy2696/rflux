@@ -22,7 +22,9 @@ from ._ffi import (
     native_version,
 )
 from ._version import __version__
+from . import config as model_config
 from . import qflux
+from ._native_backend import native_info as python_native_info
 from .analysis import analyze_prices
 from .apps import portfolio_risk
 
@@ -441,6 +443,7 @@ def _doctor_payload() -> tuple[dict[str, Any], bool]:
     payload: dict[str, Any] = {
         "python_version": __version__,
         "native": native,
+        "native_extension": python_native_info(),
         "optional": {},
     }
     for module in ("numpy", "pandas", "akshare", "yfinance"):
@@ -484,10 +487,53 @@ def _command_doctor(as_json: bool) -> int:
         else:
             print("native library: failed to load")
             print(f"  {native.get('error')}")
+        extension = payload.get("native_extension") or {}
+        if extension.get("available"):
+            print(
+                "native extension: loaded "
+                f"(stable ABI: {'yes' if extension.get('stable_abi') else 'no'}, "
+                f"GIL release: {'yes' if extension.get('gil_released') else 'no'})"
+            )
+        else:
+            print("native extension: not available (ctypes fallback active)")
         print("optional dependencies:")
         for module, present in payload["optional"].items():
             print(f"  {module}: {'yes' if present else 'no'}")
     return 0 if ok else 1
+
+
+def _command_config(args: argparse.Namespace) -> int:
+    loaded = model_config.load(args.path)
+    model = loaded.model
+    payload: dict[str, Any] = {
+        "valid": True,
+        "path": str(args.path),
+        "model_type": loaded.type,
+        "n_states": model.n_states,
+        "n_features": model.n_features,
+        "has_initial_parameters": model.initial is not None,
+        "fit": model.fit.as_kwargs(),
+        "native_extension": python_native_info(),
+    }
+    if args.build:
+        instance = model.build()
+        try:
+            payload["constructed"] = True
+            payload["ready"] = model.initial is not None
+        finally:
+            instance.close()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"config: {payload['path']}")
+        print(f"  model: {payload['model_type']}")
+        print(f"  states: {payload['n_states']}")
+        print(f"  features: {payload['n_features']}")
+        print(f"  initial parameters: {'yes' if payload['has_initial_parameters'] else 'no'}")
+        print(f"  fit options: {json.dumps(payload['fit'], sort_keys=True)}")
+        if args.build:
+            print("  construction: ok")
+    return 0
 
 
 def _command_analyze(args: argparse.Namespace) -> int:
@@ -526,6 +572,14 @@ def build_parser() -> argparse.ArgumentParser:
     version.add_argument("--json", action="store_true")
     doctor = subparsers.add_parser("doctor", help="check native and optional dependencies")
     doctor.add_argument("--json", action="store_true")
+    config_parser = subparsers.add_parser(
+        "config", help="validate a TOML/JSON/YAML model configuration"
+    )
+    config_parser.add_argument("path", help="configuration file")
+    config_parser.add_argument("--json", action="store_true")
+    config_parser.add_argument(
+        "--build", action="store_true", help="also instantiate the model"
+    )
     analyze = subparsers.add_parser(
         "analyze", help="summary, network and HMM diagnostics for a price CSV"
     )
@@ -572,6 +626,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _command_version(args.json)
         if args.command == "doctor":
             return _command_doctor(args.json)
+        if args.command == "config":
+            return _command_config(args)
         if args.command == "analyze":
             return _command_analyze(args)
         if args.command == "risk":

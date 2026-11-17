@@ -47,7 +47,7 @@ extern "C" {
 
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 5
+#define RFLUX_VERSION_MINOR 7
 #define RFLUX_VERSION_PATCH 0
 
 typedef enum rflux_status {
@@ -66,7 +66,7 @@ typedef enum rflux_status {
 
 RFLUX_API uint32_t rflux_abi_version(void);
 
-/* Returns a static string such as "0.5.0". */
+/* Returns a static string such as "0.7.0". */
 RFLUX_API const char* rflux_version_string(void);
 
 /*
@@ -791,6 +791,74 @@ RFLUX_API rflux_status rflux_risk_diffusion(const double* adjacency, size_t n,
                                             size_t repetitions, uint64_t seed,
                                             double* mean_affected,
                                             double* infection_frequency);
+
+/*
+ * Algorithm kernels added in 0.7.  All buffers are caller-owned, row-major and
+ * contiguous; no allocation is returned through the C ABI.
+ */
+
+/* Factor panels: close/volume are n_obs x n_assets row-major.  out has the
+ * same shape.  Warm-up and invalid cells are NaN. */
+RFLUX_API rflux_status rflux_factor_momentum(const double* close,
+                                             size_t n_obs, size_t n_assets,
+                                             size_t window, double* out);
+RFLUX_API rflux_status rflux_factor_volume_reversal(
+    const double* close, const double* volume, size_t n_obs, size_t n_assets,
+    size_t window, double* out);
+RFLUX_API rflux_status rflux_factor_vwap_deviation(
+    const double* close, const double* volume, size_t n_obs, size_t n_assets,
+    size_t window, double* out);
+RFLUX_API rflux_status rflux_factor_amihud(
+    const double* close, const double* volume, size_t n_obs, size_t n_assets,
+    size_t window, double scale, double* out);
+
+/* Long-only HRP weights for a symmetric n x n covariance matrix. */
+RFLUX_API rflux_status rflux_hrp_weights(const double* covariance,
+                                         size_t n_assets, double* weights);
+/* Quasi-diagonal leaf order used by HRP. */
+RFLUX_API rflux_status rflux_hrp_order(const double* covariance,
+                                       size_t n_assets, size_t* order);
+
+/* Almgren-Chriss liquidation.  trades has `slices` entries and sums to
+ * quantity.  The three scalar outputs are optional only as a group; pass all
+ * of them or none. */
+RFLUX_API rflux_status rflux_almgren_chriss_plan(
+    double quantity, size_t slices, double horizon, double temporary_impact,
+    double permanent_impact, double volatility, double risk_aversion,
+    double* trades, double* expected_cost, double* expected_variance,
+    double* kappa);
+
+/* Huber regression by IRLS.  coefficients has n_features entries. */
+RFLUX_API rflux_status rflux_huber_regression(
+    const double* features, const double* target, size_t n_obs,
+    size_t n_features, double epsilon, size_t max_iter, double tol,
+    int32_t fit_intercept, double* coefficients, double* intercept,
+    double* scale, size_t* iterations, int32_t* converged);
+
+/* Site percolation on a dense symmetric non-negative adjacency matrix.
+ * `p` is the occupation probability.  systemic receives 1 when the giant
+ * component reaches the detector's crisis_fraction.  largest_component is the
+ * mean largest component size across trials, rounded to nearest. */
+RFLUX_API rflux_status rflux_site_percolation_analyze(
+    const double* adjacency, size_t n, double p, size_t repetitions,
+    uint64_t seed, double crisis_fraction, size_t threshold_points,
+    double* giant_fraction, double* giant_std, double* susceptibility,
+    size_t* largest_component, int32_t* systemic);
+
+/* Calibrate the critical occupation probability on the same graph. */
+RFLUX_API rflux_status rflux_site_percolation_threshold(
+    const double* adjacency, size_t n, size_t repetitions, uint64_t seed,
+    double crisis_fraction, size_t threshold_points, double* threshold);
+
+/* Deterministic pre-trade gate.  side: 0 buy, 1 sell.  allowed receives 1 or
+ * 0; reason is a NUL-terminated string of at most reason_capacity bytes. */
+RFLUX_API rflux_status rflux_pretrade_check(
+    int64_t quantity, double price, int32_t side,
+    double projected_position_fraction, double current_drawdown_fraction,
+    double projected_turnover, double max_position_limit,
+    double max_drawdown_limit, double turnover_threshold,
+    int32_t systemic_crisis, int32_t* allowed, char* reason,
+    size_t reason_capacity);
 
 #ifdef __cplusplus
 } /* extern "C" */

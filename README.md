@@ -2,83 +2,101 @@
 
 [![CI](https://github.com/cxy2696/rflux/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/cxy2696/rflux/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![C](https://img.shields.io/badge/C-11-555)
-![C++](https://img.shields.io/badge/C%2B%2B-17-00599C)
-![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 
-**Language:** [中文说明](README_cn.md) · [English guide](README_en.md)
+rflux 是一个 C++17 + Python 量化算法库。核心计算用 C++ 实现，通过稳定的 C ABI 和 pybind11 扩展供 Python 调用；数据适配、回测和命令行工具放在 Python 层。
 
-rflux is a quantitative research library. The calculations live in C++17, a stable C ABI keeps them callable from other languages, and the Python package adds data loading, backtests and a command-line interface for quick inspection.
+当前版本 `0.7.0`，C ABI 版本为 `1`。中文详细说明见 [README_cn.md](README_cn.md)，英文说明见 [README_en.md](README_en.md)。
 
-The released version `0.5.0` keeps C ABI compatibility version 1. The unreleased `main` branch broadens `percolab` with shortest-path statistics, k-core decomposition, assortativity, modularity, bridges, articulation points, k-truss decomposition, MST clustering, generalized percolation scans, cluster-size distributions and targeted node removal.
+## 安装
+
+从源码安装：
+
+```bash
+git clone https://github.com/cxy2696/rflux.git
+cd rflux
+python -m pip install .
+```
+
+需要 CMake 3.26+、Ninja、C++17 编译器。Python 3.10+，运行时依赖 NumPy。
+
+本项目不发布到 PyPI。可安装本地构建的 wheel：
+
+```bash
+pip install dist/rflux-*.whl
+pip install "rflux[all]"    # 可选：pandas 与 AKShare/yfinance
+```
+
+CPython 3.12+ 使用 abi3 wheel；3.10/3.11 使用对应版本的 wheel。因子、HRP、Almgren-Chriss、Huber、渗流检测和下单前风控都有 C ABI 入口。
+
+## 快速开始
 
 ```python
 import numpy as np
 import rflux
 
 prices = np.array([100, 101, 99, 103, 105, 104, 108, 110], dtype=float)
-returns = rflux.qflux.returns(prices)
-macd = rflux.qflux.macd(prices)
+print(rflux.qflux.returns(prices))
+print(rflux.qflux.macd(prices).histogram[-1])
 
 rng = np.random.default_rng(0)
-regime_returns = np.concatenate([
+returns = np.concatenate([
     rng.normal(0.0005, 0.008, 300),
     rng.normal(-0.0005, 0.02, 300),
 ]).reshape(-1, 1)
 
-model = rflux.regimelab.fit_hmm(regime_returns, n_states=2, seed=42)
-filtered = model.filtered(regime_returns)
-print(filtered[-1])
-model.close()
+model = rflux.fit_hmm(returns, n_states=2, seed=42)
+try:
+    print(model.filtered(returns)[-1])
+finally:
+    model.close()
 ```
 
-Build, test and try it directly:
+命令行：
 
 ```bash
-git clone https://github.com/cxy2696/rflux.git
-cd rflux
-make -j
-PYTHONPATH=python python -m rflux version
-PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
-  --weights 0.2,0.2,0.2,0.2,0.2
+rflux doctor
+rflux analyze examples/data/sample_prices.csv --no-hmm
+rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 ```
 
-Once the package is installed (`make python-lib && pip install -e python`), the same command is available as `rflux`.
+## 功能
+
+- **qflux**：收益率、均线、RSI、MACD、布林带、ATR、回撤、滚动统计、分位数、协方差、beta、排序、缩尾、中性化、相关矩阵、Sharpe/Sortino、VaR/CVaR。
+- **regimelab**：高斯 HMM 拟合、filtered/smoothed 概率、Viterbi、状态预测、状态对齐、波动率/趋势 regime、sticky regime。
+- **percolab**：相关网络、连通分量、中心性、PageRank、聚类、k-core、割边/割点、k-truss、MST、bond/site 渗流、风险扩散。
+- **算法层**：动量、量价反转、VWAP、Amihud、HRP、NCO 风格配置、Huber 回归、图平滑、Almgren-Chriss 执行。
+- **数据层**：本地 CSV、AKShare、yfinance 统一为长表 OHLCV；包含代码归一、校验、SQLite 缓存和重试。使用前安装 `rflux[all]` 或对应 provider extra。
+
+## 数据示例
 
 ```python
-import numpy as np
-from rflux import analyze_prices
+from rflux import data
 
-prices = np.array([[100, 50], [101, 49], [99, 51], [102, 52]], dtype=float)
-report = analyze_prices(prices, names=["AAA", "BBB"])
-print(report["market"]["sharpe"])
+loader = data.DataLoaderFactory.create("csv", root="./data/daily")
+frame = loader.load(["600519.SH", "AAPL.US"], start="2024-01-01", end="2024-12-31")
+close = data.pivot_ohlcv(frame, "close")
 ```
 
-The shared library is written to `build/`. Python finds it automatically when run from the repository, or you can set `RFLUX_LIBRARY=/path/to/librflux.dylib` / `.so`.
+## 开发
 
-## Documentation
+```bash
+python -m pip install -e ".[test]"
+python -m pytest tests/python -q
 
-- [中文说明](README_cn.md): build, Python/C/C++ usage, data adapters and HMM guidance.
-- [English guide](README_en.md): same scope in English.
-- [Examples and use cases](examples/README.md): factor screening, walk-forward HMM, network risk, real data and command-line analysis.
-- Applications: [portfolio risk, regime attribution and network risk](docs/APPLICATIONS_en.md) ([中文](docs/APPLICATIONS_cn.md)).
-- [C ABI rules](docs/ABI.md): ownership, status codes, buffer lengths and compatibility (Chinese; the public header is documented in English).
-- Methods and conventions: [中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md).
-- Extension guide: [中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md).
-- [Changelog](CHANGELOG.md) and [contributing notes](CONTRIBUTING.md).
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev --output-on-failure
+```
 
-## Scope
+`RFLUX_DISABLE_NATIVE=1` 可以强制使用 ctypes C ABI。
 
-The library covers:
+## 文档
 
-- **qflux**: returns, moving averages, RSI, MACD, Bollinger bands, ATR, drawdown, rolling statistics, quantiles/median, covariance, beta, cross-sectional ranking, winsorization, z-scores, neutralization, correlation matrices, Sharpe/Sortino and historical VaR/CVaR.
-- **regimelab**: diagonal Gaussian HMMs with multiple restarts, filtered/smoothed state probabilities, Viterbi paths, state forecasts, one-step filtering, stationary distributions, expected durations, out-of-sample scores, state alignment, causal volatility/trend regimes.
-- **percolab**: correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, bridges, articulation points, k-truss decomposition, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node-removal curves and SIR diffusion.
-- **Python tools**: optional akshare/yfinance/CSV adapters, performance summaries, IC, quantile portfolios, a cost-aware long-short backtest, portfolio risk contributions and regime attribution.
+- [中文说明](README_cn.md) / [English guide](README_en.md)
+- [统一数据层](docs/DATA_cn.md) · [算法矩阵](docs/ALGORITHMS_cn.md) · [C++ 核心契约](docs/CORE_cn.md) · [原生桥](docs/NATIVE_cn.md)
+- [方法说明](docs/METHODS_cn.md) · [C ABI](docs/ABI.md) · [扩展示例](docs/EXTENDING_cn.md)
+- [示例](examples/README.md) · [变更记录](CHANGELOG.md) · [发布清单](docs/RELEASE.md)
 
-The code is deterministic for a given input and seed. Random procedures use explicit seeds; nothing is downloaded at import time.
+## 许可
 
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT，见 [LICENSE](LICENSE)。

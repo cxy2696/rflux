@@ -12,6 +12,7 @@
 
 #include "internal/common.hpp"
 #include "rflux/percolab/network.hpp"
+#include "rflux/percolab/detector.hpp"
 #include "rflux/percolab/percolation.hpp"
 #include "rflux/qflux/indicators.hpp"
 #include "rflux/qflux/ranking.hpp"
@@ -19,6 +20,11 @@
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
+#include "rflux/execution/almgren_chriss.hpp"
+#include "rflux/factorlab/factors.hpp"
+#include "rflux/mllab/huber.hpp"
+#include "rflux/portfoliolab/hrp.hpp"
+#include "rflux/risk/pretrade.hpp"
 
 struct rflux_hmm {
     rflux_hmm(std::size_t n_states, std::size_t n_features)
@@ -80,6 +86,9 @@ rflux_status api_guard(const char* function, Function&& function_call) noexcept 
     } catch (const std::bad_alloc&) {
         record_error(function, "allocation failed");
         return RFLUX_ERR_OUT_OF_MEMORY;
+    } catch (const std::invalid_argument& error) {
+        record_error(function, error.what());
+        return RFLUX_ERR_INVALID_ARGUMENT;
     } catch (const std::exception& error) {
         record_error(function, error.what());
         return RFLUX_ERR_INTERNAL;
@@ -1022,6 +1031,205 @@ rflux_status rflux_risk_diffusion(
                 repetitions, seed);
         copy_out(result.mean_affected, mean_affected);
         copy_out(result.infection_frequency, infection_frequency);
+    });
+}
+
+rflux_status rflux_factor_momentum(const double* close, size_t n_obs,
+                                   size_t n_assets, size_t window,
+                                   double* out) {
+    return guarded_vector("rflux_factor_momentum", out, "out", [&] {
+        rflux::core::FactorContext context;
+        context.close = {close, n_obs, n_assets};
+        return rflux::factorlab::MomentumFactor(window).compute(context);
+    });
+}
+
+rflux_status rflux_factor_volume_reversal(const double* close,
+                                          const double* volume, size_t n_obs,
+                                          size_t n_assets, size_t window,
+                                          double* out) {
+    return guarded_vector("rflux_factor_volume_reversal", out, "out", [&] {
+        rflux::core::FactorContext context;
+        context.close = {close, n_obs, n_assets};
+        context.volume = {volume, n_obs, n_assets};
+        return rflux::factorlab::VolumeReversalFactor(window).compute(context);
+    });
+}
+
+rflux_status rflux_factor_vwap_deviation(const double* close,
+                                         const double* volume, size_t n_obs,
+                                         size_t n_assets, size_t window,
+                                         double* out) {
+    return guarded_vector("rflux_factor_vwap_deviation", out, "out", [&] {
+        rflux::core::FactorContext context;
+        context.close = {close, n_obs, n_assets};
+        context.volume = {volume, n_obs, n_assets};
+        return rflux::factorlab::VwapDeviationFactor(window).compute(context);
+    });
+}
+
+rflux_status rflux_factor_amihud(const double* close, const double* volume,
+                                 size_t n_obs, size_t n_assets, size_t window,
+                                 double scale, double* out) {
+    return guarded_vector("rflux_factor_amihud", out, "out", [&] {
+        rflux::core::FactorContext context;
+        context.close = {close, n_obs, n_assets};
+        context.volume = {volume, n_obs, n_assets};
+        return rflux::factorlab::AmihudFactor(window, scale).compute(context);
+    });
+}
+
+rflux_status rflux_hrp_weights(const double* covariance, size_t n_assets,
+                               double* weights) {
+    return guarded_vector("rflux_hrp_weights", weights, "weights", [&] {
+        return rflux::portfoliolab::HRPAllocator().weights(covariance,
+                                                            n_assets);
+    });
+}
+
+rflux_status rflux_hrp_order(const double* covariance, size_t n_assets,
+                             size_t* order) {
+    return api_guard("rflux_hrp_order", [&] {
+        require_output(order, "order");
+        const auto values =
+            rflux::portfoliolab::quasi_diagonal_order(covariance, n_assets);
+        std::copy(values.begin(), values.end(), order);
+    });
+}
+
+rflux_status rflux_almgren_chriss_plan(
+    double quantity, size_t slices, double horizon, double temporary_impact,
+    double permanent_impact, double volatility, double risk_aversion,
+    double* trades, double* expected_cost, double* expected_variance,
+    double* kappa) {
+    return api_guard("rflux_almgren_chriss_plan", [&] {
+        require_output(trades, "trades");
+        const bool wants_scalars =
+            expected_cost != nullptr || expected_variance != nullptr ||
+            kappa != nullptr;
+        if (wants_scalars) {
+            require_output(expected_cost, "expected_cost");
+            require_output(expected_variance, "expected_variance");
+            require_output(kappa, "kappa");
+        }
+        const rflux::core::ExecutionPlan plan =
+            rflux::execution::AlmgrenChrissPlanner(
+                temporary_impact, permanent_impact, volatility, risk_aversion)
+                .plan(quantity, slices, horizon);
+        copy_out(plan.trades, trades);
+        if (wants_scalars) {
+            *expected_cost = plan.expected_cost;
+            *expected_variance = plan.expected_variance;
+            *kappa = plan.kappa;
+        }
+    });
+}
+
+rflux_status rflux_huber_regression(
+    const double* features, const double* target, size_t n_obs,
+    size_t n_features, double epsilon, size_t max_iter, double tol,
+    int32_t fit_intercept, double* coefficients, double* intercept,
+    double* scale, size_t* iterations, int32_t* converged) {
+    return api_guard("rflux_huber_regression", [&] {
+        require_output(coefficients, "coefficients");
+        require_output(intercept, "intercept");
+        require_output(scale, "scale");
+        require_output(iterations, "iterations");
+        require_output(converged, "converged");
+        if (fit_intercept != 0 && fit_intercept != 1) {
+            throw rflux::InvalidArgument("fit_intercept must be 0 or 1");
+        }
+        rflux::mllab::HuberRegressor model(
+            epsilon, max_iter, tol, fit_intercept != 0);
+        model.fit(features, target, n_obs, n_features);
+        copy_out(model.coefficients(), coefficients);
+        *intercept = model.intercept();
+        *scale = model.scale();
+        *iterations = model.iterations();
+        *converged = model.converged() ? 1 : 0;
+    });
+}
+
+rflux_status rflux_site_percolation_analyze(
+    const double* adjacency, size_t n, double p, size_t repetitions,
+    uint64_t seed, double crisis_fraction, size_t threshold_points,
+    double* giant_fraction, double* giant_std, double* susceptibility,
+    size_t* largest_component, int32_t* systemic) {
+    return api_guard("rflux_site_percolation_analyze", [&] {
+        require_output(giant_fraction, "giant_fraction");
+        require_output(giant_std, "giant_std");
+        require_output(susceptibility, "susceptibility");
+        require_output(largest_component, "largest_component");
+        require_output(systemic, "systemic");
+        rflux::percolab::SitePercolationDetector::Options options;
+        options.repetitions = repetitions;
+        options.seed = seed;
+        options.crisis_fraction = crisis_fraction;
+        options.threshold_points = threshold_points;
+        rflux::percolab::SitePercolationDetector detector(options);
+        const auto network = rflux::percolab::make_network(adjacency, n);
+        const auto result = detector.analyze(network, p);
+        *giant_fraction = result.giant_component_fraction;
+        *giant_std = result.giant_component_std;
+        *susceptibility = result.susceptibility;
+        *largest_component = result.largest_component;
+        *systemic = result.is_systemic_crisis ? 1 : 0;
+    });
+}
+
+rflux_status rflux_site_percolation_threshold(
+    const double* adjacency, size_t n, size_t repetitions, uint64_t seed,
+    double crisis_fraction, size_t threshold_points, double* threshold) {
+    return guarded_scalar(
+        "rflux_site_percolation_threshold", threshold, "threshold", [&] {
+            rflux::percolab::SitePercolationDetector::Options options;
+            options.repetitions = repetitions;
+            options.seed = seed;
+            options.crisis_fraction = crisis_fraction;
+            options.threshold_points = threshold_points;
+            rflux::percolab::SitePercolationDetector detector(options);
+            const auto network = rflux::percolab::make_network(adjacency, n);
+            return detector.estimate_threshold(network);
+        });
+}
+
+rflux_status rflux_pretrade_check(
+    int64_t quantity, double price, int32_t side,
+    double projected_position_fraction, double current_drawdown_fraction,
+    double projected_turnover, double max_position_limit,
+    double max_drawdown_limit, double turnover_threshold,
+    int32_t systemic_crisis, int32_t* allowed, char* reason,
+    size_t reason_capacity) {
+    return api_guard("rflux_pretrade_check", [&] {
+        require_output(allowed, "allowed");
+        require_output(reason, "reason");
+        if (reason_capacity == 0) {
+            throw rflux::InvalidArgument("reason_capacity must be positive");
+        }
+        if (side != 0 && side != 1) {
+            throw rflux::InvalidArgument("side must be 0 or 1");
+        }
+        if (systemic_crisis != 0 && systemic_crisis != 1) {
+            throw rflux::InvalidArgument("systemic_crisis must be 0 or 1");
+        }
+        rflux::core::RiskConstraints constraints;
+        constraints.max_position_limit = max_position_limit;
+        constraints.max_drawdown_limit = max_drawdown_limit;
+        constraints.turnover_threshold = turnover_threshold;
+        rflux::core::Order order;
+        order.quantity = quantity;
+        order.price = price;
+        order.side = side == 0 ? rflux::core::Side::buy
+                               : rflux::core::Side::sell;
+        rflux::percolab::PercolationResult crisis;
+        crisis.is_systemic_crisis = systemic_crisis != 0;
+        const auto decision = rflux::risk::PreTradeRiskControl(constraints)
+                                  .check(order, projected_position_fraction,
+                                         current_drawdown_fraction,
+                                         projected_turnover, &crisis);
+        *allowed = decision.allowed ? 1 : 0;
+        std::snprintf(reason, reason_capacity, "%s",
+                      decision.reason.c_str());
     });
 }
 

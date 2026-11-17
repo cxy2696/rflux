@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example with akshare, yfinance, tushare or a custom CSV.
+"""Example with akshare, yfinance or a custom CSV.
 
 Install the optional dependencies, for example:
 
@@ -7,10 +7,9 @@ Install the optional dependencies, for example:
     PYTHONPATH=python python examples/python_real_data.py \
         --source yfinance --symbols AAPL MSFT NVDA --start 2021-01-01
 
-    pip install 'rflux[tushare]'
+    pip install 'rflux[akshare]'
     PYTHONPATH=python python examples/python_real_data.py \
-        --source tushare --symbols 000001.SZ 600519.SH \
-        --start 2021-01-01 --token "$TUSHARE_TOKEN"
+        --source akshare --symbols 600519.SH 000001.SZ --start 2021-01-01
 
     PYTHONPATH=python python examples/python_real_data.py \
         --source csv --path my_prices.csv --date-column date
@@ -31,13 +30,12 @@ from rflux import data, metrics, percolab, qflux, regimelab
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--source", choices=["akshare", "yfinance", "tushare", "csv"],
+        "--source", choices=["akshare", "yfinance", "csv"],
         required=True,
     )
     parser.add_argument("--symbols", nargs="+", default=None)
     parser.add_argument("--path", default=None, help="CSV path for --source csv")
     parser.add_argument("--date-column", default="date")
-    parser.add_argument("--token", default=None, help="tushare token")
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", default=None)
     parser.add_argument("--threshold", type=float, default=0.45)
@@ -54,14 +52,9 @@ def main() -> None:
             prices = data.load_akshare(
                 args.symbols, start=args.start, end=args.end
             )
-        elif args.source == "yfinance":
+        else:
             prices = data.load_yfinance(
                 args.symbols, start=args.start, end=args.end
-            )
-        else:
-            prices = data.load_tushare(
-                args.symbols, start=args.start, end=args.end,
-                token=args.token,
             )
     returns = data.to_returns(prices, method="simple", fill_method="ffill")
     print("price panel:", prices.shape, prices.index.min(), prices.index.max())

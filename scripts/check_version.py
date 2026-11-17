@@ -49,8 +49,8 @@ def main() -> int:
         )
         pyproject = _match(
             r'^version\s*=\s*"([^"]+)"',
-            _read("python/pyproject.toml"),
-            "python/pyproject.toml",
+            _read("pyproject.toml"),
+            "pyproject.toml",
         )
     except (OSError, ValueError) as exc:
         print(f"version-check failed: {exc}", file=sys.stderr)
@@ -60,7 +60,7 @@ def main() -> int:
         "CMakeLists.txt": cmake,
         "include/rflux/rflux.h": f"{major}.{minor}.{patch}",
         "python/rflux/_version.py": python_version,
-        "python/pyproject.toml": pyproject,
+        "pyproject.toml": pyproject,
         "docs/ABI.md": f"{doc_major}.{doc_minor}.{doc_patch}",
     }
     unique = set(versions.values())

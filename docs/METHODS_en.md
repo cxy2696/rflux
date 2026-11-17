@@ -433,7 +433,7 @@ E=\frac{1}{n(n-1)}\sum_{i\ne j}\frac{1}{d_{ij}},
 \bar d=\frac{1}{|\mathcal P|}\sum_{\{i,j\}\in\mathcal P} d_{ij}
 $$
 
-where $\mathcal P$ is the set of reachable unordered pairs. `diameter` is the largest finite $d_{ij}$ , and `connected` is true when every unordered pair is reachable. For $n=1$ , $E=0$ , $\bar d$ is NaN, `diameter` is 0 and `connected` is true. Average path length deliberately averages over reachable pairs only; the all-pairs value would be undefined for disconnected graphs.
+where $\mathcal P$ is the set of reachable unordered pairs. `diameter` is the largest finite $d_{ij}$ , and `connected` is true when every unordered pair is reachable. For $n=1$ , $E=0$ , $\bar d$ is NaN, `diameter` is 0 and `connected` is true. Average path length uses reachable pairs only; the all-pairs value would be undefined for disconnected graphs.
 
 **k-core and core percolation.** The core number $c_v$ is the largest k such that v belongs to the k-core, the maximal induced subgraph with minimum degree at least k. Isolated nodes have $c_v=0$ . The implementation uses Batagelj-Zaveršnik degree-bucket peeling, which is $O(n^2)$ on a dense matrix. Removing every node with $c_v<k$ leaves exactly the k-core. This is the fixed point of the deterministic k-core pruning process (often called core percolation), not a random bootstrap percolation process. The fraction $\#\{v:c_v\ge k\}/n$ is the k-core size fraction; `core_percolation()` reports it without Monte Carlo. It counts all surviving nodes and does not require the k-core to be connected.
 

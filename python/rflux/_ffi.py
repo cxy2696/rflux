@@ -297,6 +297,42 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, c_uint32_p, size_t, double, double, size_t,
           size_t, uint64, c_double_p, c_double_p])
 
+    # factorlab
+    bind("rflux_factor_momentum", ctypes.c_int,
+         [c_double_p, size_t, size_t, size_t, c_double_p])
+    bind("rflux_factor_volume_reversal", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, c_double_p])
+    bind("rflux_factor_vwap_deviation", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, c_double_p])
+    bind("rflux_factor_amihud", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, double, c_double_p])
+
+    # portfolio construction
+    bind("rflux_hrp_weights", ctypes.c_int,
+         [c_double_p, size_t, c_double_p])
+    bind("rflux_hrp_order", ctypes.c_int,
+         [c_double_p, size_t, c_size_p])
+
+    # execution and robust prediction
+    bind("rflux_almgren_chriss_plan", ctypes.c_int,
+         [double, size_t, double, double, double, double, double, c_double_p,
+          c_double_p, c_double_p, c_double_p])
+    bind("rflux_huber_regression", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, double, size_t, double,
+          ctypes.c_int32, c_double_p, c_double_p, c_double_p, c_size_p,
+          c_int32_p])
+
+    # percolation detector and pre-trade gate
+    bind("rflux_site_percolation_analyze", ctypes.c_int,
+         [c_double_p, size_t, double, size_t, uint64, double, size_t,
+          c_double_p, c_double_p, c_double_p, c_size_p, c_int32_p])
+    bind("rflux_site_percolation_threshold", ctypes.c_int,
+         [c_double_p, size_t, size_t, uint64, double, size_t, c_double_p])
+    bind("rflux_pretrade_check", ctypes.c_int,
+         [ctypes.c_int64, double, ctypes.c_int32, double, double, double,
+          double, double, double, ctypes.c_int32, c_int32_p, ctypes.c_char_p,
+          ctypes.c_size_t])
+
 
 def _load_library() -> ctypes.CDLL:
     global _LIBRARY

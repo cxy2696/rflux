@@ -26,6 +26,7 @@ from ._common import (
     int32_ptr,
 )
 from ._ffi import check, get_lib
+from ._native_backend import native_module, raise_as_rflux
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +66,13 @@ def _one_input(values: Any, name: str = "values") -> np.ndarray:
 def _series_call(
     name: str, values: Any, *arguments: Any, input_name: str = "values"
 ) -> np.ndarray:
-    """Call a native ``(data, n, ..., out)`` kernel and return a new array."""
+    """Call a native or C-ABI ``(data, n, ..., out)`` kernel."""
     data = _one_input(values, input_name)
+    if native_module is not None:
+        try:
+            return native_module.series(name, data, *arguments)
+        except native_module.NativeError as exc:
+            raise_as_rflux(name, exc)
     return call_vector(
         name, data.size, getattr(get_lib(), name),
         double_ptr(data), data.size, *arguments)
@@ -80,6 +86,26 @@ def _pair_inputs(
     if xa.size != ya.size:
         raise ValueError(f"{x_name} and {y_name} must have equal lengths")
     return xa, ya
+
+
+def _pair_series_call(
+    name: str,
+    x: Any,
+    y: Any,
+    *arguments: Any,
+    x_name: str = "x",
+    y_name: str = "y",
+) -> np.ndarray:
+    """Call a native two-input series kernel when the extension is available."""
+    xa, ya = _pair_inputs(x, y, x_name, y_name)
+    if native_module is not None:
+        try:
+            return native_module.pair_series(name, xa, ya, *arguments)
+        except native_module.NativeError as exc:
+            raise_as_rflux(name, exc)
+    return call_vector(
+        name, xa.size, getattr(get_lib(), name),
+        double_ptr(xa), double_ptr(ya), xa.size, *arguments)
 
 
 def _multi_output(
@@ -174,17 +200,17 @@ def macd(
     prices: Any, fast: int = 12, slow: int = 26, signal: int = 9
 ) -> MACDResult:
     data = _one_input(prices, "prices")
+    fast = as_size(fast, "fast")
+    slow = as_size(slow, "slow")
+    signal = as_size(signal, "signal")
+    if native_module is not None:
+        try:
+            return MACDResult(*native_module.macd(data, fast, slow, signal))
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_macd", exc)
     outputs = _multi_output(
-        "rflux_macd",
-        3,
-        data.size,
-        get_lib().rflux_macd,
-        double_ptr(data),
-        data.size,
-        as_size(fast, "fast"),
-        as_size(slow, "slow"),
-        as_size(signal, "signal"),
-    )
+        "rflux_macd", 3, data.size, get_lib().rflux_macd,
+        double_ptr(data), data.size, fast, slow, signal)
     return MACDResult(*outputs)
 
 
@@ -192,16 +218,17 @@ def bollinger(
     prices: Any, window: int = 20, n_std: float = 2.0
 ) -> BollingerBands:
     data = _one_input(prices, "prices")
+    window = as_size(window, "window")
+    if native_module is not None:
+        try:
+            return BollingerBands(
+                *native_module.bollinger(data, window, float(n_std))
+            )
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_bollinger", exc)
     outputs = _multi_output(
-        "rflux_bollinger",
-        3,
-        data.size,
-        get_lib().rflux_bollinger,
-        double_ptr(data),
-        data.size,
-        as_size(window, "window"),
-        float(n_std),
-    )
+        "rflux_bollinger", 3, data.size, get_lib().rflux_bollinger,
+        double_ptr(data), data.size, window, float(n_std))
     return BollingerBands(*outputs)
 
 
@@ -213,10 +240,17 @@ def atr(
     close_array = _one_input(close, "close")
     if not (high_array.size == low_array.size == close_array.size):
         raise ValueError("high, low and close must have equal lengths")
+    period = as_size(period, "period")
+    if native_module is not None:
+        try:
+            return native_module.atr(
+                high_array, low_array, close_array, period)
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_atr", exc)
     return call_vector(
         "rflux_atr", high_array.size, get_lib().rflux_atr,
         double_ptr(high_array), double_ptr(low_array), double_ptr(close_array),
-        high_array.size, as_size(period, "period"))
+        high_array.size, period)
 
 
 def drawdown(equity: Any) -> np.ndarray:
@@ -225,26 +259,28 @@ def drawdown(equity: Any) -> np.ndarray:
 
 
 def rolling_corr(x: Any, y: Any, window: int) -> np.ndarray:
-    xa, ya = _pair_inputs(x, y)
-    return call_vector(
-        "rflux_rolling_corr", xa.size, get_lib().rflux_rolling_corr,
-        double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"))
+    return _pair_series_call(
+        "rflux_rolling_corr", x, y, as_size(window, "window"))
 
 
 def rolling_cov(
     x: Any, y: Any, window: int, ddof: int = 0
 ) -> np.ndarray:
     """Rolling covariance over complete windows; ``ddof`` defaults to 0."""
-    xa, ya = _pair_inputs(x, y)
-    return call_vector(
-        "rflux_rolling_cov", xa.size, get_lib().rflux_rolling_cov,
-        double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"),
+    return _pair_series_call(
+        "rflux_rolling_cov", x, y, as_size(window, "window"),
         as_size(ddof, "ddof", minimum=0))
 
 
 def rolling_beta(asset: Any, benchmark: Any, window: int) -> np.ndarray:
     """Rolling OLS beta of ``asset`` on ``benchmark``; NaN for degenerate windows."""
     y, x = _pair_inputs(asset, benchmark, "asset", "benchmark")
+    if native_module is not None:
+        try:
+            return native_module.pair_series(
+                "rflux_rolling_beta", y, x, as_size(window, "window"))
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_rolling_beta", exc)
     return call_vector(
         "rflux_rolling_beta", y.size, get_lib().rflux_rolling_beta,
         double_ptr(y), double_ptr(x), y.size, as_size(window, "window"))
@@ -263,6 +299,21 @@ def rolling_r2(values: Any, window: int) -> np.ndarray:
 def describe(values: Any) -> Moments:
     """Finite-value descriptive statistics (sample variance, adjusted skew)."""
     data = _one_input(values)
+    if native_module is not None:
+        try:
+            mean, variance, stddev, skewness, kurtosis, valid = (
+                native_module.describe(data)
+            )
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_describe", exc)
+        return Moments(
+            float(mean),
+            float(variance),
+            float(stddev),
+            float(skewness),
+            float(kurtosis),
+            int(valid),
+        )
     mean = np.empty(1, dtype=np.float64)
     variance = np.empty(1, dtype=np.float64)
     stddev = np.empty(1, dtype=np.float64)
@@ -294,6 +345,11 @@ def describe(values: Any) -> Moments:
 
 def quantile(values: Any, q: float) -> float:
     data = _one_input(values)
+    if native_module is not None:
+        try:
+            return float(native_module.quantile(data, float(q)))
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_quantile", exc)
     return call_scalar(
         "rflux_quantile", get_lib().rflux_quantile,
         double_ptr(data), data.size, float(q))
@@ -301,6 +357,11 @@ def quantile(values: Any, q: float) -> float:
 
 def pearson(x: Any, y: Any) -> float:
     xa, ya = _pair_inputs(x, y)
+    if native_module is not None:
+        try:
+            return float(native_module.pearson(xa, ya))
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_pearson", exc)
     return call_scalar(
         "rflux_pearson", get_lib().rflux_pearson,
         double_ptr(xa), double_ptr(ya), xa.size)
@@ -311,6 +372,11 @@ def correlation_matrix(panel: Any) -> np.ndarray:
     data = as_f64_2d(panel, "panel")
     if data.shape[0] == 0 or data.shape[1] == 0:
         raise ValueError("panel must not be empty")
+    if native_module is not None:
+        try:
+            return native_module.correlation_matrix(data)
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_corr_matrix", exc)
     n_assets = data.shape[1]
     out = call_vector(
         "rflux_corr_matrix", n_assets * n_assets, get_lib().rflux_corr_matrix,
@@ -322,32 +388,50 @@ def sharpe(
     returns_: Any, periods_per_year: float = 252.0, risk_free: float = 0.0
 ) -> float:
     data = _one_input(returns_, "returns")
+    periods_per_year = float(periods_per_year)
+    risk_free = float(risk_free)
+    if native_module is not None:
+        try:
+            return float(
+                native_module.sharpe(data, periods_per_year, risk_free)
+            )
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_sharpe", exc)
     return call_scalar(
         "rflux_sharpe", get_lib().rflux_sharpe,
-        double_ptr(data), data.size, float(periods_per_year), float(risk_free))
+        double_ptr(data), data.size, periods_per_year, risk_free)
 
 
 def sortino(
     returns_: Any, periods_per_year: float = 252.0, risk_free: float = 0.0
 ) -> float:
     data = _one_input(returns_, "returns")
+    periods_per_year = float(periods_per_year)
+    risk_free = float(risk_free)
+    if native_module is not None:
+        try:
+            return float(
+                native_module.sortino(data, periods_per_year, risk_free)
+            )
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_sortino", exc)
     return call_scalar(
         "rflux_sortino", get_lib().rflux_sortino,
-        double_ptr(data), data.size, float(periods_per_year), float(risk_free))
+        double_ptr(data), data.size, periods_per_year, risk_free)
 
 
 def var_cvar(returns_: Any, confidence: float = 0.95) -> TailRisk:
     """Historical VaR/CVaR; both are positive losses and may be negative."""
     data = _one_input(returns_, "returns")
+    if native_module is not None:
+        try:
+            var, cvar = native_module.var_cvar(data, float(confidence))
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_var_cvar", exc)
+        return TailRisk(float(var), float(cvar))
     var, cvar = _multi_output(
-        "rflux_var_cvar",
-        2,
-        1,
-        get_lib().rflux_var_cvar,
-        double_ptr(data),
-        data.size,
-        float(confidence),
-    )
+        "rflux_var_cvar", 2, 1, get_lib().rflux_var_cvar,
+        double_ptr(data), data.size, float(confidence))
     return TailRisk(float(var[0]), float(cvar[0]))
 
 
@@ -383,10 +467,15 @@ def neutralize(
     if group_count is None:
         valid = group_array[group_array >= 0]
         group_count = int(valid.max()) + 1 if valid.size else 0
+    group_count = as_size(group_count, "group_count")
+    if native_module is not None:
+        try:
+            return native_module.neutralize(data, group_array, group_count)
+        except native_module.NativeError as exc:
+            raise_as_rflux("rflux_neutralize", exc)
     return call_vector(
         "rflux_neutralize", data.size, get_lib().rflux_neutralize,
-        double_ptr(data), data.size, int32_ptr(group_array),
-        as_size(group_count, "group_count"))
+        double_ptr(data), data.size, int32_ptr(group_array), group_count)
 
 
 __all__ = [

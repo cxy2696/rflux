@@ -21,7 +21,9 @@ PUBLIC_HEADERS := $(wildcard include/rflux/*.h) $(wildcard include/rflux/*/*.hpp
 
 BUILD    := build
 CORE_SRCS := $(wildcard src/qflux/*.cpp) $(wildcard src/regimelab/*.cpp) \
-             $(wildcard src/percolab/*.cpp)
+             $(wildcard src/percolab/*.cpp) $(wildcard src/factorlab/*.cpp) \
+             $(wildcard src/portfoliolab/*.cpp) $(wildcard src/execution/*.cpp) \
+             $(wildcard src/mllab/*.cpp) $(wildcard src/risk/*.cpp)
 CAPI_SRC  := src/rflux_capi.cpp
 CORE_OBJS := $(patsubst %.cpp,$(BUILD)/obj/%.o,$(CORE_SRCS))
 CAPI_OBJ  := $(BUILD)/obj/src/rflux_capi.o
@@ -41,7 +43,7 @@ RPATH := -Wl,-rpath,$(abspath $(BUILD))
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
 TESTS    := $(BUILD)/test_capi $(BUILD)/test_cpp
 
-.PHONY: all libs shared examples check c-test cpp-test python-test python-lib version-check docs-check clean
+.PHONY: all libs shared examples check c-test cpp-test python-test python-lib version-check docs-check native wheel clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -91,6 +93,12 @@ python-lib: $(SHARED_LIB)
 	@mkdir -p python/rflux/_lib
 	cp $(SHARED_LIB) python/rflux/_lib/
 	@echo "copied $(SHARED_LIB) -> python/rflux/_lib/"
+
+native:
+	$(PYTHON) -m pip install -e . --no-deps
+
+wheel:
+	$(PYTHON) -m pip wheel . --no-deps -w dist
 
 version-check:
 	$(PYTHON) scripts/check_version.py

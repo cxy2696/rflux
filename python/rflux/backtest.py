@@ -1,6 +1,6 @@
 """Lightweight cross-sectional research and backtest tools.
 
-These are deliberately transparent building blocks, not a production trading
+These are transparent building blocks for research, not a live trading
 engine.  Alignment is explicit: ``factor[t]`` must be known before the return
 realized over ``forward_returns[t]``.  No future information is read.
 """

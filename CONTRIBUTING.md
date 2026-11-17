@@ -14,13 +14,31 @@ relative links, fenced code blocks and GitHub-compatible math delimiters, plus
 `scripts/check_version.py` to keep CMake, the C header and Python metadata in
 sync.
 
-The Make build is the quickest loop. If CMake is available, also run:
+The Make build is the quickest loop for the C/C++ surface. For the native
+Python extension and the reproducible CMake/Ninja loop:
 
 ```bash
-cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build/cmake -j
-ctest --test-dir build/cmake --output-on-failure
+python -m pip install -e ".[test]"
+python -m pytest tests/python -q
+
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev --output-on-failure
+
+# ASan + UBSan (Linux CI runs leak detection; macOS cannot)
+cmake --preset sanitize
+cmake --build --preset sanitize
+ctest --preset sanitize --output-on-failure
 ```
+
+The CMake build uses a system GoogleTest when present. If it is not installed,
+pass `-DRFLUX_FETCH_GTEST=ON` to download and build it, or leave
+`-DRFLUX_BUILD_GTEST=OFF` to skip only that suite.
+
+`RFLUX_DISABLE_NATIVE=1` forces the ctypes fallback. When adding a native
+binding, release the GIL around expensive C++ work and keep all Python API calls
+outside the released region. New public behaviour needs a pytest under
+`tests/python/`; new C++ kernels should also get a GoogleTest case.
 
 ## Adding a kernel
 

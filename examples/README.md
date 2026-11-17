@@ -1,14 +1,14 @@
 # rflux 使用案例
 
-这些示例都可以从仓库根目录直接运行。Python 示例只依赖 NumPy；`python_real_data.py` 还需要 pandas 和一个可选数据源。计算口径见 [METHODS_cn.md](../docs/METHODS_cn.md)，英文版见 [METHODS_en.md](../docs/METHODS_en.md)。
+这些示例都可以从仓库根目录直接运行。Python 示例只依赖 NumPy；`python_real_data.py` 还需要 pandas 和一个可选数据源。计算口径见 [METHODS_cn.md](../docs/METHODS_cn.md)，英文版见 [METHODS_en.md](../docs/METHODS_en.md)。新算法矩阵见 [ALGORITHMS_cn.md](../docs/ALGORITHMS_cn.md)。
 
 ```bash
 make -j
-make python-lib            # 可选：把共享库放进 python/rflux/_lib/
+python -m pip install -e .  # 可选：编译原生扩展并安装包
 export PYTHONPATH="$PWD/python"
 ```
 
-在仓库内运行时，Python 加载器会自动查找 `build/librflux.dylib` 或 `build/librflux.so`；也可以显式设置 `RFLUX_LIBRARY`。`make python-lib` 只在需要把包安装到别处时使用。
+在仓库内运行时，Python 加载器会自动查找 `build/librflux.dylib` 或 `build/librflux.so`；也可以显式设置 `RFLUX_LIBRARY`。`make python-lib` 只复制 C ABI 共享库，适合没有编译原生扩展、只验证 ctypes 回退的场景。
 
 ## 0. 命令行直接分析
 
@@ -108,15 +108,6 @@ python examples/python_real_data.py \
   --source akshare --symbols 000001 600519 --start 2021-01-01
 ```
 
-tushare 示例：
-
-```bash
-pip install pandas tushare
-export TUSHARE_TOKEN=你的_token
-python examples/python_real_data.py \
-  --source tushare --symbols 000001.SZ 600519.SH --start 2021-01-01
-```
-
 自定义 CSV 示例（不要求 pandas 也能用 `rflux analyze`）：
 
 ```bash
@@ -124,7 +115,7 @@ python examples/python_real_data.py \
   --source csv --path my_prices.csv --date-column date
 ```
 
-适配器只负责下载、日期索引和列名归一化。复权、停牌、点时成分股和生存偏差由使用者处理。tushare 返回原始日收盘价，复权由调用方处理。远程供应商接口可能变化；脚本把空响应和 schema 错误转成 `DataSourceError`。
+适配器只负责下载、日期索引和列名归一化。复权、停牌、点时成分股和生存偏差由使用者处理。远程供应商接口可能变化；脚本把空响应和 schema 错误转成 `DataSourceError`。
 
 ## 5. 组合风险与状态归因
 
@@ -157,7 +148,7 @@ C 用户只需要 `include/rflux/rflux.h`；C++ 用户可包含 `include/rflux/r
 | [python_factor_screen.py](python_factor_screen.py) | 选股因子、行业中性和多空回测 | `qflux.winsorize/zscore/neutralize`, `backtest.factor_ic/long_short_backtest` |
 | [python_hmm_walkforward.py](python_hmm_walkforward.py) | HMM 滚动拟合、OOS 评分、状态对齐 | `regimelab.fit_hmm/score/match_states/align_labels` |
 | [python_end_to_end.py](python_end_to_end.py) | 状态 + 网络 + 渗流 + 回测 | `regimelab`, `percolab`, `backtest` |
-| [python_real_data.py](python_real_data.py) | akshare/yfinance/tushare/自定义 CSV | `data.load_yfinance/load_akshare/load_tushare/load_csv/to_returns` |
+| [python_real_data.py](python_real_data.py) | akshare/yfinance/自定义 CSV | `data.load_yfinance/load_akshare/load_csv/to_returns` |
 | [python_applications.py](python_applications.py) | 组合风险贡献和 regime 归因 | `portfolio_risk`, `regime_attribution` |
 | [c_basic.c](c_basic.c) | C ABI 最小调用 | `rflux_sma`, `rflux_rsi`, `rflux_graph_components` |
 | [cpp_research.cpp](cpp_research.cpp) | C++ 研究管线 | `rflux::qflux`, `rflux::regimelab`, `rflux::percolab` |

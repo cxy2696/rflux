@@ -24,7 +24,7 @@ static int test_status(void) {
     double out[5];
     const double x[5] = {1, 2, 3, 4, 5};
     CHECK(rflux_abi_version() == RFLUX_ABI_VERSION);
-    CHECK(strcmp(rflux_version_string(), "0.5.0") == 0);
+    CHECK(strcmp(rflux_version_string(), "0.7.0") == 0);
     CHECK(strcmp(rflux_status_name(RFLUX_OK), "RFLUX_OK") == 0);
     CHECK(strcmp(rflux_status_name(999), "RFLUX_ERR_UNKNOWN") ==
           0);
@@ -781,6 +781,88 @@ static int test_graphs(void) {
     return 0;
 }
 
+static int test_algorithms(void) {
+    {
+        const double close[6] = {1.0, 10.0, 1.1, 11.0, 1.2, 12.0};
+        const double volume[6] = {10.0, 100.0, 20.0, 200.0, 30.0, 300.0};
+        double out[6];
+        CHECK(rflux_factor_momentum(close, 3, 2, 1, out) == RFLUX_OK);
+        CHECK(isnan(out[0]) && isnan(out[1]));
+        CHECK(approx(out[2], 0.1, 1e-12));
+        CHECK(approx(out[3], 0.1, 1e-12));
+        CHECK(rflux_factor_volume_reversal(close, volume, 3, 2, 1, out) ==
+              RFLUX_OK);
+        CHECK(approx(out[2], -0.1, 1e-12));
+        CHECK(rflux_factor_vwap_deviation(close, volume, 3, 2, 2, out) ==
+              RFLUX_OK);
+        CHECK(rflux_factor_amihud(close, volume, 3, 2, 1, 1e6, out) ==
+              RFLUX_OK);
+        CHECK(rflux_factor_momentum(NULL, 3, 2, 1, out) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+    }
+    {
+        const double covariance[4] = {0.04, 0.006, 0.006, 0.09};
+        double weights[2];
+        size_t order[2];
+        CHECK(rflux_hrp_weights(covariance, 2, weights) == RFLUX_OK);
+        CHECK(approx(weights[0] + weights[1], 1.0, 1e-12));
+        CHECK(approx(weights[0], 0.6923076923076923, 1e-12));
+        CHECK(rflux_hrp_order(covariance, 2, order) == RFLUX_OK);
+        CHECK((order[0] == 0 && order[1] == 1) ||
+              (order[0] == 1 && order[1] == 0));
+    }
+    {
+        double trades[10], cost, variance, kappa;
+        CHECK(rflux_almgren_chriss_plan(100.0, 10, 1.0, 0.01, 0.001, 0.02,
+                                        0.0, trades, &cost, &variance,
+                                        &kappa) == RFLUX_OK);
+        CHECK(approx(cost, 1005.0, 1e-9));
+        double total = 0.0;
+        for (int i = 0; i < 10; ++i) total += trades[i];
+        CHECK(approx(total, 100.0, 1e-9));
+    }
+    {
+        const double features[5] = {0, 1, 2, 3, 4};
+        const double target[5] = {1, 3, 5, 7, 9};
+        double coefficients[1], intercept, scale;
+        size_t iter;
+        int32_t converged;
+        CHECK(rflux_huber_regression(features, target, 5, 1, 1.35, 100,
+                                     1e-8, 1, coefficients, &intercept,
+                                     &scale, &iter, &converged) == RFLUX_OK);
+        CHECK(approx(coefficients[0], 2.0, 1e-9));
+        CHECK(approx(intercept, 1.0, 1e-9));
+    }
+    {
+        const double adjacency[4] = {0.0, 1.0, 1.0, 0.0};
+        double giant, stddev, susceptibility, threshold;
+        size_t largest;
+        int32_t systemic;
+        CHECK(rflux_site_percolation_analyze(
+                  adjacency, 2, 0.5, 2048, 42, 0.5, 11, &giant, &stddev,
+                  &susceptibility, &largest, &systemic) == RFLUX_OK);
+        CHECK(approx(giant, 0.5, 0.03));
+        CHECK(largest == 1 || largest == 2);
+        CHECK(rflux_site_percolation_threshold(adjacency, 2, 512, 42, 0.5,
+                                               11, &threshold) == RFLUX_OK);
+        CHECK(threshold > 0.0 && threshold <= 1.0);
+    }
+    {
+        int32_t allowed;
+        char reason[128];
+        CHECK(rflux_pretrade_check(10, 100.0, 0, 0.2, 0.05, 0.05, 0.5, 0.2,
+                                   0.1, 0, &allowed, reason,
+                                   sizeof(reason)) == RFLUX_OK);
+        CHECK(allowed == 1);
+        CHECK(rflux_pretrade_check(10, 100.0, 0, 0.8, 0.05, 0.05, 0.5, 0.2,
+                                   0.1, 0, &allowed, reason,
+                                   sizeof(reason)) == RFLUX_OK);
+        CHECK(allowed == 0);
+        CHECK(strlen(reason) > 0);
+    }
+    return 0;
+}
+
 int main(void) {
     int failures = 0;
     failures += test_status();
@@ -790,6 +872,7 @@ int main(void) {
     failures += test_hmm();
     failures += test_regimes();
     failures += test_graphs();
+    failures += test_algorithms();
     if (failures == 0) {
         printf("test_capi: all C ABI tests passed\n");
         return 0;

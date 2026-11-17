@@ -1,0 +1,111 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Developer build (C++, examples, native Python, tests)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RFLUX_BUILD_PYTHON": "ON",
+        "RFLUX_BUILD_TESTS": "ON",
+        "RFLUX_BUILD_GTEST": "ON",
+        "RFLUX_BUILD_EXAMPLES": "ON",
+        "RFLUX_PYTHON_PACKAGE": "OFF",
+        "RFLUX_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Core release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RFLUX_BUILD_PYTHON": "OFF",
+        "RFLUX_BUILD_TESTS": "ON",
+        "RFLUX_BUILD_GTEST": "ON",
+        "RFLUX_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "wheel",
+      "displayName": "abi3 wheel build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wheel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RFLUX_BUILD_PYTHON": "ON",
+        "RFLUX_PYTHON_PACKAGE": "ON",
+        "RFLUX_STABLE_ABI": "ON",
+        "RFLUX_BUILD_TESTS": "OFF",
+        "RFLUX_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "ASan + UBSan C/C++ tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "RFLUX_BUILD_PYTHON": "OFF",
+        "RFLUX_BUILD_TESTS": "ON",
+        "RFLUX_BUILD_GTEST": "ON",
+        "RFLUX_BUILD_EXAMPLES": "OFF",
+        "RFLUX_FETCH_GTEST": "OFF",
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "wheel",
+      "configurePreset": "wheel"
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

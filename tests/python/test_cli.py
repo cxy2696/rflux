@@ -106,13 +106,37 @@ class TestCommandLine(unittest.TestCase):
         status, output, _ = self._run(["version", "--json"])
         self.assertEqual(status, 0)
         payload = json.loads(output)
-        self.assertEqual(payload["version"], "0.5.0")
-        self.assertEqual(payload["native_version"], "0.5.0")
+        self.assertEqual(payload["version"], "0.7.0")
+        self.assertEqual(payload["native_version"], "0.7.0")
 
         status, output, _ = self._run(["doctor", "--json"])
         self.assertEqual(status, 0)
         payload = json.loads(output)
         self.assertTrue(payload["native"]["loaded"])
+        self.assertIn("native_extension", payload)
+
+    def test_config_validate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "model.toml"
+            path.write_text(
+                "[model]\n"
+                "n_states = 2\n"
+                "n_features = 1\n"
+                "\n[model.initial]\n"
+                "start_prob = [0.6, 0.4]\n"
+                "transition = [[0.9, 0.1], [0.2, 0.8]]\n"
+                "means = [[-1.0], [1.0]]\n"
+                "variances = [[1.0], [1.0]]\n",
+                encoding="utf-8",
+            )
+            status, output, error = self._run(
+                ["config", str(path), "--build", "--json"]
+            )
+        self.assertEqual(status, 0, error)
+        payload = json.loads(output)
+        self.assertTrue(payload["valid"])
+        self.assertTrue(payload["constructed"])
+        self.assertEqual(payload["n_states"], 2)
 
     def test_analyze_json(self):
         with tempfile.TemporaryDirectory() as directory:
