@@ -10,7 +10,7 @@
 
 rflux is a quantitative research library. The calculations live in C++17, a stable C ABI keeps them callable from other languages, and the Python package adds data loading, backtests and a command-line interface for quick inspection.
 
-The released version `0.5.0` keeps C ABI compatibility version 1. The unreleased `main` branch broadens `percolab` with shortest-path statistics, k-core decomposition, assortativity, modularity, MST clustering, generalized percolation scans, cluster-size distributions and targeted node removal.
+The released version `0.5.0` keeps C ABI compatibility version 1. The unreleased `main` branch broadens `percolab` with shortest-path statistics, k-core decomposition, assortativity, modularity, bridges, articulation points, k-truss decomposition, MST clustering, generalized percolation scans, cluster-size distributions and targeted node removal.
 
 ```python
 import numpy as np
@@ -74,7 +74,7 @@ The library covers:
 
 - **qflux**: returns, moving averages, RSI, MACD, Bollinger bands, ATR, drawdown, rolling statistics, quantiles/median, covariance, beta, cross-sectional ranking, winsorization, z-scores, neutralization, correlation matrices, Sharpe/Sortino and historical VaR/CVaR.
 - **regimelab**: diagonal Gaussian HMMs with multiple restarts, filtered/smoothed state probabilities, Viterbi paths, state forecasts, one-step filtering, stationary distributions, expected durations, out-of-sample scores, state alignment, causal volatility/trend regimes.
-- **percolab**: correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node-removal curves and SIR diffusion.
+- **percolab**: correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, bridges, articulation points, k-truss decomposition, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node-removal curves and SIR diffusion.
 - **Python tools**: optional akshare/yfinance/CSV adapters, performance summaries, IC, quantile portfolios, a cost-aware long-short backtest, portfolio risk contributions and regime attribution.
 
 The code is deterministic for a given input and seed. Random procedures use explicit seeds; nothing is downloaded at import time.

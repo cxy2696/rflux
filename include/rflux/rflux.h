@@ -613,6 +613,38 @@ RFLUX_API rflux_status rflux_network_betweenness(
     const double* weights, size_t n, int32_t normalized, double* out);
 
 /*
+ * Bridges (cut edges) of an undirected unweighted graph (edges > 0).  The
+ * buffers edge_u and edge_v must hold at least n-1 entries when n > 1 and may
+ * be NULL otherwise.  n_edges receives the count; edges are sorted by (u, v)
+ * with u < v.  Deterministic Tarjan low-link DFS: a tree edge (p, v) is a
+ * bridge exactly when low[v] > disc[p].
+ */
+RFLUX_API rflux_status rflux_network_bridges(const double* weights, size_t n,
+                                             uint32_t* edge_u,
+                                             uint32_t* edge_v,
+                                             size_t* n_edges);
+
+/*
+ * Articulation points of an undirected unweighted graph (edges > 0).  out has
+ * length n and each entry is 1 for an articulation point, 0 otherwise.  A DFS
+ * root is an articulation point when it has more than one child; any other
+ * node p is one when some child v has low[v] >= disc[p].
+ */
+RFLUX_API rflux_status rflux_network_articulation_points(
+    const double* weights, size_t n, int32_t* out);
+
+/*
+ * Edge trussness of an undirected unweighted graph (edges > 0).  out has
+ * length n*n and is symmetric: out[i*n+j] is the largest k such that edge
+ * (i,j) belongs to the k-truss, zero on the diagonal and non-edges.  Edges in
+ * no triangle have trussness 2.  Stage k removes every edge whose support is
+ * below k-2 and assigns trussness k-1; remaining edges have trussness
+ * max_support+2.
+ */
+RFLUX_API rflux_status rflux_network_truss_numbers(const double* weights,
+                                                   size_t n, int32_t* out);
+
+/*
  * PageRank on a directed non-negative weighted graph.  Rows are outgoing
  * edges; dangling rows distribute their mass uniformly.  damping must be in
  * [0, 1), max_iter and tol must be positive.  out has length n and sums to 1.

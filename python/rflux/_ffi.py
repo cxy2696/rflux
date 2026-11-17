@@ -262,6 +262,12 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, double, size_t, double, c_double_p])
     bind("rflux_network_betweenness", ctypes.c_int,
          [c_double_p, size_t, ctypes.c_int, c_double_p])
+    bind("rflux_network_bridges", ctypes.c_int,
+         [c_double_p, size_t, c_uint32_p, c_uint32_p, c_size_p])
+    bind("rflux_network_articulation_points", ctypes.c_int,
+         [c_double_p, size_t, c_int32_p])
+    bind("rflux_network_truss_numbers", ctypes.c_int,
+         [c_double_p, size_t, c_int32_p])
     bind("rflux_network_mst", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, c_uint32_p, c_double_p, c_size_p])
     bind("rflux_mst_clusters", ctypes.c_int,

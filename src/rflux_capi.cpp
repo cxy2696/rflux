@@ -817,6 +817,39 @@ rflux_status rflux_network_betweenness(const double* weights, size_t n,
     });
 }
 
+rflux_status rflux_network_bridges(const double* weights, size_t n,
+                                     uint32_t* edge_u, uint32_t* edge_v,
+                                     size_t* n_edges) {
+    return api_guard("rflux_network_bridges", [&] {
+        require_output(n_edges, "n_edges");
+        const std::vector<rflux::percolab::BridgeEdge> edges =
+            rflux::percolab::bridges(weights, n);
+        if (!edges.empty()) {
+            require_output(edge_u, "edge_u");
+            require_output(edge_v, "edge_v");
+        }
+        for (std::size_t i = 0; i < edges.size(); ++i) {
+            edge_u[i] = edges[i].u;
+            edge_v[i] = edges[i].v;
+        }
+        *n_edges = edges.size();
+    });
+}
+
+rflux_status rflux_network_articulation_points(const double* weights,
+                                               size_t n, int32_t* out) {
+    return guarded_i32(
+        "rflux_network_articulation_points", out, "out",
+        [&] { return rflux::percolab::articulation_points(weights, n); });
+}
+
+rflux_status rflux_network_truss_numbers(const double* weights, size_t n,
+                                         int32_t* out) {
+    return guarded_i32(
+        "rflux_network_truss_numbers", out, "out",
+        [&] { return rflux::percolab::truss_numbers(weights, n); });
+}
+
 rflux_status rflux_pagerank(const double* adjacency, size_t n, double damping,
                              size_t max_iter, double tol, double* out) {
     return guarded_vector("rflux_pagerank", out, "out", [&] {

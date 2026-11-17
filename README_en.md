@@ -12,7 +12,7 @@ The current release is `0.5.0`; the compatible C ABI version is `1`. Unreleased 
 | --- | --- |
 | `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, quantiles/median, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
 | `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, expected durations, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
-| `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node removal and SIR diffusion |
+| `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector/degree centrality, PageRank, betweenness, local/global clustering, shortest-path efficiency and diameter, k-core decomposition, degree assortativity, modularity, bridges, articulation points, k-truss decomposition, minimum spanning trees and single-linkage clusters, bond/site percolation with weighted or separate occupation weights, cluster-size distributions, targeted node removal and SIR diffusion |
 | Python tools | Optional akshare/yfinance/tushare/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
 
 Rolling volatility, z-scores, correlation, beta, slope and R² use mergeable Welford block moments, so a large price level does not erase the small variance inside a window. Random procedures take explicit seeds and are reproducible on the same platform and version.
@@ -362,7 +362,7 @@ docs/                ABI, methods and extension notes
 make check
 ```
 
-The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms (shortest paths, k-cores, transitivity, assortativity, modularity and MST clustering), percolation endpoints and generalized scans, cluster-size distributions, targeted removal, diffusion bounds and the Python backtest helpers. `make check` also verifies version declarations, Markdown links, code fences and GitHub math delimiters.
+The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms (shortest paths, k-cores, transitivity, assortativity, modularity, bridges, articulation points, k-truss and MST clustering), percolation endpoints and generalized scans, cluster-size distributions, targeted removal, diffusion bounds and the Python backtest helpers. `make check` also verifies version declarations, Markdown links, code fences and GitHub math delimiters.
 
 GitHub Actions runs Make and CMake/CTest tests on Linux and macOS, and executes the factor, walk-forward HMM, network and C/C++ examples on Linux.
 

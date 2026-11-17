@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <numeric>
+#include <queue>
 #include <utility>
 #include <vector>
 
@@ -47,6 +49,97 @@ NeighborList unweighted_neighbors(const double* weights, std::size_t n) {
         }
     }
     return neighbors;
+}
+
+struct ConnectivitySummary {
+    std::vector<BridgeEdge> bridges;
+    std::vector<std::uint8_t> articulation;
+};
+
+/*
+ * Iterative Tarjan low-link DFS.  Every non-tree edge in an undirected DFS
+ * joins an ancestor and a descendant, so low[v] can be updated from disc[to]
+ * for every visited neighbour except the parent.  A tree edge (p, v) is a
+ * bridge exactly when low[v] > disc[p]; p is an articulation point when it is
+ * not the DFS root and low[v] >= disc[p].  A root is an articulation point
+ * exactly when it has more than one DFS child.
+ */
+ConnectivitySummary analyze_connectivity(const double* weights, std::size_t n) {
+    require_adjacency(weights, n, "weights");
+    validate_uint32_nodes(n);
+    require(n <= static_cast<std::size_t>(
+                     std::numeric_limits<std::int32_t>::max()),
+            "n must fit in int32_t");
+
+    const NeighborList neighbors = unweighted_neighbors(weights, n);
+    constexpr std::size_t kUnvisited =
+        std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> discovery(n, kUnvisited);
+    std::vector<std::size_t> low(n, 0);
+    std::vector<std::size_t> parent(n, kUnvisited);
+    std::vector<std::size_t> children(n, 0);
+    std::vector<std::uint8_t> articulation(n, 0);
+    std::vector<BridgeEdge> found;
+
+    struct Frame {
+        std::size_t node = 0;
+        std::size_t next = 0;
+    };
+    std::vector<Frame> stack;
+    stack.reserve(n);
+    std::size_t time = 0;
+
+    for (std::size_t root = 0; root < n; ++root) {
+        if (discovery[root] != kUnvisited) continue;
+        discovery[root] = low[root] = time++;
+        parent[root] = kUnvisited;
+        stack.push_back({root, 0});
+        while (!stack.empty()) {
+            Frame& frame = stack.back();
+            if (frame.next < neighbors[frame.node].size()) {
+                const std::size_t target =
+                    neighbors[frame.node][frame.next++];
+                if (target == parent[frame.node]) continue;
+                if (discovery[target] == kUnvisited) {
+                    parent[target] = frame.node;
+                    discovery[target] = low[target] = time++;
+                    ++children[frame.node];
+                    stack.push_back({target, 0});
+                } else {
+                    low[frame.node] =
+                        std::min(low[frame.node], discovery[target]);
+                }
+                continue;
+            }
+
+            const std::size_t node = frame.node;
+            stack.pop_back();
+            const std::size_t p = parent[node];
+            if (p == kUnvisited) continue;
+            low[p] = std::min(low[p], low[node]);
+            if (low[node] > discovery[p]) {
+                const std::uint32_t left = static_cast<std::uint32_t>(
+                    std::min(node, p));
+                const std::uint32_t right = static_cast<std::uint32_t>(
+                    std::max(node, p));
+                found.push_back({left, right});
+            }
+            if (low[node] >= discovery[p] && parent[p] != kUnvisited) {
+                articulation[p] = 1;
+            }
+        }
+        if (children[root] > 1) articulation[root] = 1;
+    }
+
+    std::sort(found.begin(), found.end(),
+              [](const BridgeEdge& a, const BridgeEdge& b) {
+                  if (a.u != b.u) return a.u < b.u;
+                  return a.v < b.v;
+              });
+    ConnectivitySummary summary;
+    summary.bridges = std::move(found);
+    summary.articulation = std::move(articulation);
+    return summary;
 }
 
 struct WeightedEdge {
@@ -607,6 +700,128 @@ std::vector<double> betweenness_centrality(const double* adjacency,
     std::vector<double> out(n, 0.0);
     for (std::size_t i = 0; i < n; ++i) {
         out[i] = static_cast<double>(raw[i] / scale);
+    }
+    return out;
+}
+
+std::vector<BridgeEdge> bridges(const double* adjacency, std::size_t n) {
+    return analyze_connectivity(adjacency, n).bridges;
+}
+
+std::vector<std::int32_t> articulation_points(const double* adjacency,
+                                              std::size_t n) {
+    const ConnectivitySummary summary = analyze_connectivity(adjacency, n);
+    std::vector<std::int32_t> out(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = summary.articulation[i] != 0 ? 1 : 0;
+    }
+    return out;
+}
+
+std::vector<std::int32_t> truss_numbers(const double* adjacency,
+                                        std::size_t n) {
+    require_adjacency(adjacency, n, "adjacency");
+    require(n <= static_cast<std::size_t>(
+                     std::numeric_limits<std::int32_t>::max()),
+            "n must fit in int32_t");
+    const std::size_t cells = checked_mul(n, n, "n*n overflows size_t");
+    constexpr std::size_t kNoEdge = std::numeric_limits<std::size_t>::max();
+
+    struct Edge {
+        std::size_t u;
+        std::size_t v;
+    };
+    std::vector<Edge> edges;
+    std::vector<std::size_t> edge_index(cells, kNoEdge);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = i + 1; j < n; ++j) {
+            if (adjacency[i * n + j] <= 0.0) continue;
+            const std::size_t id = edges.size();
+            edges.push_back({i, j});
+            edge_index[i * n + j] = id;
+            edge_index[j * n + i] = id;
+        }
+    }
+
+    const std::size_t m = edges.size();
+    std::vector<std::size_t> support(m, 0);
+    std::size_t max_support = 0;
+    for (std::size_t e = 0; e < m; ++e) {
+        const std::size_t u = edges[e].u;
+        const std::size_t v = edges[e].v;
+        std::size_t count = 0;
+        for (std::size_t w = 0; w < n; ++w) {
+            if (w == u || w == v) continue;
+            if (adjacency[u * n + w] > 0.0 &&
+                adjacency[v * n + w] > 0.0) {
+                ++count;
+            }
+        }
+        support[e] = count;
+        max_support = std::max(max_support, count);
+    }
+
+    using Entry = std::pair<std::size_t, std::size_t>; /* support, edge */
+    std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>>
+        queue;
+    for (std::size_t e = 0; e < m; ++e) {
+        queue.push({support[e], e});
+    }
+    std::vector<std::uint8_t> alive(m, 1);
+    std::vector<std::int32_t> trussness(m, 0);
+
+    /*
+     * Stage k removes every edge whose support is below k - 2.  An edge
+     * removed in stage k survived stages 3..k-1, so its trussness is k - 1.
+     * Supports only decrease, so a lazy min-heap with the current support is
+     * enough; every triangle loss pushes the two remaining edges again.
+     */
+    const std::size_t max_k = max_support + 2;
+    for (std::size_t k = 3; k <= max_k; ++k) {
+        const std::size_t threshold = k - 2;
+        while (!queue.empty() && queue.top().first < threshold) {
+            const Entry entry = queue.top();
+            queue.pop();
+            const std::size_t e = entry.second;
+            if (alive[e] == 0 || support[e] != entry.first) continue;
+            alive[e] = 0;
+            trussness[e] = static_cast<std::int32_t>(k - 1);
+
+            const std::size_t u = edges[e].u;
+            const std::size_t v = edges[e].v;
+            for (std::size_t w = 0; w < n; ++w) {
+                if (w == u || w == v) continue;
+                if (adjacency[u * n + w] <= 0.0 ||
+                    adjacency[v * n + w] <= 0.0) {
+                    continue;
+                }
+                const std::size_t first = edge_index[u * n + w];
+                const std::size_t second = edge_index[v * n + w];
+                if (first == kNoEdge || second == kNoEdge) continue;
+                if (alive[first] == 0 || alive[second] == 0) continue;
+                --support[first];
+                queue.push({support[first], first});
+                --support[second];
+                queue.push({support[second], second});
+            }
+        }
+    }
+
+    for (std::size_t e = 0; e < m; ++e) {
+        if (alive[e] != 0) {
+            if (support[e] + 2 < max_k) {
+                throw NumericalError("truss peeling invariant violated");
+            }
+            trussness[e] = static_cast<std::int32_t>(max_k);
+        }
+    }
+
+    std::vector<std::int32_t> out(cells, 0);
+    for (std::size_t e = 0; e < m; ++e) {
+        const std::size_t u = edges[e].u;
+        const std::size_t v = edges[e].v;
+        out[u * n + v] = trussness[e];
+        out[v * n + u] = trussness[e];
     }
     return out;
 }

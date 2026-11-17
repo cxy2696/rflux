@@ -29,7 +29,7 @@ const char* rflux_version_string(void);
 - 0.2.0 新增 `rflux_rolling_beta` 与 `rflux_hmm_score`，ABI 仍为 1。
 - 0.4.2 仍使用 ABI 1；新增的 Python 高层分析和 CLI 不改变 C 接口。
 - 0.5.0 继续使用 ABI 1；新增算法都是向后兼容的函数，没有修改已有布局或签名。
-- 未发布的 `main` 分支继续使用 ABI 1；新增 percolab 函数（路径统计、k-core、同配性、模块度、MST 聚类、通用渗流扫描、簇大小分布、定向移除）都是向后兼容的追加函数，没有修改已有布局或签名，也尚未提升版本号。
+- 未发布的 `main` 分支继续使用 ABI 1；新增 percolab 函数（路径统计、k-core、同配性、模块度、割边/割点、k-truss、MST 聚类、通用渗流扫描、簇大小分布、定向移除）都是向后兼容的追加函数，没有修改已有布局或签名，也尚未提升版本号。
 
 ## 2. 状态码与异常
 

@@ -108,6 +108,8 @@ The `CorrelationNetwork` result contains:
 - `assortativity`: degree correlation, NaN for regular graphs;
 - `mst`, `density` and `n_edges`.
 
+Separately, `percolab.bridges(adjacency)` and `percolab.articulation_points(adjacency)` identify cut edges and cut nodes, and `percolab.truss_numbers(adjacency)` gives triangle-based edge cohesion. They accept any validated adjacency matrix and are not recomputed inside `CorrelationNetwork`.
+
 `mst_clusters(network.distance, cutoff)` cuts the MST at a distance cutoff to produce single-linkage clusters; `modularity(adjacency, labels)` scores an existing sector or cluster partition. Neither function chooses the number of communities: the cutoff or labels carry that decision.
 
 Percolation and removal curves are stress descriptions. `bond_percolation` and `site_percolation` scan occupation probabilities with a fixed seed; the weighted variants and the general `percolation_scan` separate the candidate graph from edge or node occupation weights. `targeted_removal` removes nodes in a supplied or metric-based order and reports the giant fraction, finite-cluster susceptibility and component count. `core_percolation` is the deterministic k-core curve, and `cluster_size_distribution` reports the mean number of clusters of each size at one probability.
@@ -129,6 +131,8 @@ curve = rflux.percolab.targeted_removal(
     net.adjacency, strategy="eigenvector", checkpoints=10
 )
 print(curve.giant_fraction)
+print(rflux.percolab.bridges(net.adjacency).shape[0])
+print(rflux.percolab.truss_numbers(net.adjacency).max())
 
 sectors = np.array([0, 0, 1, 1, 2, 2])  # one label per asset
 print(rflux.percolab.modularity(net.adjacency, sectors))

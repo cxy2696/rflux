@@ -14,6 +14,11 @@ struct MstEdge {
     double weight = 0.0;
 };
 
+struct BridgeEdge {
+    std::uint32_t u = 0;
+    std::uint32_t v = 0; /* u < v */
+};
+
 struct DiffusionResult {
     std::vector<double> mean_affected;        /* length steps+1 */
     std::vector<double> infection_frequency;  /* length n */
@@ -101,6 +106,35 @@ std::vector<double> pagerank(const double* adjacency, std::size_t n,
 /* Brandes betweenness for an undirected unweighted graph (edges > 0). */
 std::vector<double> betweenness_centrality(const double* adjacency,
                                            std::size_t n, bool normalized);
+
+/*
+ * Bridges (cut edges) of an undirected unweighted graph (edges > 0).
+ * The result is sorted by (u, v) and uses u < v.  Deterministic Tarjan
+ * low-link DFS: a tree edge (p, v) is a bridge iff low[v] > disc[p].
+ */
+std::vector<BridgeEdge> bridges(const double* adjacency, std::size_t n);
+
+/*
+ * Articulation points of an undirected unweighted graph (edges > 0), as a 0/1
+ * label per node.  The DFS root is an articulation point when it has more than
+ * one child; any other node p is one when some child v has low[v] >= disc[p].
+ */
+std::vector<std::int32_t> articulation_points(const double* adjacency,
+                                              std::size_t n);
+
+/*
+ * Edge trussness.  For an edge e, t(e) is the largest k such that e belongs to
+ * the k-truss: the maximal subgraph in which every edge has at least k - 2
+ * common neighbours (triangles) inside the subgraph.  An edge with no
+ * triangle has trussness 2.  The output is a symmetric n x n int32 matrix with
+ * t(e) at both endpoints of each edge, and zero on the diagonal and non-edges.
+ * The decomposition stages k = 3..max_support+2 remove every edge whose
+ * current support is below k - 2, assigning trussness k - 1; each removed
+ * triangle decrements the support of its other two edges.  A lazy min-heap
+ * keeps the peeling deterministic; with T triangles the total time is
+ * O(n^3 + T log m) and memory is O(n^2) on a dense input matrix.
+ */
+std::vector<std::int32_t> truss_numbers(const double* adjacency, std::size_t n);
 
 /* Minimum spanning tree of a complete finite symmetric distance matrix. */
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,

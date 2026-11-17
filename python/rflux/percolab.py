@@ -336,6 +336,56 @@ def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
     return _betweenness_matrix(as_square(adjacency, "adjacency"), normalized)
 
 
+def bridges(adjacency: Any) -> np.ndarray:
+    """Bridges as a ``(k, 2)`` uint32 array, sorted by ``(u, v)``."""
+    matrix = as_square(adjacency, "adjacency")
+    n = matrix.shape[0]
+    if n <= 1:
+        return np.empty((0, 2), dtype=np.uint32)
+    left = np.empty(n - 1, dtype=np.uint32)
+    right = np.empty(n - 1, dtype=np.uint32)
+    n_edges = ctypes.c_size_t(0)
+    check(
+        get_lib().rflux_network_bridges(
+            double_ptr(matrix),
+            n,
+            uint32_ptr(left),
+            uint32_ptr(right),
+            ctypes.byref(n_edges),
+        ),
+        "rflux_network_bridges",
+    )
+    count = int(n_edges.value)
+    return np.column_stack((left[:count], right[:count])).astype(
+        np.uint32, copy=False
+    )
+
+
+def articulation_points(adjacency: Any) -> np.ndarray:
+    """Boolean articulation-point mask with one entry per node."""
+    matrix = as_square(adjacency, "adjacency")
+    values = call_i32(
+        "rflux_network_articulation_points", matrix.shape[0],
+        get_lib().rflux_network_articulation_points,
+        double_ptr(matrix), matrix.shape[0],
+    )
+    return values.astype(bool)
+
+
+def truss_numbers(adjacency: Any) -> np.ndarray:
+    """Symmetric ``n x n`` int32 edge-trussness matrix.
+
+    Edges in no triangle have trussness 2; non-edges and the diagonal are 0.
+    """
+    matrix = as_square(adjacency, "adjacency")
+    values = call_i32(
+        "rflux_network_truss_numbers", matrix.shape[0] * matrix.shape[0],
+        get_lib().rflux_network_truss_numbers,
+        double_ptr(matrix), matrix.shape[0],
+    )
+    return values.reshape(matrix.shape[0], matrix.shape[0])
+
+
 def pagerank(
     adjacency: Any,
     damping: float = 0.85,
@@ -866,9 +916,11 @@ __all__ = [
     "PercolationScan",
     "RemovalCurve",
     "assortativity",
+    "articulation_points",
     "betweenness",
     "bond_percolation",
     "bond_percolation_weighted",
+    "bridges",
     "centrality",
     "cluster_size_distribution",
     "clustering",
@@ -893,4 +945,5 @@ __all__ = [
     "targeted_removal",
     "threshold_components",
     "transitivity",
+    "truss_numbers",
 ]

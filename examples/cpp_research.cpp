@@ -127,6 +127,21 @@ int main() {
     for (std::int32_t value : cores) std::printf(" %d", value);
     std::printf(" | transitivity=%.3f\n",
                 rflux::percolab::transitivity(adjacency.data(), assets));
+    const auto bridge_edges =
+        rflux::percolab::bridges(adjacency.data(), assets);
+    const auto articulation =
+        rflux::percolab::articulation_points(adjacency.data(), assets);
+    std::size_t articulation_count = 0;
+    for (std::int32_t value : articulation) {
+        articulation_count += value != 0 ? 1 : 0;
+    }
+    const auto truss = rflux::percolab::truss_numbers(adjacency.data(), assets);
+    std::int32_t max_truss = 0;
+    for (std::int32_t value : truss) {
+        if (value > max_truss) max_truss = value;
+    }
+    std::printf("fragility: bridges=%zu articulation=%zu max_truss=%d\n",
+                bridge_edges.size(), articulation_count, max_truss);
 
     std::vector<std::uint32_t> removal_order(assets);
     for (std::size_t a = 0; a < assets; ++a) {

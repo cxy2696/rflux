@@ -574,6 +574,165 @@ class TestGraphs(unittest.TestCase):
         self.assertEqual(empty_curve.k.size, 0)
         self.assertEqual(empty_curve.core_fraction.size, 0)
 
+    def test_bridges_articulation_and_truss(self):
+        path4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        np.testing.assert_array_equal(
+            percolab.bridges(path4), [[0, 1], [1, 2], [2, 3]]
+        )
+        np.testing.assert_array_equal(
+            percolab.articulation_points(path4), [False, True, True, False]
+        )
+        truss = percolab.truss_numbers(path4)
+        self.assertEqual(truss.shape, (4, 4))
+        self.assertEqual(truss.dtype, np.int32)
+        for i, j in ((0, 1), (1, 2), (2, 3)):
+            self.assertEqual(truss[i, j], 2)
+            self.assertEqual(truss[j, i], 2)
+        self.assertTrue(np.all(np.diag(truss) == 0))
+        self.assertEqual(truss[0, 2], 0)
+
+        cycle4 = np.array(
+            [
+                [0.0, 1.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        self.assertEqual(percolab.bridges(cycle4).shape, (0, 2))
+        self.assertFalse(np.any(percolab.articulation_points(cycle4)))
+
+        triangle = np.ones((3, 3)) - np.eye(3)
+        np.testing.assert_array_equal(
+            percolab.truss_numbers(triangle), [[0, 3, 3], [3, 0, 3], [3, 3, 0]]
+        )
+        self.assertEqual(percolab.bridges(triangle).shape, (0, 2))
+
+        complete4 = np.ones((4, 4)) - np.eye(4)
+        np.testing.assert_array_equal(
+            percolab.truss_numbers(complete4),
+            [[0, 4, 4, 4], [4, 0, 4, 4], [4, 4, 0, 4], [4, 4, 4, 0]],
+        )
+
+        two_triangles = np.zeros((6, 6))
+        for i, j in ((0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)):
+            two_triangles[i, j] = two_triangles[j, i] = 1.0
+        np.testing.assert_array_equal(
+            percolab.bridges(two_triangles), [[2, 3]]
+        )
+        np.testing.assert_array_equal(
+            percolab.articulation_points(two_triangles),
+            [False, False, True, True, False, False],
+        )
+        joined_truss = percolab.truss_numbers(two_triangles)
+        self.assertEqual(joined_truss[0, 1], 3)
+        self.assertEqual(joined_truss[2, 3], 2)
+
+        single = np.zeros((1, 1))
+        self.assertEqual(percolab.bridges(single).shape, (0, 2))
+        np.testing.assert_array_equal(
+            percolab.articulation_points(single), [False]
+        )
+        np.testing.assert_array_equal(percolab.truss_numbers(single), [[0]])
+
+        with self.assertRaises(RFluxError):
+            percolab.bridges(np.array([[0.0, 1.0], [0.0, 0.0]]))
+        with self.assertRaises(RFluxError):
+            percolab.truss_numbers(np.array([[0.0, 1.0], [0.0, 0.0]]))
+
+    def test_connectivity_and_truss_match_bruteforce(self):
+        rng = np.random.default_rng(19)
+        for _ in range(8):
+            n = 6
+            matrix = np.zeros((n, n))
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if rng.random() < 0.4:
+                        matrix[i, j] = matrix[j, i] = 1.0
+
+            def components(skip_edge=None, skip_node=None):
+                seen: set[int] = set()
+                count = 0
+                for start in range(n):
+                    if start == skip_node or start in seen:
+                        continue
+                    count += 1
+                    stack = [start]
+                    seen.add(start)
+                    while stack:
+                        node = stack.pop()
+                        for other in range(n):
+                            if other == skip_node or other in seen:
+                                continue
+                            if matrix[node, other] <= 0.0:
+                                continue
+                            if skip_edge is not None and {
+                                node,
+                                other,
+                            } == set(skip_edge):
+                                continue
+                            seen.add(other)
+                            stack.append(other)
+                return count
+
+            base = components()
+            expected_bridges = []
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if matrix[i, j] > 0.0 and components((i, j)) > base:
+                        expected_bridges.append((i, j))
+            found_bridges = percolab.bridges(matrix)
+            if expected_bridges:
+                np.testing.assert_array_equal(
+                    found_bridges, np.asarray(expected_bridges, dtype=np.uint32)
+                )
+            else:
+                self.assertEqual(found_bridges.shape, (0, 2))
+            expected_points = np.asarray(
+                [components(skip_node=node) > base for node in range(n)],
+                dtype=bool,
+            )
+            np.testing.assert_array_equal(
+                percolab.articulation_points(matrix), expected_points
+            )
+
+            expected_truss = np.where(matrix > 0.0, 2, 0).astype(np.int32)
+            for k in range(3, n + 1):
+                alive = matrix > 0.0
+                changed = True
+                while changed:
+                    changed = False
+                    for i in range(n):
+                        for j in range(i + 1, n):
+                            if not alive[i, j]:
+                                continue
+                            support = sum(
+                                1
+                                for w in range(n)
+                                if w != i
+                                and w != j
+                                and alive[i, w]
+                                and alive[j, w]
+                            )
+                            if support < k - 2:
+                                alive[i, j] = alive[j, i] = False
+                                changed = True
+                expected_truss = np.where(
+                    alive & (matrix > 0.0),
+                    np.maximum(expected_truss, k),
+                    expected_truss,
+                ).astype(np.int32)
+            np.testing.assert_array_equal(
+                percolab.truss_numbers(matrix), expected_truss
+            )
+
     def test_scan_summary_helpers(self):
         scan = percolab.bond_percolation(
             COMPLETE, [0.0, 1.0], repetitions=20, seed=3

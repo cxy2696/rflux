@@ -516,6 +516,90 @@ int test_graphs() {
         CHECK(clusters.labels[0] != clusters.labels[2]);
     }
 
+    {
+        const std::vector<double> path4 = {
+            0, 1, 0, 0,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0};
+        const std::vector<rflux::percolab::BridgeEdge> path_bridges =
+            rflux::percolab::bridges(path4.data(), 4);
+        CHECK(path_bridges.size() == 3);
+        CHECK(path_bridges[0].u == 0 && path_bridges[0].v == 1);
+        CHECK(path_bridges[1].u == 1 && path_bridges[1].v == 2);
+        CHECK(path_bridges[2].u == 2 && path_bridges[2].v == 3);
+        const std::vector<std::int32_t> path_art =
+            rflux::percolab::articulation_points(path4.data(), 4);
+        CHECK(path_art[0] == 0 && path_art[1] == 1);
+        CHECK(path_art[2] == 1 && path_art[3] == 0);
+        const std::vector<std::int32_t> path_truss =
+            rflux::percolab::truss_numbers(path4.data(), 4);
+        CHECK(path_truss[1] == 2 && path_truss[3 * 4 + 2] == 2);
+        CHECK(path_truss[0] == 0 && path_truss[2] == 0);
+
+        const std::vector<double> cycle4 = {
+            0, 1, 0, 1,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            1, 0, 1, 0};
+        CHECK(rflux::percolab::bridges(cycle4.data(), 4).empty());
+        const std::vector<std::int32_t> cycle_art =
+            rflux::percolab::articulation_points(cycle4.data(), 4);
+        for (std::int32_t value : cycle_art) CHECK(value == 0);
+
+        const std::vector<double> triangle = {
+            0, 1, 1,
+            1, 0, 1,
+            1, 1, 0};
+        const std::vector<std::int32_t> triangle_truss =
+            rflux::percolab::truss_numbers(triangle.data(), 3);
+        CHECK(triangle_truss[1] == 3);
+        CHECK(triangle_truss[2] == 3);
+        CHECK(triangle_truss[3 * 1 + 2] == 3);
+        CHECK(rflux::percolab::bridges(triangle.data(), 3).empty());
+
+        const std::vector<double> complete4 = {
+            0, 1, 1, 1,
+            1, 0, 1, 1,
+            1, 1, 0, 1,
+            1, 1, 1, 0};
+        const std::vector<std::int32_t> complete_truss =
+            rflux::percolab::truss_numbers(complete4.data(), 4);
+        for (std::size_t i = 0; i < 4; ++i) {
+            for (std::size_t j = 0; j < 4; ++j) {
+                CHECK(complete_truss[i * 4 + j] == (i == j ? 0 : 4));
+            }
+        }
+
+        const std::vector<double> two_triangles = {
+            0, 1, 1, 0, 0, 0,
+            1, 0, 1, 0, 0, 0,
+            1, 1, 0, 1, 0, 0,
+            0, 0, 1, 0, 1, 1,
+            0, 0, 0, 1, 0, 1,
+            0, 0, 0, 1, 1, 0};
+        const std::vector<rflux::percolab::BridgeEdge> join =
+            rflux::percolab::bridges(two_triangles.data(), 6);
+        CHECK(join.size() == 1);
+        CHECK(join[0].u == 2 && join[0].v == 3);
+        const std::vector<std::int32_t> join_art =
+            rflux::percolab::articulation_points(two_triangles.data(), 6);
+        CHECK(join_art[2] == 1 && join_art[3] == 1);
+        CHECK(join_art[0] == 0 && join_art[5] == 0);
+        const std::vector<std::int32_t> join_truss =
+            rflux::percolab::truss_numbers(two_triangles.data(), 6);
+        CHECK(join_truss[1] == 3 && join_truss[3 * 6 + 2] == 2);
+
+        const std::vector<double> single = {0.0};
+        CHECK(rflux::percolab::bridges(single.data(), 1).empty());
+        const std::vector<std::int32_t> single_art =
+            rflux::percolab::articulation_points(single.data(), 1);
+        CHECK(single_art.size() == 1 && single_art[0] == 0);
+        const std::vector<std::int32_t> single_truss =
+            rflux::percolab::truss_numbers(single.data(), 1);
+        CHECK(single_truss.size() == 1 && single_truss[0] == 0);
+    }
+
     const std::vector<double> complete = {
         0, 1, 1, 1,
         1, 0, 1, 1,

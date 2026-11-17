@@ -126,6 +126,14 @@ def main() -> None:
             network.max_core,
         )
     )
+    print(
+        "fragility: bridges=%d articulation=%d max_truss=%d"
+        % (
+            percolab.bridges(network.adjacency).shape[0],
+            int(percolab.articulation_points(network.adjacency).sum()),
+            int(percolab.truss_numbers(network.adjacency).max()),
+        )
+    )
 
     scan = percolab.bond_percolation(
         network.adjacency,

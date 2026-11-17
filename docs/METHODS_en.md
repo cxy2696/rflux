@@ -457,7 +457,25 @@ The diagonal is ignored. The C and C++ entry points take an explicit $n\_labels$
 
 **MST single-linkage clusters.** Cutting MST edges with distance greater than `threshold` labels the remaining components. Because the MST preserves connectivity between any two nodes at every distance cutoff, this equals connected components of the graph of all edges with distance at most `threshold`. Labels follow each component's smallest node.
 
-### 6.4 Targeted node removal
+### 6.4 Bridges, articulation points and k-truss
+
+All three functions treat $A_{ij}>0$ as an unweighted edge, ignore the diagonal and are deterministic.
+
+**Bridges and articulation points.** Run an iterative DFS from every unvisited node, maintaining discovery time $disc[v]$ , low-link $low[v]$ , parent and child count. For a tree edge $(p,v)$ :
+
+- $(p,v)$ is a bridge iff $low[v] > disc[p]$ ;
+- a non-root $p$ is an articulation point iff some child $v$ satisfies $low[v] \ge disc[p]$ ;
+- the DFS root is an articulation point iff it has more than one DFS child.
+
+These are the standard Tarjan cut conditions. In an undirected graph every non-tree edge joins an ancestor and a descendant, so updating low from every visited neighbour except the parent is sufficient. Isolated nodes are not articulation points. Bridges are returned with $u<v$ and sorted by $(u,v)$ ; articulation points are 0/1 labels.
+
+**k-truss and edge trussness.** The support of edge $e=(u,v)$ in a subgraph is the number of common neighbours $w$ with both $(u,w)$ and $(v,w)$ present. The k-truss is the maximal subgraph in which every edge has support at least $k-2$ , and the trussness $t(e)$ is the largest k with $e$ in the k-truss. An edge in no triangle has $t(e)=2$ .
+
+The implementation stages $k=3,\dots,s_{max}+2$ , where $s_{max}$ is the largest initial support. At stage k it repeatedly removes alive edges with support below $k-2$ and assigns them trussness $k-1$ ; whenever an edge is removed, every triangle that still exists decrements the support of its other two edges. Edges alive after the last stage have trussness $s_{max}+2$ . This is the usual k-truss peeling argument: an edge removed at stage k survived stages $3,\dots,k-1$ and fails k, so $k-1$ is exactly its maximum; supports only decrease, so no earlier stage can be missed. The output is a symmetric $n\times n$ matrix with zero on the diagonal and non-edges.
+
+Complexity: support construction is $O(n^3)$ on a dense matrix; peeling removes each edge once and processes each still-existing triangle once, with heap operations $O(\log m)$ . The total is $O(n^3 + T\log m)$ time and $O(n^2)$ memory, where T is the number of triangles and m the number of edges.
+
+### 6.5 Targeted node removal
 
 A removal order is a permutation $\pi$ of the node indices. After r removals only $\{\pi_{r+1},\dots,\pi_n\}$ remain and edges are those of the induced subgraph. `targeted_removal()` reports at $r_k=\lfloor k n / K\rfloor$ for $k=0,\dots,K$ :
 
@@ -467,7 +485,7 @@ A removal order is a permutation $\pi$ of the node indices. After r removals onl
 
 `checkpoints` K must be positive; when it exceeds n some reported points repeat. The procedure is deterministic. `removal_order()` supplies strength, degree, eigenvector, betweenness or core-number ordering; ties keep ascending node order. This is a static attack curve: it does not recompute centrality after each removal.
 
-### 6.5 Bond and site percolation
+### 6.6 Bond and site percolation
 
 Bond:
 
@@ -499,7 +517,7 @@ $$
 
 `giant_std` is the population standard deviation of the giant fraction, accumulated with Welford's recurrence. `susceptibility` excludes the largest cluster and describes the growth of finite clusters near the critical region; it is not the strict infinite-system susceptibility. For each repetition index, the scan reuses the same RNG seed at every probability (common random numbers), so points in one scan are coupled; this lowers difference noise but they are not independent samples. `cluster_size_distribution()` uses the same seed-per-repetition convention.
 
-### 6.6 SIR risk diffusion
+### 6.7 SIR risk diffusion
 
 Each step:
 

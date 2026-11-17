@@ -14,7 +14,7 @@ rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳
 | --- | --- |
 | `qflux` | 收益率、SMA、EMA、RSI、MACD、Bollinger、ATR、回撤；滚动均值、波动率、最小/最大值、z-score、分位数/中位数、相关系数、协方差、beta、斜率、R²；描述统计、分位数、Sharpe、Sortino、VaR/CVaR；排序、percentile、z-score、缩尾、分组中性化、成对相关矩阵 |
 | `regimelab` | 对角高斯 HMM：多起点 EM、filtered/smoothed 状态概率、Viterbi、状态预测、单步过滤、平稳分布、期望持续期、样本外评分、状态对齐；因果波动率、趋势和复合 regime |
-| `percolab` | 相关距离、阈值图、连通分量、加权度、特征向量/度中心性、PageRank、介数中心性、局部/全局聚类系数、最短路径效率与直径、k-core 分解、度同配性、模块度、最小生成树与单链聚类、bond/site 渗流（加权或独立占用权重）、簇大小分布、定向节点移除曲线、SIR 风险扩散 |
+| `percolab` | 相关距离、阈值图、连通分量、加权度、特征向量/度中心性、PageRank、介数中心性、局部/全局聚类系数、最短路径效率与直径、k-core 分解、度同配性、模块度、割边、割点、k-truss 分解、最小生成树与单链聚类、bond/site 渗流（加权或独立占用权重）、簇大小分布、定向节点移除曲线、SIR 风险扩散 |
 | Python 工具 | akshare / yfinance / tushare / CSV 适配，绩效与风险摘要，IC，分位数组合，带成本的多空回测，组合风险贡献和状态归因 |
 
 滚动波动、z-score、相关、beta、斜率和 R² 使用可合并的 Welford 块矩，不会因为价格水平很大而丢掉窗口内的微小波动。所有随机过程接收显式 seed，同一版本、同一平台的结果可复现。
@@ -367,7 +367,7 @@ docs/                  ABI、方法和扩展说明
 make check
 ```
 
-测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法（最短路径、k-core、传递性、同配性、模块度和 MST 聚类）、渗流端点与通用扫描、簇大小分布、定向移除、扩散边界和 Python 回测。`make check` 还会检查版本声明、Markdown 链接、代码围栏和 GitHub 公式分隔符。
+测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法（最短路径、k-core、传递性、同配性、模块度、割边/割点、k-truss 和 MST 聚类）、渗流端点与通用扫描、簇大小分布、定向移除、扩散边界和 Python 回测。`make check` 还会检查版本声明、Markdown 链接、代码围栏和 GitHub 公式分隔符。
 
 GitHub Actions 在 Linux 和 macOS 上运行 Make、CMake/CTest 测试，并在 Linux 上实际运行因子、HMM walk-forward、网络和 C/C++ 示例。
 

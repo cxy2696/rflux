@@ -108,6 +108,8 @@ print(report["transitions"]["counts"])
 - `assortativity`：度同配性，正则图为 NaN；
 - `mst`、`density`、`n_edges`。
 
+另外，`percolab.bridges(adjacency)` 和 `percolab.articulation_points(adjacency)` 分别给出割边和割点，`percolab.truss_numbers(adjacency)` 给出基于三角形支撑度的边凝聚力分层。它们接受任意已校验邻接矩阵，不会在 `CorrelationNetwork` 中重复计算。
+
 `mst_clusters(network.distance, cutoff)` 在距离阈值处切断 MST，得到单链聚类；`modularity(adjacency, labels)` 对已有的行业或聚类划分打分。二者都不替使用者选择社区数量：切点或标签本身承载了这个决定。
 
 渗流与移除曲线是压力描述。`bond_percolation` 和 `site_percolation` 用固定 seed 扫描占用概率；加权版本和通用 `percolation_scan` 把候选图与边/节点占用权重分开。`targeted_removal` 按给定顺序或度量顺序移除节点，报告巨组分比例、有限簇 susceptibility 和分量数。`core_percolation` 是确定性的 k-core 曲线，`cluster_size_distribution` 给出单个概率下各大小簇的平均数量。
@@ -129,6 +131,8 @@ curve = rflux.percolab.targeted_removal(
     net.adjacency, strategy="eigenvector", checkpoints=10
 )
 print(curve.giant_fraction)
+print(rflux.percolab.bridges(net.adjacency).shape[0])
+print(rflux.percolab.truss_numbers(net.adjacency).max())
 
 sectors = np.array([0, 0, 1, 1, 2, 2])  # 每个资产一个标签
 print(rflux.percolab.modularity(net.adjacency, sectors))

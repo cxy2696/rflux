@@ -5,10 +5,9 @@ causal semantics are called out explicitly when they change.
 
 ## Unreleased
 
-No version bump and no release tag yet. This maintenance pass reduces Python and
-repository duplication without changing numerical definitions. The C ABI
-compatibility version remains `1`; existing layouts and signatures are
-unchanged.
+No version bump and no release tag yet. This batch adds deterministic graph
+kernels and reduces Python/repository duplication. The C ABI compatibility
+version remains `1`; existing layouts and signatures are unchanged.
 
 - Added shortest-path statistics for undirected unweighted graphs: global
   efficiency, average path length over reachable pairs, diameter, reachable-pair
@@ -26,6 +25,10 @@ unchanged.
 - Added mean cluster-size distributions at one occupation probability and
   deterministic targeted node-removal (attack) curves through C++, the C ABI and
   Python.
+- Added deterministic Tarjan bridges and articulation points, plus staged
+  k-truss edge-trussness decomposition, through C++, the C ABI and Python.
+  The truss kernel uses lazy min-heap peeling and is covered by analytic and
+  brute-force regression tests.
 - Added Python `core_percolation` (deterministic k-core pruning curve),
   `removal_order` strategies (strength, degree, eigenvector, betweenness, core),
   and percolation scan summaries (`critical_probability`, `max_susceptibility`,

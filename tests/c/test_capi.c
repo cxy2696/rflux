@@ -584,6 +584,39 @@ static int test_graphs(void) {
     }
 
     {
+        const double path4[16] = {
+            0, 1, 0, 0,
+            1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0};
+        uint32_t bridge_u[3];
+        uint32_t bridge_v[3];
+        size_t n_bridges = 0;
+        CHECK(rflux_network_bridges(path4, 4, bridge_u, bridge_v,
+                                    &n_bridges) == RFLUX_OK);
+        CHECK(n_bridges == 3);
+        CHECK(bridge_u[0] == 0 && bridge_v[0] == 1);
+        CHECK(bridge_u[1] == 1 && bridge_v[1] == 2);
+        CHECK(bridge_u[2] == 2 && bridge_v[2] == 3);
+        CHECK(rflux_network_bridges(path4, 4, NULL, NULL, &n_bridges) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+
+        int32_t art[4];
+        CHECK(rflux_network_articulation_points(path4, 4, art) == RFLUX_OK);
+        CHECK(art[0] == 0 && art[1] == 1 && art[2] == 1 && art[3] == 0);
+
+        int32_t truss[16];
+        CHECK(rflux_network_truss_numbers(path4, 4, truss) == RFLUX_OK);
+        CHECK(truss[1] == 2 && truss[4 * 2 + 3] == 2);
+        CHECK(truss[0] == 0 && truss[2] == 0);
+
+        const double single[1] = {0.0};
+        CHECK(rflux_network_bridges(single, 1, NULL, NULL, &n_bridges) ==
+              RFLUX_OK);
+        CHECK(n_bridges == 0);
+    }
+
+    {
         uint32_t u[3], v[3];
         double w[3];
         CHECK(rflux_network_mst(distance, 4, u, v, w, &n_edges) == RFLUX_OK);
