@@ -1,12 +1,12 @@
 # rflux 中文说明
 
-[English guide](README_en.md) · [项目首页](README.md) · [CI](https://github.com/cxy2696/rflux/actions/workflows/ci.yml)
+[English](README.md) · **中文** · [CI](https://github.com/cxy2696/rflux/actions/workflows/ci.yml)
 
 rflux 是一个用于量化研究的 C / C++ / Python 算法库。C 层提供稳定的 ABI，C++ 层实现计算，Python 层负责数据接入和研究流程。
 
 这样分层的目的很实际：Python 优先使用 pybind11 扩展（CPython 3.12+ 为 abi3），不可用时回退到 ctypes C ABI；C++ 代码可以被单独复用；其他语言只依赖 `rflux.h`，不需要理解 C++ 类型。
 
-当前发布版本 `0.7.0`，C ABI 兼容版本为 1。新增 C++ 算法矩阵（因子/状态/组合/机器学习/执行）、pybind11 原生桥、GIL 释放、abi3 wheel、配置驱动模型和共享内存数组，详见 [CHANGELOG](CHANGELOG.md) 和 [算法矩阵](docs/ALGORITHMS_cn.md)。
+当前发布版本 `0.7.0`，C ABI 兼容版本为 1。新增 C++ 算法矩阵（因子/状态/组合/机器学习/执行）、pybind11 原生桥、GIL 释放、abi3 wheel、配置驱动模型和共享内存数组，详见 [更新记录](CHANGELOG_cn.md) 和 [算法矩阵](docs/ALGORITHMS_cn.md)。
 
 ## 内容
 
@@ -68,7 +68,7 @@ print(risk["portfolio"]["annualized_volatility"])
 
 ## 使用案例
 
-可以直接运行的脚本和命令汇总在 [examples/README.md](examples/README.md)。
+可以直接运行的脚本和命令汇总在 [examples/README_cn.md](examples/README_cn.md)。
 
 | 场景 | 入口 |
 | --- | --- |
@@ -315,7 +315,7 @@ cc -std=c11 -Iinclude main.c -Lbuild -lrflux \
    -Wl,-rpath,"$PWD/build" -o main && ./main
 ```
 
-C 接口只暴露 C 类型。返回状态码，错误信息是线程局部的。输出缓冲区由调用方分配，长度在每个函数声明上方注释。详细规则见 [C ABI 文档](docs/ABI.md)。
+C 接口只暴露 C 类型。返回状态码，错误信息是线程局部的。输出缓冲区由调用方分配，长度在每个函数声明上方注释。详细规则见 [C ABI 文档](docs/ABI_cn.md)。
 
 ## C++
 
@@ -358,7 +358,7 @@ docs/                  ABI、方法和扩展说明
 - 计算口径和边界条件：[中文](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
 - 扩展步骤和发布检查：[中文](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
 - 组合风险、状态归因与网络风险：[中文](docs/APPLICATIONS_cn.md) · [English](docs/APPLICATIONS_en.md)
-- C ABI 的缓冲区、所有权和兼容性规则：[docs/ABI.md](docs/ABI.md)
+- C ABI 的缓冲区、所有权和兼容性规则：[docs/ABI_cn.md](docs/ABI_cn.md)
 
 ## 测试与 CI
 

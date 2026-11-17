@@ -1,5 +1,7 @@
 # Code of conduct
 
+**English** · [中文](CODE_OF_CONDUCT_cn.md)
+
 This project follows the Contributor Covenant principles: be respectful,
 assume good faith, critique ideas rather than people, and do not harass or
 discriminate.

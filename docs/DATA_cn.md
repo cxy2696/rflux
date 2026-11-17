@@ -1,5 +1,7 @@
 # 统一数据层
 
+[English](DATA_en.md) · **中文**
+
 0.7 的数据层把三种异构数据源收敛到一个长表 OHLCV 契约。使用前安装
 `pandas` 和对应 provider SDK：`pip install "rflux[all]"`，或 `rflux[akshare]`
 等窄依赖；只要 pandas 可安装 `rflux[data]`。策略代码只依赖

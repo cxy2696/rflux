@@ -1,6 +1,7 @@
 # Methods and conventions
 
-[中文](METHODS_cn.md) · [Back to English guide](../README_en.md)
+**English** · [中文](METHODS_cn.md)
+
 
 This page records what the code actually computes. Libraries often use the same indicator names with different defaults for warm-up, missing values, degrees of freedom, quantiles and annualisation. Where those details matter, this document and the implementation are the reference.
 
@@ -148,7 +149,8 @@ Missing windows and zero benchmark variance return NaN. The calculation uses raw
 Rolling covariance uses the same bivariate window moments:
 
 $$
-\operatorname{Cov}_{w,d}(x,y)=rac{\sum_{i=t-w+1}^{t}(x_i-ar x_t)(y_i-ar y_t)}{w-d}
+\operatorname{Cov}_{w,d}(x,y)=
+rac{\sum_{i=t-w+1}^{t}(x_i-ar x_t)(y_i-ar y_t)}{w-d}
 $$
 
 `ddof=d` must be smaller than the window. A window with a missing value returns NaN. `ddof=0` is the population covariance and `ddof=1` the sample covariance.
@@ -272,20 +274,49 @@ $$
 \frac{(x_{td}-\mu_{k,d})^2}{\sigma_{k,d}^2}\right]
 $$
 
-Forward:
+Forward, with $\log\alpha_1(k)=\log\pi_k+\log b_k(x_1)$ and log-sum-exp:
 
 $$
 \log\alpha_t(k)=\log b_k(x_t)+
 \log\sum_j\exp\left(\log\alpha_{t-1}(j)+\log A_{jk}\right)
 $$
 
-Backward follows the same pattern. The marginal state probability is:
+Backward, with $\beta_T(k)=1$:
 
 $$
-\gamma_t(k)=\exp\left(\log\alpha_t(k)+\log\beta_t(k)-\log p(x)\right)
+\log\beta_t(j)=\log\sum_k\exp\left(
+\log A_{jk}+\log b_k(x_{t+1})+\log\beta_{t+1}(k)\right)
 $$
 
-EM sums the transition counts in log space through $\xi_t(j,k)$ . This avoids the underflow that a naively scaled forward pass can hit on long series or extreme observations. The three inference paths are not interchangeable:
+The marginal state probability and the pairwise transition posterior are:
+
+$$
+\gamma_t(k)=\exp\left(\log\alpha_t(k)+\log\beta_t(k)-\log p(x)\right),
+$$
+
+$$
+\xi_t(j,k)=\frac{\alpha_t(j)A_{jk}b_k(x_{t+1})\beta_{t+1}(k)}{p(x)}.
+$$
+
+The M-step is
+
+$$
+A_{jk}=\frac{\sum_{t=1}^{T-1}\xi_t(j,k)}
+{\sum_{t=1}^{T-1}\gamma_t(j)},
+\qquad
+\mu_{k,d}=\frac{\sum_{t=1}^{T}\gamma_t(k)x_{td}}
+{\sum_{t=1}^{T}\gamma_t(k)},
+$$
+
+$$
+\sigma_{k,d}^2=\frac{\sum_{t=1}^{T}\gamma_t(k)(x_{td}-\mu_{k,d})^2}
+{\sum_{t=1}^{T}\gamma_t(k)}.
+$$
+
+The implementation carries $\alpha$, $\beta$ and $\xi$ in log space through
+log-sum-exp. This avoids the underflow a naively scaled forward pass can hit on
+long series or extreme observations. The three inference paths are not
+interchangeable:
 
 - `filtered()` uses observations through t and is causal;
 - `smoothed()` and `viterbi()` use the full sample and are not point-in-time signals;
@@ -554,3 +585,253 @@ $$
 The `periods` argument to `performance_summary()` sets the number of elapsed periods used for geometric annualisation. It defaults to the input length, so internal NaN gaps do not shorten the clock. `n_periods` is the count of finite returns and `elapsed_periods` is the annualisation horizon. A levered long-short book can lose more than its initial capital; total loss, volatility, Sharpe/Sortino and tail risk are still reported, while geometric annual return and Calmar become NaN.
 
 The backtest does not include borrow fees, short availability, limit moves, market impact, capacity or taxes. It is a transparent research baseline, not an execution engine.
+
+## 8. Derivations for the algorithm layer
+
+The purpose of this section is to make every portfolio and execution formula
+checkable. All vectors are column vectors. Returns are simple returns unless a
+function name says otherwise. The code is the final authority; this section
+states the assumptions behind it.
+
+### 8.1 Notation and assumptions
+
+Let $r_t\in\mathbb{R}^n$ be the return vector at time $t$, and let
+$\Sigma=\operatorname{Cov}(r_t)$ be the $n\times n$ covariance matrix. Write
+$\sigma_i^2=\Sigma_{ii}$ and $\rho_{ij}=\Sigma_{ij}/(\sigma_i\sigma_j)$.
+Assume $\Sigma$ is symmetric positive semidefinite with positive diagonal
+unless the caller is explicitly told otherwise. A portfolio weight vector $w$
+is long-only when $w_i\ge 0$ and unlevered when $\mathbf{1}^\top w\le 1$;
+the remainder $1-\mathbf{1}^\top w$ is cash and earns zero in these formulas.
+For a cluster $C$, $\Sigma_{CC}$ is the principal submatrix on its assets.
+
+### 8.2 Factor definitions
+
+For close prices $p_t$ and volume $v_t$, the four built-in factors are
+
+$$
+m_t=\frac{p_t}{p_{t-w}}-1,
+$$
+
+$$
+v_t^{\mathrm{rev}}=-\left(\frac{p_t}{p_{t-w}}-1\right)
+\frac{v_t}{\frac{1}{w}\sum_{j=t-w+1}^{t}v_j},
+$$
+
+$$
+\mathrm{vwap}_t=\frac{\sum_{j=t-w+1}^{t}p_jv_j}
+{\sum_{j=t-w+1}^{t}v_j},\qquad
+d_t=\frac{p_t}{\mathrm{vwap}_t}-1,
+$$
+
+$$
+a_t=\frac{1}{w}\sum_{j=t-w+1}^{t}
+\frac{|p_j/p_{j-1}-1|}{p_jv_j}\cdot 10^6.
+$$
+
+The implementation returns NaN whenever a required price, volume or base
+price is non-finite, non-positive where a denominator requires it, or the
+window is not full. The trailing-return helper is shared by $m_t$ and
+$v_t^{\mathrm{rev}}$, so their warm-up and base-price checks cannot drift
+apart.
+
+### 8.3 Hierarchical risk parity
+
+The correlation distance is
+
+$$
+d_{ij}=\sqrt{\frac{1-\rho_{ij}}{2}}.
+$$
+
+Single-linkage clustering defines the distance between clusters $A$ and $B$ as
+
+$$
+d(A,B)=\min_{i\in A,\,j\in B}d_{ij}.
+$$
+
+For a cluster $C$, the inverse-variance budget is
+
+$$
+\tilde w_C=\frac{\left(\operatorname{diag}\Sigma_{CC}\right)^{-1}}
+{\mathbf{1}^\top\left(\operatorname{diag}\Sigma_{CC}\right)^{-1}},
+\qquad
+V(C)=\tilde w_C^\top\Sigma_{CC}\tilde w_C.
+$$
+
+At a split $C=L\cup R$ with total budget $b$, HRP assigns
+
+$$
+b_L=b\,\frac{V(R)}{V(L)+V(R)},\qquad b_R=b-b_L.
+$$
+
+The recursion terminates when a cluster is a singleton; the leaf budgets are
+the HRP weights. If $V(L)+V(R)=0$, the implementation splits the budget
+equally. Every inverse-variance weight is non-negative, so the result is
+long-only. The naive single-linkage construction is $O(n^3)$; the current
+implementation targets typical research portfolios rather than thousands of
+assets.
+
+### 8.4 Almgren-Chriss execution
+
+Let $Q$ be the quantity, $N$ the number of slices, $T$ the horizon and
+$\tau=T/N$. Let $x_j$ be the holdings after slice $j$, with $x_0=Q$ and
+$x_N=0$, and let $n_j=x_{j-1}-x_j$ be the trade in slice $j$. The planner uses
+
+$$
+\text{temporary cost}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\qquad
+\text{permanent cost}=\frac{1}{2}\gamma Q^2,
+$$
+
+$$
+\text{expected cost}=\frac{1}{2}\gamma Q^2+
+\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+$$
+
+$$
+\text{variance}=\sigma^2\sum_{j=1}^{N}\tau x_j^2.
+$$
+
+For risk aversion $\lambda\ge 0$, define
+
+$$
+\kappa=\sqrt{\frac{\lambda\sigma^2}{\eta}}.
+$$
+
+The continuous-time optimal holdings are
+
+$$
+x(t)=Q\,\frac{\sinh\left(\kappa(T-t)\right)}{\sinh(\kappa T)}.
+$$
+
+The implementation evaluates the same ratio at the discrete slice times and
+sets the final target to zero. When $\kappa T$ is numerically negligible, it
+uses the risk-neutral linear schedule $x_j=Q(1-j/N)$, which gives
+$n_j=Q/N$ and zero variance when $\sigma=0$. The discrete formulas above are
+the ones used by `expected_cost` and `expected_variance`; there is no hidden
+annualisation.
+
+### 8.5 Huber regression
+
+For residual $r_i=y_i-\beta_0-x_i^\top\beta$, the Huber loss is
+
+$$
+\rho_\epsilon(r)=
+\begin{cases}
+\frac{1}{2}r^2, & |r|<\epsilon s,\\
+\epsilon s|r|-\frac{1}{2}(\epsilon s)^2, & |r|\ge\epsilon s,
+\end{cases}
+$$
+
+where $s$ is a robust scale. The implementation uses
+
+$$
+s=1.4826\cdot\operatorname{median}\left(
+\left|r_i-\operatorname{median}(r)\right|\right),
+\qquad s\ge 10^{-12}.
+$$
+
+At each iteration it solves the weighted least-squares problem
+
+$$
+\min_{\beta_0,\beta}\sum_i w_i\left(y_i-\beta_0-x_i^\top\beta\right)^2,
+\qquad
+w_i=
+\begin{cases}
+1, & |r_i|\le \epsilon s,\\
+\dfrac{\epsilon s}{|r_i|}, & |r_i|>\epsilon s.
+\end{cases}
+$$
+
+It stops when the largest absolute coefficient change is at most `tol`.
+The scale is recomputed from the final residuals. The robust scale is
+deliberately based on the median absolute deviation, so one outlier does not
+set the cutoff for the whole sample.
+
+### 8.6 Site percolation
+
+For a graph with $n$ nodes, let $X_i\sim\operatorname{Bernoulli}(p)$ be the
+site occupation indicators. Nodes $i$ and $j$ are connected when $X_i=X_j=1$
+and the adjacency entry is positive. If the connected components are
+$C_1,\dots,C_m$, define
+
+$$
+G(p)=\mathbb{E}\left[\frac{\max_k |C_k|}{n}\right],
+$$
+
+$$
+\chi(p)=\mathbb{E}\left[
+\frac{1}{n}\sum_{k:\,|C_k|<\max_\ell |C_\ell|}|C_k|^2
+\right].
+$$
+
+The finite-cluster susceptibility excludes the largest component. For
+$R$ independent trials, the implementation reports the sample mean and the
+population standard deviation,
+
+$$
+\bar G_R(p)=\frac{1}{R}\sum_{a=1}^{R}G_a(p),
+\qquad
+\widehat{\operatorname{sd}}(G)=
+\sqrt{\frac{1}{R}\sum_{a=1}^{R}\left(G_a-\bar G_R\right)^2}.
+$$
+
+The threshold is the first grid point satisfying
+$\bar G_R(p)\ge c$, where $c$ is `crisis_fraction`. These are Monte Carlo
+estimates, not exact graph probabilities. `largest_component` is
+$\operatorname{round}(\frac{1}{R}\sum_a \max_k |C_{k,a}|)$.
+
+### 8.7 Research rebalance proposal
+
+Let $b$ be the capped HRP base weights and $s_i\in[-1,1]$ the cross-sectional
+signal. The signal combines 20-day and 60-day momentum $m_i^{(20)}$,
+$m_i^{(60)}$, trend $t_i\in[-1,1]$ and an RSI adjustment $a_i$:
+
+$$
+s_i=\operatorname{clip}\left(
+0.5\,z\left(m_i^{(20)}\right)+
+0.3\,z\left(m_i^{(60)}\right)+
+0.2\,t_i+a_i,\,-1,\,1
+\right),
+$$
+
+where $z$ is the cross-sectional z-score over finite assets. The tilt is
+
+$$
+\tilde b_i=\operatorname{cap}\left(
+b_i(1+0.5s_i)\right),
+$$
+
+where `cap` projects onto the capped simplex $0\le \tilde b_i\le w_{\max}$,
+$\sum_i\tilde b_i=1$. The exposure is
+
+$$
+e=\min\left(1,\frac{\sigma^\star}{\hat\sigma}\right)e_r,
+\qquad
+w_i=e\tilde b_i,
+\qquad
+\text{cash}=1-\sum_i w_i,
+$$
+
+with target volatility $\sigma^\star$, realised market volatility
+$\hat\sigma$ and HMM regime multiplier $e_r\in\{0.5,0.7,1\}$. Turnover is
+
+$$
+\tau_{\mathrm{turn}}=\frac{1}{2}\sum_i|w_i-w_i^{0}|.
+$$
+
+The stop reference is $p_i(1-2\hat\sigma_i)$, where $\hat\sigma_i$ is the
+sample standard deviation of the last 20 daily returns. With portfolio value
+$V$ and per-trade risk budget $\rho$, the weight-based and risk-based share
+counts are
+
+$$
+q_i^{w}=\left\lfloor\frac{Vw_i}{p_i}\right\rfloor,
+\qquad
+q_i^{\mathrm{risk}}=\left\lfloor
+\frac{V\rho}{p_i-\text{stop}_i}\right\rfloor,
+\qquad
+q_i=\min(q_i^{w},q_i^{\mathrm{risk}}).
+$$
+
+These are research proposals. The formula does not forecast returns, does not
+model costs or lot sizes, and is not personalised investment advice.

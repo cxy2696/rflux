@@ -1,6 +1,7 @@
 # Applications: portfolio risk, regime attribution and network risk
 
-[中文](APPLICATIONS_cn.md) · [Back to English guide](../README_en.md)
+**English** · [中文](APPLICATIONS_cn.md)
+
 
 These application-level functions sit on top of the tested `qflux`, `percolab` and `metrics` kernels. They add no hidden numerical layer; they make the input, estimator, annualisation and graph conventions explicit so a result can be checked later.
 

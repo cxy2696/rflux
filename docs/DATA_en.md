@@ -1,5 +1,7 @@
 # Unified data layer
 
+**English** · [中文](DATA_cn.md)
+
 The 0.7 data layer turns three heterogeneous providers into one long OHLCV
 contract.  Install pandas and the provider SDKs with `pip install
 "rflux[all]"`, or a narrower extra such as `rflux[akshare]`; pandas alone is

@@ -1,5 +1,7 @@
 # C++ core contracts: market data, predictors, execution and percolation
 
+**English** · [中文](CORE_cn.md)
+
 This page describes the 0.7 C++ extension layer.  The design differs from an Eigen-based header in three places:
 
 1. **No Eigen in the public boundary.**  rflux already exposes plain contiguous

@@ -1,6 +1,7 @@
 # Extension guide
 
-[中文](EXTENDING_cn.md) · [Back to English guide](../README_en.md)
+**English** · [中文](EXTENDING_cn.md)
+
 
 rflux has three small boundaries: the C++ core does the computation, the C ABI carries it across languages, and Python handles argument conversion and composition. Decide which layer a new feature belongs to before writing code.
 

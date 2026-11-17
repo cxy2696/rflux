@@ -1,6 +1,7 @@
 # 扩展指南
 
-[English](EXTENDING_en.md) · [返回中文说明](../README_cn.md)
+[English](EXTENDING_en.md) · **中文**
+
 
 rflux 的边界很薄：C++ 负责计算，C ABI 负责跨语言，Python 负责输入输出和组合。扩展时先想清楚新功能落在哪一层，再动手。
 

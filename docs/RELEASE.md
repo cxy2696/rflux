@@ -1,5 +1,7 @@
 # Release checklist
 
+**English** · [中文](RELEASE_cn.md)
+
 A release is a repository-wide contract, not just a version bump.
 
 1. **Version sync**  

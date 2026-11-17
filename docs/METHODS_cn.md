@@ -1,6 +1,7 @@
 # 方法与统计口径
 
-[English](METHODS_en.md) · [返回中文说明](../README_cn.md)
+[English](METHODS_en.md) · **中文**
+
 
 这份文档说明 rflux 代码实际采用的计算口径。不同库经常在预热、缺失值、方差自由度、分位数和年化方式上使用不同默认值；遇到这些细节时，以这里和代码为准。
 
@@ -148,7 +149,8 @@ $$
 滚动协方差使用同一个窗口二元矩：
 
 $$
-\operatorname{Cov}_{w,d}(x,y)=rac{\sum_{i=t-w+1}^{t}(x_i-ar x_t)(y_i-ar y_t)}{w-d}
+\operatorname{Cov}_{w,d}(x,y)=
+rac{\sum_{i=t-w+1}^{t}(x_i-ar x_t)(y_i-ar y_t)}{w-d}
 $$
 
 `ddof=d` 必须小于窗口长度。任一侧缺失的窗口为 NaN。`ddof=0` 为总体协方差，`ddof=1` 为样本协方差。
@@ -272,20 +274,46 @@ $$
 \frac{(x_{td}-\mu_{k,d})^2}{\sigma_{k,d}^2}\right]
 $$
 
-前向：
+前向递推，初值 $\log\alpha_1(k)=\log\pi_k+\log b_k(x_1)$，使用 log-sum-exp：
 
 $$
 \log\alpha_t(k)=\log b_k(x_t)+
 \log\sum_j\exp\left(\log\alpha_{t-1}(j)+\log A_{jk}\right)
 $$
 
-后向同理。状态边缘概率：
+后向递推，终值 $\beta_T(k)=1$：
 
 $$
-\gamma_t(k)=\exp\left(\log\alpha_t(k)+\log\beta_t(k)-\log p(x)\right)
+\log\beta_t(j)=\log\sum_k\exp\left(
+\log A_{jk}+\log b_k(x_{t+1})+\log\beta_{t+1}(k)\right)
 $$
 
-EM 的转移计数在 log 域计算 $\xi_t(j,k)$ 后求和，避免普通缩放前向在长序列或极端观测下下溢。三个推断函数的口径不同：
+状态边缘概率和相邻状态后验：
+
+$$
+\gamma_t(k)=\exp\left(\log\alpha_t(k)+\log\beta_t(k)-\log p(x)\right),
+$$
+
+$$
+\xi_t(j,k)=\frac{\alpha_t(j)A_{jk}b_k(x_{t+1})\beta_{t+1}(k)}{p(x)}.
+$$
+
+M 步：
+
+$$
+A_{jk}=\frac{\sum_{t=1}^{T-1}\xi_t(j,k)}
+{\sum_{t=1}^{T-1}\gamma_t(j)},
+\qquad
+\mu_{k,d}=\frac{\sum_{t=1}^{T}\gamma_t(k)x_{td}}
+{\sum_{t=1}^{T}\gamma_t(k)},
+$$
+
+$$
+\sigma_{k,d}^2=\frac{\sum_{t=1}^{T}\gamma_t(k)(x_{td}-\mu_{k,d})^2}
+{\sum_{t=1}^{T}\gamma_t(k)}.
+$$
+
+实现用 log-sum-exp 在对数空间维护 $\alpha$、 $\beta$ 和 $\xi$，避免普通缩放前向在长序列或极端观测下下溢。三个推断函数的口径不同：
 
 - `filtered()` 只使用截至 t 的观测，是因果的；
 - `smoothed()` 和 `viterbi()` 使用全样本，不能直接当作 t 时刻信号；
@@ -301,7 +329,6 @@ P(s_t=k\mid \text{prior},x_t)
 {\sum_l\left(\sum_j \pi_j A_{jl}\right)b_l(x_t)}
 $$
 
-平稳分布满足 $\pi A=\pi$ 且 $\sum_k\pi_k=1$。
 平稳分布满足 $\pi A=\pi$ 且 $\sum_k\pi_k=1$。状态期望持续期为：
 
 $$
@@ -554,3 +581,211 @@ $$
 `performance_summary()` 的 `periods` 参数控制几何年化使用的时间格数，默认等于输入长度。因此内部 NaN 不会自动缩短年化时钟；`n_periods` 是有限收益个数，`elapsed_periods` 是年化采用的时间格数。杠杆多空可能亏损超过初始资金，此时总损失、波动、Sharpe/Sortino 和尾部风险仍会报告，几何年化收益与 Calmar 为 NaN。
 
 这套回测没有融券成本、借券可得性、涨跌停、冲击成本、容量和税。它适合做可解释的研究基线，不是生产撮合系统。
+
+## 8. 算法层公式与推导
+
+本节把组合和执行公式写成可逐项复核的形式。向量均为列向量，收益率默认是简单收益率。代码是最终口径，本节说明公式背后的假设。
+
+### 8.1 记号与假设
+
+设 $r_t\in\mathbb{R}^n$ 为 $t$ 时刻的收益率向量， $\Sigma=\operatorname{Cov}(r_t)$ 为 $n\times n$ 协方差矩阵。记 $\sigma_i^2=\Sigma_{ii}$， $\rho_{ij}=\Sigma_{ij}/(\sigma_i\sigma_j)$。除非调用方另行处理，假设 $\Sigma$ 对称半正定且对角线为正。权重 $w$ 为多头当 $w_i\ge 0$，无杠杆当 $\mathbf{1}^\top w\le 1$；剩余部分 $1-\mathbf{1}^\top w$ 是现金，在本节公式中收益为零。对簇 $C$， $\Sigma_{CC}$ 是其资产对应的主子矩阵。
+
+### 8.2 因子定义
+
+对收盘价 $p_t$ 和成交量 $v_t$，四个内置因子为
+
+$$
+m_t=\frac{p_t}{p_{t-w}}-1,
+$$
+
+$$
+v_t^{\mathrm{rev}}=-\left(\frac{p_t}{p_{t-w}}-1\right)
+\frac{v_t}{\frac{1}{w}\sum_{j=t-w+1}^{t}v_j},
+$$
+
+$$
+\mathrm{vwap}_t=\frac{\sum_{j=t-w+1}^{t}p_jv_j}
+{\sum_{j=t-w+1}^{t}v_j},\qquad
+d_t=\frac{p_t}{\mathrm{vwap}_t}-1,
+$$
+
+$$
+a_t=\frac{1}{w}\sum_{j=t-w+1}^{t}
+\frac{|p_j/p_{j-1}-1|}{p_jv_j}\cdot 10^6.
+$$
+
+当窗口未满、价格/成交量非有限，或分母要求正数而输入不满足时，实现返回 NaN。动量和量价反转共用同一个 trailing-return helper，因此预热和基准价格检查不会出现两套口径。
+
+### 8.3 层次风险平价
+
+相关距离为
+
+$$
+d_{ij}=\sqrt{\frac{1-\rho_{ij}}{2}}.
+$$
+
+单链接聚类把簇 $A$ 与 $B$ 的距离定义为
+
+$$
+d(A,B)=\min_{i\in A,\,j\in B}d_{ij}.
+$$
+
+对簇 $C$，逆方差预算为
+
+$$
+\tilde w_C=\frac{\left(\operatorname{diag}\Sigma_{CC}\right)^{-1}}
+{\mathbf{1}^\top\left(\operatorname{diag}\Sigma_{CC}\right)^{-1}},
+\qquad
+V(C)=\tilde w_C^\top\Sigma_{CC}\tilde w_C.
+$$
+
+在总预算为 $b$ 的切分 $C=L\cup R$ 上，HRP 分配
+
+$$
+b_L=b\,\frac{V(R)}{V(L)+V(R)},\qquad b_R=b-b_L.
+$$
+
+递归到单资产时，叶节点预算就是 HRP 权重。若 $V(L)+V(R)=0$，实现等分预算。逆方差权重非负，因此结果天然多头。朴素单链接构造为 $O(n^3)$，当前实现面向常见研究组合，而不是上千资产。
+
+### 8.4 Almgren-Chriss 执行
+
+设数量为 $Q$，切片数为 $N$，时间跨度为 $T$， $\tau=T/N$。 $x_j$ 是第 $j$ 片后的持仓， $x_0=Q$、 $x_N=0$；第 $j$ 片交易 $n_j=x_{j-1}-x_j$。规划器采用
+
+$$
+\mathrm{TC}=\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+\qquad
+\mathrm{PC}=\frac{1}{2}\gamma Q^2,
+$$
+
+$$
+\mathrm{EC}=\frac{1}{2}\gamma Q^2+
+\eta\sum_{j=1}^{N}\left(\frac{n_j}{\tau}\right)^2,
+$$
+
+$$
+\mathrm{Var}=\sigma^2\sum_{j=1}^{N}\tau x_j^2.
+$$
+
+其中 $\mathrm{TC}$、 $\mathrm{PC}$、 $\mathrm{EC}$、 $\mathrm{Var}$ 分别是临时成本、永久成本、期望成本和方差。
+
+对风险厌恶 $\lambda\ge 0$，定义
+
+$$
+\kappa=\sqrt{\frac{\lambda\sigma^2}{\eta}}.
+$$
+
+连续时间最优持仓为
+
+$$
+x(t)=Q\,\frac{\sinh\left(\kappa(T-t)\right)}{\sinh(\kappa T)}.
+$$
+
+实现按离散切片计算同一比值，并把最后一片目标持仓设为零。当 $\kappa T$ 数值上可忽略时，采用风险中性线性调度 $x_j=Q(1-j/N)$，此时 $n_j=Q/N$，且 $\sigma=0$ 时方差为零。`expected_cost` 和 `expected_variance` 使用的就是上面的离散公式，没有隐藏的年化。
+
+### 8.5 Huber 回归
+
+对残差 $r_i=y_i-\beta_0-x_i^\top\beta$，Huber 损失为
+
+$$
+\rho_\epsilon(r)=
+\begin{cases}
+\frac{1}{2}r^2, & |r|<\epsilon s,\\
+\epsilon s|r|-\frac{1}{2}(\epsilon s)^2, & |r|\ge\epsilon s,
+\end{cases}
+$$
+
+其中 $s$ 是稳健尺度。实现取
+
+$$
+s=1.4826\cdot\operatorname{median}\left(
+\left|r_i-\operatorname{median}(r)\right|\right),
+\qquad s\ge 10^{-12}.
+$$
+
+每轮求解加权最小二乘
+
+$$
+\min_{\beta_0,\beta}\sum_i w_i\left(y_i-\beta_0-x_i^\top\beta\right)^2,
+\qquad
+w_i=
+\begin{cases}
+1, & |r_i|\le \epsilon s,\\
+\dfrac{\epsilon s}{|r_i|}, & |r_i|>\epsilon s.
+\end{cases}
+$$
+
+当最大系数变化不超过 `tol` 时停止；最终尺度由最终残差重新计算。用中位数绝对偏差而不是普通标准差，是为了避免单个异常值决定整组权重。
+
+### 8.6 Site percolation
+
+对 $n$ 个节点的图，令 $X_i\sim\operatorname{Bernoulli}(p)$ 表示节点是否存活。节点 $i$ 与 $j$ 相连当且仅当 $X_i=X_j=1$ 且邻接项为正。若连通分量为 $C_1,\dots,C_m$，定义
+
+$$
+G(p)=\mathbb{E}\left[\frac{\max_k |C_k|}{n}\right],
+$$
+
+$$
+\chi(p)=\mathbb{E}\left[
+\frac{1}{n}\sum_{k:\,|C_k|<\max_\ell |C_\ell|}|C_k|^2
+\right].
+$$
+
+有限簇磁化率不包含最大连通分量。对 $R$ 次独立 trial，实现报告样本均值和总体标准差：
+
+$$
+\bar G_R(p)=\frac{1}{R}\sum_{a=1}^{R}G_a(p),
+\qquad
+\widehat{\operatorname{sd}}(G)=
+\sqrt{\frac{1}{R}\sum_{a=1}^{R}\left(G_a-\bar G_R\right)^2}.
+$$
+
+阈值是满足 $\bar G_R(p)\ge c$ 的第一个网格点， $c$ 为 `crisis_fraction`。这些是 Monte Carlo 估计，不是精确图概率。`largest_component` 取
+$\operatorname{round}(\frac{1}{R}\sum_a \max_k |C_{k,a}|)$。
+
+### 8.7 研究再平衡提案
+
+设 $b$ 为封顶后的 HRP 基础权重， $s_i\in[-1,1]$ 为截面信号。信号由 20 日和 60 日动量 $m_i^{(20)}$、 $m_i^{(60)}$、趋势 $t_i\in[-1,1]$ 与 RSI 调整 $a_i$ 组成：
+
+$$
+s_i=\operatorname{clip}\left(
+0.5\,z\left(m_i^{(20)}\right)+
+0.3\,z\left(m_i^{(60)}\right)+
+0.2\,t_i+a_i,\,-1,\,1
+\right),
+$$
+
+其中 $z$ 是对有限资产的截面 z-score。倾斜权重为
+
+$$
+\tilde b_i=\operatorname{cap}\left(
+b_i(1+0.5s_i)\right),
+$$
+
+`cap` 是向 $0\le \tilde b_i\le w_{\max}$、 $\sum_i\tilde b_i=1$ 的封顶单纯形投影。总敞口为
+
+$$
+e=\min\left(1,\frac{\sigma^\star}{\hat\sigma}\right)e_r,
+\qquad
+w_i=e\tilde b_i,
+\qquad
+\mathrm{cash}=1-\sum_i w_i,
+$$
+
+其中 $\sigma^\star$ 是目标波动率， $\hat\sigma$ 是已实现市场波动率， $e_r\in\{0.5,0.7,1\}$ 是 HMM 风险状态乘数。换手率为
+
+$$
+\tau_{\mathrm{turn}}=\frac{1}{2}\sum_i|w_i-w_i^{0}|.
+$$
+
+参考止损为 $p_i(1-2\hat\sigma_i)$，其中 $\hat\sigma_i$ 是最近 20 个日收益率的标准差。给定组合市值 $V$ 和单笔风险预算 $\rho$，按权重和按风险计算的股数为
+
+$$
+q_i^{w}=\left\lfloor\frac{Vw_i}{p_i}\right\rfloor,
+\qquad
+q_i^{\mathrm{risk}}=\left\lfloor
+\frac{V\rho}{p_i-\mathrm{stop}_i}\right\rfloor,
+\qquad
+q_i=\min(q_i^{w},q_i^{\mathrm{risk}}).
+$$
+
+这些是研究提案：不预测收益，不完整建模成本/最小交易单位，也不构成个性化投资建议。

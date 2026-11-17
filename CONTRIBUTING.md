@@ -1,5 +1,7 @@
 # Contributing
 
+**English** · [中文](CONTRIBUTING_cn.md)
+
 Bug reports and focused pull requests are welcome.
 
 ## Development

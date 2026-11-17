@@ -1,5 +1,7 @@
 # Algorithm matrix and extension contracts
 
+**English** · [中文](ALGORITHMS_cn.md)
+
 rflux 0.7 introduces a C++ algorithm layer on top of the numerical core.  The
 goal is not to add another pile of indicators: every algorithm has an explicit
 interface, a documented input/output contract, a native fast path and a

@@ -1,6 +1,7 @@
 # 应用：组合风险、状态归因与网络风险
 
-[English](APPLICATIONS_en.md) · [返回中文说明](../README_cn.md)
+[English](APPLICATIONS_en.md) · **中文**
+
 
 这里记录三组直接可调用的应用层能力：组合风险、状态归因和网络风险诊断。它们不引入隐藏的数值层，而是用 `qflux`、`percolab`、`metrics` 中已经测试过的口径组合出研究结论。结果字典带有估计量、年化方式、图约定和输入样本信息，便于复查。
 
