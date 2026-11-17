@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_DIRS = {".git", "build", "__pycache__", ".venv", "venv", "dist"}
+EXCLUDED_DIRS = {".git", "build", "__pycache__", ".venv", "venv", "dist", ".pytest_cache", "artifacts"}
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
 FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")

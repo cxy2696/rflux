@@ -230,7 +230,15 @@ def trade_advice(
     rsi_adjust[np.isfinite(rsi) & (rsi <= 25.0)] = 0.10
     score = np.clip(score + rsi_adjust, -1.0, 1.0)
 
-    covariance = np.cov(returns, rowvar=False)
+    # ``returns_panel`` leaves a NaN warm-up row; drop incomplete rows before
+    # estimating the covariance, otherwise every HRP weight would fall back to
+    # equal weight on real data.
+    complete = returns[np.all(np.isfinite(returns), axis=1)]
+    covariance = (
+        np.cov(complete, rowvar=False)
+        if complete.shape[0] >= 2
+        else np.full((n_assets, n_assets), np.nan)
+    )
     covariance = np.atleast_2d(covariance)
     base = None
     if n_assets == 1:

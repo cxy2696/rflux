@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from rflux import advice
+from rflux import advice, portfoliolab, qflux
 
 
 class TestTradeAdvice(unittest.TestCase):
@@ -31,6 +31,17 @@ class TestTradeAdvice(unittest.TestCase):
         )
         self.assertEqual(
             [item["asset"] for item in allocation["actions"]], self.names
+        )
+
+    def test_base_weights_use_hrp_on_complete_returns(self):
+        report = advice.trade_advice(
+            self.prices, names=self.names, include_hmm=False, max_weight=1.0
+        )
+        returns = qflux.returns_panel(self.prices)
+        complete = returns[np.all(np.isfinite(returns), axis=1)]
+        expected = portfoliolab.hrp_weights(np.cov(complete, rowvar=False))
+        np.testing.assert_allclose(
+            report["allocation"]["base_weights"], expected, rtol=1e-10, atol=1e-12
         )
 
     def test_current_weights_drive_actions(self):
