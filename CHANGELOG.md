@@ -39,6 +39,8 @@ or struct layouts.
   PyPI.
 - Fixed `largest_component` truncating the mean across Monte Carlo trials; it
   now rounds to the nearest integer.
+- Local validation pins CMake's Python to the active virtualenv; `make check`
+  prefers `.venv/bin/python` when present.
 - Deduplicated the CLI argument definitions and the AKShare endpoint call
   path; removed stale `python/build` output from the working tree.
 - Added AKShare ETF routing (`fund_etf_hist_em`) with stock/ETF auto-detection.
