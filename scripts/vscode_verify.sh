@@ -143,7 +143,13 @@ run_step "version check" "$PYTHON" scripts/check_version.py
 if [[ "$SANITIZE" == "1" ]]; then
   run_step "cmake configure (sanitize)" cmake --preset sanitize
   run_step "cmake build (sanitize)" cmake --build --preset sanitize
-  run_step "ctest (sanitize)" env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  # macOS does not support LeakSanitizer; keep the option off there.
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    LEAK_OPTION="detect_leaks=0"
+  else
+    LEAK_OPTION="detect_leaks=1"
+  fi
+  run_step "ctest (sanitize)" env ASAN_OPTIONS="${LEAK_OPTION}:halt_on_error=1" \
     UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
     ctest --preset sanitize --output-on-failure
 fi
