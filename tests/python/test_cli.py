@@ -176,6 +176,31 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn("asset", output)
         self.assertIn("network:", output)
 
+    def test_advice_json_and_text(self):
+        sample = Path(__file__).resolve().parents[2] / "examples/data/sample_prices.csv"
+        status, output, error = self._run(
+            [
+                "advice",
+                str(sample),
+                "--no-hmm",
+                "--format",
+                "json",
+                "--weights",
+                "0.2,0.2,0.2,0.2,0.2",
+            ]
+        )
+        self.assertEqual(status, 0, error)
+        report = json.loads(output)
+        self.assertEqual(report["input"]["assets"], 5)
+        self.assertEqual(report["input"]["current_weights_source"], "provided")
+        self.assertEqual(len(report["allocation"]["actions"]), 5)
+        json.dumps(report, allow_nan=False)
+
+        status, output, error = self._run(["advice", str(sample), "--no-hmm"])
+        self.assertEqual(status, 0, error)
+        self.assertIn("reasons:", output)
+        self.assertIn("Not personalised investment advice", output)
+
     def test_missing_file(self):
         status, _, error = self._run(["analyze", "/does/not/exist.csv"])
         self.assertEqual(status, 1)

@@ -25,6 +25,7 @@ from ._version import __version__
 from . import config as model_config
 from . import qflux
 from ._native_backend import native_info as python_native_info
+from .advice import trade_advice
 from .analysis import analyze_prices
 from .apps import portfolio_risk
 
@@ -562,6 +563,92 @@ def _command_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_advice_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
+    allocation = report["allocation"]
+    lines = [
+        f"rflux {report['package']['version']} | source: {source}",
+        f"rows: {report['input']['observations']} | "
+        f"assets: {report['input']['assets']}",
+        f"exposure: {allocation['exposure']:.2f} | "
+        f"cash: {allocation['cash_weight']:.2f} | "
+        f"turnover: {allocation['expected_turnover']:.2f}",
+        "",
+        f"{'asset':<18}{'current':>10}{'target':>10}{'delta':>10}"
+        f"{'score':>8}{'action':>10}",
+    ]
+    for item in allocation["actions"]:
+        lines.append(
+            f"{item['asset'][:18]:<18}"
+            f"{item['current_weight']:>10.3f}"
+            f"{item['target_weight']:>10.3f}"
+            f"{item['delta']:>+10.3f}"
+            f"{item['signal_score']:>+8.2f}"
+            f"{item['action']:>10}"
+        )
+    lines.append("")
+    lines.append("reasons:")
+    for item in allocation["actions"]:
+        lines.append(f"  {item['asset']}: {item['reason']}")
+    risk = report["risk"]
+    lines.append("")
+    lines.append(
+        f"market vol: {_format_value(risk['market_annualized_volatility'], percent=True, signed=False).strip()} | "
+        f"target vol: {_format_value(risk['target_annualized_volatility'], percent=True, signed=False).strip()} | "
+        f"target maxDD: {_format_value(risk['target_max_drawdown'], percent=True).strip()}"
+    )
+    if report.get("regime"):
+        regime = report["regime"]
+        lines.append(
+            f"regime: state={regime['latest_state']} | "
+            f"expected next return={regime['expected_next_return']:+.4f} | "
+            f"stress={regime['stress_probability']:.2f} | "
+            f"risk_off={regime['risk_off']}"
+        )
+    _append_footer(lines, parsed)
+    if report["errors"]:
+        lines.append("")
+        lines.extend(f"note: {message}" for message in report["errors"])
+    lines.append("")
+    lines.append("notes:")
+    lines.extend(f"  - {note}" for note in report["notes"])
+    lines.append(report["disclaimer"])
+    return "\n".join(lines)
+
+
+def _command_advice(args: argparse.Namespace) -> int:
+    parsed = _read_args_prices(args)
+    weights = _parse_weights(args.weights) if args.weights else None
+    if weights is not None and len(weights) != len(parsed.names):
+        raise ValueError(
+            f"got {len(weights)} weights for {len(parsed.names)} assets: "
+            f"{parsed.names}"
+        )
+    report = trade_advice(
+        parsed.prices,
+        names=parsed.names,
+        current_weights=weights,
+        periods_per_year=args.periods_per_year,
+        risk_free=args.risk_free,
+        max_weight=args.max_weight,
+        target_volatility=args.target_vol,
+        confidence=args.confidence,
+        include_hmm=not args.no_hmm,
+        hmm_states=args.states,
+        hmm_max_iter=args.max_iter,
+        hmm_n_init=args.n_init,
+        seed=args.seed,
+    )
+    _add_date_metadata(report, parsed)
+    report["input"]["source"] = str(args.path)
+    output = (
+        json.dumps(report, ensure_ascii=False, indent=2)
+        if args.format == "json"
+        else _format_advice_text(report, str(args.path), parsed)
+    )
+    _emit_output(output, args.output)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rflux",
@@ -597,6 +684,26 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--n-init", type=int, default=3)
     analyze.add_argument("--threshold", type=float, default=0.5)
     analyze.add_argument("--seed", type=int, default=42)
+    advice = subparsers.add_parser(
+        "advice", help="risk-aware rebalance proposal for a price CSV"
+    )
+    advice.add_argument("path", help="wide CSV with a header")
+    advice.add_argument("--date-column", default=None)
+    advice.add_argument("--delimiter", default=",")
+    advice.add_argument("--weights", default=None,
+                        help="current weights, comma-separated")
+    advice.add_argument("--format", choices=("text", "json"), default="text")
+    advice.add_argument("--output", default=None)
+    advice.add_argument("--periods-per-year", type=float, default=252.0)
+    advice.add_argument("--risk-free", type=float, default=0.0)
+    advice.add_argument("--max-weight", type=float, default=0.35)
+    advice.add_argument("--target-vol", type=float, default=0.15)
+    advice.add_argument("--confidence", type=float, default=0.95)
+    advice.add_argument("--no-hmm", action="store_true")
+    advice.add_argument("--states", type=int, default=3)
+    advice.add_argument("--max-iter", type=int, default=200)
+    advice.add_argument("--n-init", type=int, default=3)
+    advice.add_argument("--seed", type=int, default=42)
     risk = subparsers.add_parser(
         "risk", help="portfolio volatility and Euler risk contributions"
     )
@@ -632,6 +739,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _command_analyze(args)
         if args.command == "risk":
             return _command_risk(args)
+        if args.command == "advice":
+            return _command_advice(args)
         parser.error(f"unknown command {args.command}")
     except Exception as exc:  # keep the CLI usable without a traceback
         print(f"error: {exc}", file=sys.stderr)

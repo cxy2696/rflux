@@ -36,6 +36,7 @@ python -m pip install -e .
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
 rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
+rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
 `analyze` reads a wide CSV with a header, detects a `date`/`日期` column, and reports per-asset annual return, volatility, Sharpe, maximum drawdown and RSI, plus the equal-weight market, correlation summary, network and a 3-state HMM. `risk` uses the same price table and `--weights` to compute portfolio volatility and Euler risk contributions. Non-numeric columns are dropped, dates are sorted, and duplicate dates or mixed text/number columns are errors rather than silent gaps.

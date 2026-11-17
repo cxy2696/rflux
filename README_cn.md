@@ -38,6 +38,7 @@ python -m pip install -e .
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm --format json
 rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
+rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
 `analyze` 会读取带表头的宽表 CSV，自动识别 `date`/`日期` 列，计算每个资产的年度收益、波动、Sharpe、最大回撤、RSI，以及等权市场组合、相关矩阵摘要、相关网络和 3 状态 HMM。`risk` 使用同一份价格表，按 `--weights` 计算组合波动和 Euler 风险贡献。非数值列会被丢弃；日期会排序；重复日期和某列中混合文本/数字会直接报错，不会静默处理。

@@ -167,3 +167,25 @@ Weights follow the CSV data-column order after the date column. Text output list
 The top-level `method` and `input` fields record the estimator, `ddof`, annualisation, risk-free rate, confidence, complete sample count and discarded rows. Save the full report when reproducing a result; do not keep only rounded returns.
 
 These applications do not model borrow fees, transaction costs, taxes, capacity, limit moves or liquidity. The portfolio return is an arithmetic combination under supplied weights, not a tradable net asset value.
+
+
+## Research advice
+
+`rflux advice` produces an auditable rebalance proposal, not personalised
+investment advice:
+
+```bash
+rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35
+```
+
+It starts from HRP weights, adjusts them with 20/60-day momentum, trend and
+RSI, then scales gross exposure by realised volatility and an optional HMM
+stress state.  The report contains:
+
+- current/target weights, change, signal score and reason per asset;
+- cash weight, gross exposure and turnover;
+- target historical volatility, max drawdown and VaR/CVaR;
+- data/model errors and an explicit non-personalised-advice disclaimer.
+
+It is long-only and unlevered.  Transaction costs, taxes, liquidity and lot
+sizes remain the caller's responsibility.

@@ -16,6 +16,7 @@ from __future__ import annotations
 from ._version import __version__
 
 from . import (  # noqa: E402
+    advice,
     backtest,
     config,
     data,
@@ -32,6 +33,7 @@ from . import (  # noqa: E402
     shared,
     symbols,
 )
+from .advice import trade_advice  # noqa: E402
 from .analysis import analyze_prices  # noqa: E402
 from .apps import portfolio_risk, regime_attribution  # noqa: E402
 from ._ffi import (  # noqa: E402
@@ -70,6 +72,7 @@ __all__ = [
     "SharedArray",
     "__version__",
     "abi_version",
+    "advice",
     "analyze_prices",
     "backtest",
     "config",
@@ -98,4 +101,5 @@ __all__ = [
     "shared",
     "sma",
     "symbols",
+    "trade_advice",
 ]

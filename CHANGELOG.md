@@ -18,6 +18,7 @@ C ABI 仍为 `1`。本版本新增 C++ 算法接口层、统一数据层和原�
 - 新增因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控的 C ABI 入口；Python 在无原生扩展时统一走 C ABI。
 - 移除 Tushare 适配器和相关依赖；项目不配置 PyPI 发布。
 - 修正 `largest_component` 对多次 trial 均值做截断的问题，改为四舍五入。
+- 新增 `rflux advice` 研究再平衡提案：HRP 基础权重、动量/趋势/RSI 调整、波动率目标与 HMM 风险状态、逐资产动作和风险估计。
 - 补齐算法族工厂：`AllocatorFactory`、`PredictorFactory`、`ExecutionPlannerFactory`、`PercolationDetectorFactory`、`RegimeDetectorFactory`，统一使用参数化线程安全注册表。
 
 更早版本请查看 git 标签。

@@ -57,6 +57,7 @@ finally:
 rflux doctor
 rflux analyze examples/data/sample_prices.csv --no-hmm
 rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
+rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
 ## 功能
@@ -66,6 +67,7 @@ rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 - **percolab**：相关网络、连通分量、中心性、PageRank、聚类、k-core、割边/割点、k-truss、MST、bond/site 渗流、风险扩散。
 - **算法层**：动量、量价反转、VWAP、Amihud、HRP、NCO 风格配置、Huber 回归、图平滑、Almgren-Chriss 执行。
 - **数据层**：本地 CSV、AKShare、yfinance 统一为长表 OHLCV；包含代码归一、校验、SQLite 缓存和重试。使用前安装 `rflux[all]` 或对应 provider extra。
+- **研究建议**：`rflux advice` 把动量、趋势、RSI、HRP、波动率目标和 HMM 风险状态组合成透明的多头再平衡提案，输出每项资产的目标权重、变动理由、换手率和风险估计。
 
 ## 数据示例
 
