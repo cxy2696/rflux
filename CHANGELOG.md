@@ -5,9 +5,10 @@ causal semantics are called out explicitly when they change.
 
 ## Unreleased
 
-No version bump and no release tag yet. The C ABI compatibility version remains
-`1`; this change adds functions only and does not alter existing layouts or
-signatures.
+No version bump and no release tag yet. This maintenance pass reduces Python and
+repository duplication without changing numerical definitions. The C ABI
+compatibility version remains `1`; existing layouts and signatures are
+unchanged.
 
 - Added shortest-path statistics for undirected unweighted graphs: global
   efficiency, average path length over reachable pairs, diameter, reachable-pair
@@ -45,6 +46,15 @@ signatures.
   brute-force fuzz checks during development.
 - Added bilingual method notes, network-risk application notes, updated README
   scope and examples. No tag or release was published.
+- Consolidated Python validation and panel normalization in `_common.py`,
+  added `qflux.returns_panel`, shared quantile-bucket means in `backtest.py`, and
+  factored HMM state-probability and permutation checks.
+- Refactored the CLI to share common arguments, output/error handling, report
+  metadata and native-version inspection instead of repeating them per command.
+- Added `scripts/check_version.py` and `make version-check` so the CMake, C
+  header, Python package and `pyproject.toml` versions cannot drift.
+- Simplified `.gitignore` to remove patterns already covered by broader rules;
+  CI now cancels superseded runs and caches pip downloads.
 
 ## 0.5.0 — 2026-11-17
 

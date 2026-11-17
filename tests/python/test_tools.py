@@ -26,6 +26,10 @@ class TestMetricsAndBacktest(unittest.TestCase):
         self.assertTrue(np.isfinite(summary.cvar))
         with self.assertRaises(ValueError):
             metrics.performance_summary([0.01])
+        with self.assertRaises(ValueError):
+            metrics.performance_summary([0.01, 0.02], periods_per_year=0.0)
+        with self.assertRaises(ValueError):
+            metrics.performance_summary([0.01, 0.02], confidence=1.0)
         leveraged = metrics.performance_summary([0.01, -1.0])
         self.assertAlmostEqual(leveraged.total_return, -1.0)
         self.assertTrue(np.isnan(leveraged.annualized_return))

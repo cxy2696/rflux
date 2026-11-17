@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
@@ -97,9 +97,10 @@ def _compact_date(value: Any, default: str, what: str = "date") -> str:
 def _frame_to_returns(
     prices: Any, method: str, fill_method: str | None
 ) -> Any:
-    log = str(method).lower() in {"log", "logarithmic"}
-    if str(method).lower() not in {"simple", "log", "logarithmic"}:
+    normalized = str(method).lower()
+    if normalized not in {"simple", "log", "logarithmic"}:
         raise ValueError("method must be 'simple' or 'log'")
+    log = normalized in {"log", "logarithmic"}
     if fill_method not in (None, "none", "ffill"):
         raise ValueError("fill_method must be None, 'none' or 'ffill'")
 
@@ -108,19 +109,18 @@ def _frame_to_returns(
     except ImportError:
         pd = None
 
-    if pd is not None and isinstance(prices, pd.DataFrame):
+    if pd is not None and isinstance(prices, (pd.DataFrame, pd.Series)):
         frame = prices.ffill() if fill_method == "ffill" else prices
-        columns = {}
-        for column in frame.columns:
-            values = qflux.returns(frame[column].to_numpy(), log=log)
-            columns[column] = pd.Series(values, index=frame.index)
-        return pd.DataFrame(columns, index=frame.index)
-    if pd is not None and isinstance(prices, pd.Series):
-        series = prices.ffill() if fill_method == "ffill" else prices
+        if isinstance(frame, pd.DataFrame):
+            return pd.DataFrame(
+                qflux.returns_panel(frame.to_numpy(), log=log),
+                index=frame.index,
+                columns=frame.columns,
+            )
         return pd.Series(
-            qflux.returns(series.to_numpy(), log=log),
-            index=series.index,
-            name=series.name,
+            qflux.returns(frame.to_numpy(), log=log),
+            index=frame.index,
+            name=frame.name,
         )
     if fill_method not in (None, "none"):
         raise ValueError("fill_method applies only to pandas objects")
@@ -128,9 +128,7 @@ def _frame_to_returns(
     if array.ndim == 1:
         return qflux.returns(array, log=log)
     if array.ndim == 2:
-        return np.column_stack(
-            [qflux.returns(array[:, j], log=log) for j in range(array.shape[1])]
-        )
+        return qflux.returns_panel(array, log=log)
     raise ValueError("prices must be 1D or 2D")
 
 
@@ -209,6 +207,28 @@ def _assemble_provider_frame(series: list[Any], source: str, pd: Any) -> Any:
     return frame
 
 
+def _load_provider_series(
+    requested: list[str],
+    source: str,
+    date_column: str,
+    price_column: str,
+    fetch: Callable[[str], Any],
+    pd: Any,
+) -> Any:
+    series = []
+    for symbol in requested:
+        try:
+            raw = fetch(symbol)
+        except Exception as exc:  # pragma: no cover - network/provider path
+            raise DataSourceError(f"{source} failed for {symbol}: {exc}") from exc
+        series.append(
+            _provider_series(
+                raw, symbol, source, date_column, price_column, pd
+            )
+        )
+    return _assemble_provider_frame(series, source, pd)
+
+
 def load_akshare(
     symbols: str | Sequence[str],
     *,
@@ -227,25 +247,23 @@ def load_akshare(
     ak = _akshare()
     requested = _as_sequence(symbols, "symbols")
     start_date = _compact_date(start, "19700101", "akshare start")
-    end_date = _compact_date(end, datetime.now().strftime("%Y%m%d"), "akshare end")
-    series = []
-    for symbol in requested:
-        try:
-            raw = ak.stock_zh_a_hist(
-                symbol=symbol,
-                period=period,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,
-            )
-        except Exception as exc:  # pragma: no cover - network/provider path
-            raise DataSourceError(
-                f"akshare failed for {symbol}: {exc}"
-            ) from exc
-        series.append(
-            _provider_series(raw, symbol, "akshare", "日期", price_column, pd)
-        )
-    return _assemble_provider_frame(series, "akshare", pd)
+    end_date = _compact_date(
+        end, datetime.now().strftime("%Y%m%d"), "akshare end"
+    )
+    return _load_provider_series(
+        requested,
+        "akshare",
+        "日期",
+        price_column,
+        lambda symbol: ak.stock_zh_a_hist(
+            symbol=symbol,
+            period=period,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        ),
+        pd,
+    )
 
 
 def load_tushare(
@@ -275,24 +293,19 @@ def load_tushare(
         pro = ts.pro_api(token) if token else ts.pro_api()
     except Exception as exc:  # pragma: no cover - provider path
         raise DataSourceError(f"tushare client setup failed: {exc}") from exc
-    series = []
-    for symbol in requested:
-        try:
-            raw = pro.daily(
-                ts_code=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                **daily_kwargs,
-            )
-        except Exception as exc:  # pragma: no cover - network/provider path
-            raise DataSourceError(
-                f"tushare failed for {symbol}: {exc}"
-            ) from exc
-        series.append(
-            _provider_series(raw, symbol, "tushare", "trade_date",
-                             price_column, pd)
-        )
-    return _assemble_provider_frame(series, "tushare", pd)
+    return _load_provider_series(
+        requested,
+        "tushare",
+        "trade_date",
+        price_column,
+        lambda symbol: pro.daily(
+            ts_code=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            **daily_kwargs,
+        ),
+        pd,
+    )
 
 
 def load_yfinance(

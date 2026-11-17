@@ -2,7 +2,7 @@
 # intentionally small and is used for local tests and examples.
 #
 #   make            shared library, static C++ core, examples
-#   make check      C ABI tests, C++ core tests, Python tests
+#   make check      C ABI, C++ core, Python, version and docs checks
 #   make examples   build C and C++ example programs
 #   make clean
 
@@ -41,7 +41,7 @@ RPATH := -Wl,-rpath,$(abspath $(BUILD))
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
 TESTS    := $(BUILD)/test_capi $(BUILD)/test_cpp
 
-.PHONY: all libs shared examples check c-test cpp-test python-test python-lib docs-check clean
+.PHONY: all libs shared examples check c-test cpp-test python-test python-lib version-check docs-check clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -92,10 +92,13 @@ python-lib: $(SHARED_LIB)
 	cp $(SHARED_LIB) python/rflux/_lib/
 	@echo "copied $(SHARED_LIB) -> python/rflux/_lib/"
 
+version-check:
+	$(PYTHON) scripts/check_version.py
+
 docs-check:
 	$(PYTHON) scripts/check_docs.py
 
-check: c-test cpp-test python-test docs-check
+check: c-test cpp-test python-test version-check docs-check
 
 clean:
 	rm -rf $(BUILD)

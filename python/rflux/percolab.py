@@ -161,9 +161,7 @@ def _components_from_summary(
     )
 
 
-def correlation_to_distance(correlation: Any) -> np.ndarray:
-    """Mantegna distance ``sqrt(2 * (1 - rho))``."""
-    matrix = as_square(correlation, "correlation")
+def _distance_matrix(matrix: np.ndarray) -> np.ndarray:
     n = matrix.shape[0]
     out = call_vector(
         "rflux_corr_to_distance", n * n, get_lib().rflux_corr_to_distance,
@@ -171,9 +169,12 @@ def correlation_to_distance(correlation: Any) -> np.ndarray:
     return out.reshape(n, n)
 
 
-def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
-    """Connected components of edges with weight >= threshold."""
-    matrix = as_square(adjacency, "adjacency")
+def correlation_to_distance(correlation: Any) -> np.ndarray:
+    """Mantegna distance ``sqrt(2 * (1 - rho))``."""
+    return _distance_matrix(as_square(correlation, "correlation"))
+
+
+def _components_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
     n = matrix.shape[0]
     labels = np.empty(n, dtype=np.int32)
     n_components = ctypes.c_size_t(0)
@@ -192,47 +193,62 @@ def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
     return _components_from_summary(labels, n_components.value, largest.value)
 
 
-def network_strength(adjacency: Any) -> np.ndarray:
-    """Weighted degree (sum of off-diagonal non-negative weights)."""
-    matrix = as_square(adjacency, "adjacency")
+def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
+    """Connected components of edges with weight >= threshold."""
+    return _components_matrix(as_square(adjacency, "adjacency"), threshold)
+
+
+def _strength_matrix(matrix: np.ndarray) -> np.ndarray:
     return call_vector(
         "rflux_network_strength", matrix.shape[0],
         get_lib().rflux_network_strength, double_ptr(matrix), matrix.shape[0])
 
 
+def network_strength(adjacency: Any) -> np.ndarray:
+    """Weighted degree (sum of off-diagonal non-negative weights)."""
+    return _strength_matrix(as_square(adjacency, "adjacency"))
+
+
+def _centrality_matrix(matrix: np.ndarray, kind_value: int) -> np.ndarray:
+    return call_vector(
+        "rflux_network_centrality", matrix.shape[0],
+        get_lib().rflux_network_centrality,
+        double_ptr(matrix), matrix.shape[0], kind_value)
+
+
 def centrality(adjacency: Any, kind: str = "eigenvector") -> np.ndarray:
     """``degree`` or L2-normalised ``eigenvector`` centrality."""
-    matrix = as_square(adjacency, "adjacency")
     kinds = {"degree": 0, "eigenvector": 1}
     try:
         value = kinds[str(kind).lower()]
     except KeyError as exc:
         raise ValueError("kind must be 'degree' or 'eigenvector'") from exc
-    return call_vector(
-        "rflux_network_centrality", matrix.shape[0],
-        get_lib().rflux_network_centrality,
-        double_ptr(matrix), matrix.shape[0], value)
+    return _centrality_matrix(as_square(adjacency, "adjacency"), value)
 
 
-def clustering(adjacency: Any) -> np.ndarray:
-    """Local unweighted clustering coefficient; NaN when degree < 2."""
-    matrix = as_square(adjacency, "adjacency")
+def _clustering_matrix(matrix: np.ndarray) -> np.ndarray:
     return call_vector(
         "rflux_network_clustering", matrix.shape[0],
         get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
 
 
-def transitivity(adjacency: Any) -> float:
-    """Global clustering coefficient ``3 * triangles / connected triples``."""
-    matrix = as_square(adjacency, "adjacency")
+def clustering(adjacency: Any) -> np.ndarray:
+    """Local unweighted clustering coefficient; NaN when degree < 2."""
+    return _clustering_matrix(as_square(adjacency, "adjacency"))
+
+
+def _transitivity_matrix(matrix: np.ndarray) -> float:
     return call_scalar(
         "rflux_network_transitivity", get_lib().rflux_network_transitivity,
         double_ptr(matrix), matrix.shape[0])
 
 
-def path_statistics(adjacency: Any) -> PathStats:
-    """Shortest-path efficiency, average path length and diameter."""
-    matrix = as_square(adjacency, "adjacency")
+def transitivity(adjacency: Any) -> float:
+    """Global clustering coefficient ``3 * triangles / connected triples``."""
+    return _transitivity_matrix(as_square(adjacency, "adjacency"))
+
+
+def _path_statistics_matrix(matrix: np.ndarray) -> PathStats:
     efficiency = ctypes.c_double(0.0)
     average = ctypes.c_double(0.0)
     diameter = ctypes.c_size_t(0)
@@ -259,9 +275,12 @@ def path_statistics(adjacency: Any) -> PathStats:
     )
 
 
-def core_numbers(adjacency: Any) -> np.ndarray:
-    """k-core number of every node (isolated nodes receive zero)."""
-    matrix = as_square(adjacency, "adjacency")
+def path_statistics(adjacency: Any) -> PathStats:
+    """Shortest-path efficiency, average path length and diameter."""
+    return _path_statistics_matrix(as_square(adjacency, "adjacency"))
+
+
+def _core_numbers_matrix(matrix: np.ndarray) -> np.ndarray:
     return call_i32(
         "rflux_network_core_numbers", matrix.shape[0],
         get_lib().rflux_network_core_numbers,
@@ -269,12 +288,20 @@ def core_numbers(adjacency: Any) -> np.ndarray:
     )
 
 
-def assortativity(adjacency: Any) -> float:
-    """Newman degree assortativity; NaN for empty or regular graphs."""
-    matrix = as_square(adjacency, "adjacency")
+def core_numbers(adjacency: Any) -> np.ndarray:
+    """k-core number of every node (isolated nodes receive zero)."""
+    return _core_numbers_matrix(as_square(adjacency, "adjacency"))
+
+
+def _assortativity_matrix(matrix: np.ndarray) -> float:
     return call_scalar(
         "rflux_network_assortativity", get_lib().rflux_network_assortativity,
         double_ptr(matrix), matrix.shape[0])
+
+
+def assortativity(adjacency: Any) -> float:
+    """Newman degree assortativity; NaN for empty or regular graphs."""
+    return _assortativity_matrix(as_square(adjacency, "adjacency"))
 
 
 def modularity(adjacency: Any, labels: Any) -> float:
@@ -297,13 +324,16 @@ def modularity(adjacency: Any, labels: Any) -> float:
         double_ptr(matrix), n, int32_ptr(contiguous), communities.size)
 
 
-def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
-    """Brandes betweenness for an undirected unweighted graph."""
-    matrix = as_square(adjacency, "adjacency")
+def _betweenness_matrix(matrix: np.ndarray, normalized: bool) -> np.ndarray:
     return call_vector(
         "rflux_network_betweenness", matrix.shape[0],
         get_lib().rflux_network_betweenness,
         double_ptr(matrix), matrix.shape[0], 1 if normalized else 0)
+
+
+def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
+    """Brandes betweenness for an undirected unweighted graph."""
+    return _betweenness_matrix(as_square(adjacency, "adjacency"), normalized)
 
 
 def pagerank(
@@ -320,9 +350,7 @@ def pagerank(
         as_size(max_iter, "max_iter"), float(tol))
 
 
-def mst_from_distance(distance: Any) -> MSTResult:
-    """Minimum spanning tree of a complete symmetric distance matrix."""
-    matrix = as_square(distance, "distance")
+def _mst_matrix(matrix: np.ndarray) -> MSTResult:
     n = matrix.shape[0]
     n_edges = ctypes.c_size_t(0)
     if n <= 1:
@@ -353,19 +381,20 @@ def mst_from_distance(distance: Any) -> MSTResult:
     return MSTResult(u[:count].copy(), v[:count].copy(), weights[:count].copy())
 
 
+def mst_from_distance(distance: Any) -> MSTResult:
+    """Minimum spanning tree of a complete symmetric distance matrix."""
+    return _mst_matrix(as_square(distance, "distance"))
+
+
 def mst_from_correlation(correlation: Any) -> MSTResult:
     """Correlation-distance minimum spanning tree."""
-    return mst_from_distance(correlation_to_distance(correlation))
+    matrix = as_square(correlation, "correlation")
+    return _mst_matrix(_distance_matrix(matrix))
 
 
-def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
-    """Single-linkage clusters obtained by cutting the MST above ``threshold``.
-
-    Nodes stay connected when every edge on their MST path has distance
-    ``<= threshold``; this equals connected components of all edges with
-    distance ``<= threshold``.
-    """
-    matrix = as_square(distance, "distance")
+def _mst_clusters_matrix(
+    matrix: np.ndarray, threshold: float
+) -> GraphComponents:
     n = matrix.shape[0]
     labels = np.empty(n, dtype=np.int32)
     n_components = ctypes.c_size_t(0)
@@ -382,6 +411,16 @@ def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
         "rflux_mst_clusters",
     )
     return _components_from_summary(labels, n_components.value, largest.value)
+
+
+def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
+    """Single-linkage clusters obtained by cutting the MST above ``threshold``.
+
+    Nodes stay connected when every edge on their MST path has distance
+    ``<= threshold``; this equals connected components of all edges with
+    distance ``<= threshold``.
+    """
+    return _mst_clusters_matrix(as_square(distance, "distance"), threshold)
 
 
 def _occupation_inputs(
@@ -563,6 +602,29 @@ def cluster_size_distribution(
     return out
 
 
+def _removal_order_matrix(matrix: np.ndarray, strategy: str) -> np.ndarray:
+    normalized = str(strategy).strip().lower()
+    if normalized == "strength":
+        scores = _strength_matrix(matrix)
+    elif normalized == "degree":
+        mask = matrix > 0.0
+        np.fill_diagonal(mask, False)
+        scores = mask.sum(axis=1).astype(np.float64)
+    elif normalized == "eigenvector":
+        scores = _centrality_matrix(matrix, 1)
+    elif normalized == "betweenness":
+        scores = _betweenness_matrix(matrix, False)
+    elif normalized == "core":
+        scores = -_core_numbers_matrix(matrix).astype(np.float64)
+    else:
+        raise ValueError(
+            "strategy must be 'strength', 'degree', 'eigenvector', "
+            "'betweenness' or 'core'"
+        )
+    order = np.argsort(-scores, kind="stable")
+    return np.ascontiguousarray(order, dtype=np.uint32)
+
+
 def removal_order(adjacency: Any, strategy: str = "strength") -> np.ndarray:
     """Return a deterministic node-removal permutation.
 
@@ -571,27 +633,7 @@ def removal_order(adjacency: Any, strategy: str = "strength") -> np.ndarray:
     centrality, ``betweenness`` the largest Brandes betweenness and ``core``
     the lowest core number.  Ties keep ascending node order.
     """
-    matrix = as_square(adjacency, "adjacency")
-    normalized = str(strategy).strip().lower()
-    if normalized == "strength":
-        scores = network_strength(matrix)
-    elif normalized == "degree":
-        mask = matrix > 0.0
-        np.fill_diagonal(mask, False)
-        scores = mask.sum(axis=1).astype(np.float64)
-    elif normalized == "eigenvector":
-        scores = centrality(matrix, "eigenvector")
-    elif normalized == "betweenness":
-        scores = betweenness(matrix, normalized=False)
-    elif normalized == "core":
-        scores = -core_numbers(matrix).astype(np.float64)
-    else:
-        raise ValueError(
-            "strategy must be 'strength', 'degree', 'eigenvector', "
-            "'betweenness' or 'core'"
-        )
-    order = np.argsort(-scores, kind="stable")
-    return np.ascontiguousarray(order, dtype=np.uint32)
+    return _removal_order_matrix(as_square(adjacency, "adjacency"), strategy)
 
 
 def targeted_removal(
@@ -612,7 +654,7 @@ def targeted_removal(
     n = matrix.shape[0]
     checkpoints = as_size(checkpoints, "checkpoints")
     if order is None:
-        order_array = removal_order(matrix, strategy)
+        order_array = _removal_order_matrix(matrix, strategy)
     else:
         order_array = as_u32_1d(order, "order")
         if order_array.size != n:
@@ -654,7 +696,7 @@ def core_percolation(adjacency: Any) -> CoreScan:
     bootstrap percolation process.
     """
     matrix = as_square(adjacency, "adjacency")
-    core = core_numbers(matrix)
+    core = _core_numbers_matrix(matrix)
     n = core.size
     maximum = int(core.max()) if n else 0
     ks = np.arange(1, maximum + 1, dtype=np.int64)
@@ -727,11 +769,9 @@ def risk_diffusion(
     return DiffusionResult(mean_affected, infection_frequency)
 
 
-def correlation_adjacency(
-    correlation: Any, threshold: float = 0.5, *, weighted: bool = True
+def _adjacency_matrix(
+    matrix: np.ndarray, threshold: float, *, weighted: bool = True
 ) -> np.ndarray:
-    """Threshold a correlation matrix into a non-negative adjacency matrix."""
-    matrix = as_square(correlation, "correlation")
     if not 0.0 < float(threshold) <= 1.0:
         raise ValueError("threshold must be in (0, 1]")
     if not np.all(np.isfinite(matrix)):
@@ -751,35 +791,40 @@ def correlation_adjacency(
     return np.ascontiguousarray(adjacency)
 
 
+def correlation_adjacency(
+    correlation: Any, threshold: float = 0.5, *, weighted: bool = True
+) -> np.ndarray:
+    """Threshold a correlation matrix into a non-negative adjacency matrix."""
+    return _adjacency_matrix(
+        as_square(correlation, "correlation"), threshold, weighted=weighted
+    )
+
+
 def network_from_correlation(
     correlation: Any, threshold: float = 0.5
 ) -> CorrelationNetwork:
     """Build a full correlation network summary from a correlation matrix."""
-    matrix = np.ascontiguousarray(
-        np.asarray(correlation, dtype=np.float64), dtype=np.float64
-    )
-    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
-        raise ValueError("correlation must be a square matrix")
+    matrix = as_square(correlation, "correlation")
     n = matrix.shape[0]
-    adjacency = correlation_adjacency(matrix, threshold)
-    distance = correlation_to_distance(matrix)
-    components = threshold_components(adjacency, float(threshold))
-    strength_values = network_strength(adjacency)
-    eigenvector_values = centrality(adjacency, "eigenvector")
-    clustering_values = clustering(adjacency)
+    adjacency = _adjacency_matrix(matrix, threshold)
+    distance = _distance_matrix(matrix)
+    components = _components_matrix(adjacency, float(threshold))
+    strength_values = _strength_matrix(adjacency)
+    eigenvector_values = _centrality_matrix(adjacency, 1)
+    clustering_values = _clustering_matrix(adjacency)
     finite_clustering = clustering_values[np.isfinite(clustering_values)]
     average_clustering = (
         float(finite_clustering.mean()) if finite_clustering.size else float("nan")
     )
-    tree = mst_from_distance(distance)
+    tree = _mst_matrix(distance)
     n_edges = int(np.count_nonzero(np.triu(adjacency, 1) > 0.0))
     density = (
         2.0 * n_edges / (n * (n - 1)) if n > 1 else 0.0
     )
-    path = path_statistics(adjacency)
-    cores = core_numbers(adjacency)
-    global_clustering = transitivity(adjacency)
-    degree_assortativity = assortativity(adjacency)
+    path = _path_statistics_matrix(adjacency)
+    cores = _core_numbers_matrix(adjacency)
+    global_clustering = _transitivity_matrix(adjacency)
+    degree_assortativity = _assortativity_matrix(adjacency)
     return CorrelationNetwork(
         correlation=matrix.copy(),
         adjacency=adjacency,

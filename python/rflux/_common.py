@@ -87,6 +87,48 @@ def as_u32_1d(values: Any, name: str = "values") -> np.ndarray:
     return np.ascontiguousarray(array, dtype=np.uint32)
 
 
+def as_f64_panel(
+    values: Any,
+    name: str = "panel",
+    *,
+    min_rows: int = 1,
+    min_columns: int = 1,
+) -> np.ndarray:
+    """Normalize a 1D series or 2D panel to a contiguous observation panel."""
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim == 1:
+        array = array.reshape(-1, 1)
+    if array.ndim != 2:
+        raise ValueError(f"{name} must be 1D or 2D, got shape {array.shape}")
+    if array.shape[0] < min_rows or array.shape[1] < min_columns:
+        raise ValueError(
+            f"{name} must have at least {min_rows} rows and "
+            f"{min_columns} columns"
+        )
+    return np.ascontiguousarray(array)
+
+
+def as_finite_float(value: Any, name: str) -> float:
+    number = float(value)
+    if not np.isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
+def as_positive_float(value: Any, name: str) -> float:
+    number = as_finite_float(value, name)
+    if number <= 0.0:
+        raise ValueError(f"{name} must be positive")
+    return number
+
+
+def as_open_unit_float(value: Any, name: str) -> float:
+    number = as_finite_float(value, name)
+    if not 0.0 < number < 1.0:
+        raise ValueError(f"{name} must be in (0, 1)")
+    return number
+
+
 def as_square(values: Any, name: str = "matrix") -> np.ndarray:
     array = as_f64_2d(values, name)
     if array.shape[0] != array.shape[1]:

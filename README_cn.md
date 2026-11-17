@@ -367,7 +367,7 @@ docs/                  ABI、方法和扩展说明
 make check
 ```
 
-测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法（最短路径、k-core、传递性、同配性、模块度和 MST 聚类）、渗流端点与通用扫描、簇大小分布、定向移除、扩散边界和 Python 回测。`make check` 还会检查 Markdown 链接、代码围栏和 GitHub 公式分隔符。
+测试覆盖 C ABI 的缓冲区/错误码、指标的已知值、缺失数据下的相关矩阵、HMM 拟合与因果性、状态对齐、样本外评分、图算法（最短路径、k-core、传递性、同配性、模块度和 MST 聚类）、渗流端点与通用扫描、簇大小分布、定向移除、扩散边界和 Python 回测。`make check` 还会检查版本声明、Markdown 链接、代码围栏和 GitHub 公式分隔符。
 
 GitHub Actions 在 Linux 和 macOS 上运行 Make、CMake/CTest 测试，并在 Linux 上实际运行因子、HMM walk-forward、网络和 C/C++ 示例。
 

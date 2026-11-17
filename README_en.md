@@ -362,7 +362,7 @@ docs/                ABI, methods and extension notes
 make check
 ```
 
-The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms (shortest paths, k-cores, transitivity, assortativity, modularity and MST clustering), percolation endpoints and generalized scans, cluster-size distributions, targeted removal, diffusion bounds and the Python backtest helpers. `make check` also verifies Markdown links, code fences and GitHub math delimiters.
+The tests cover C ABI buffer/error handling, known indicator values, pairwise-complete correlations with missing data, HMM fitting and causality, state alignment, out-of-sample scoring, graph algorithms (shortest paths, k-cores, transitivity, assortativity, modularity and MST clustering), percolation endpoints and generalized scans, cluster-size distributions, targeted removal, diffusion bounds and the Python backtest helpers. `make check` also verifies version declarations, Markdown links, code fences and GitHub math delimiters.
 
 GitHub Actions runs Make and CMake/CTest tests on Linux and macOS, and executes the factor, walk-forward HMM, network and C/C++ examples on Linux.
 

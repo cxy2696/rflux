@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from . import qflux
-from ._common import as_f64_1d, as_f64_2d, as_size
+from ._common import as_f64_1d, as_f64_2d, as_positive_float, as_size
 from .metrics import PerformanceMetrics, performance_summary
 
 
@@ -92,6 +92,16 @@ def _buckets(
     ]
 
 
+def _bucket_means(
+    forward_row: np.ndarray, buckets: list[np.ndarray]
+) -> np.ndarray:
+    means = np.full(len(buckets), np.nan, dtype=np.float64)
+    for index, members in enumerate(buckets):
+        if members.size:
+            means[index] = float(np.mean(forward_row[members]))
+    return means
+
+
 def quantile_portfolio_returns(
     factor: Any, forward_returns_: Any, n_quantiles: int = 5
 ) -> np.ndarray:
@@ -105,11 +115,7 @@ def quantile_portfolio_returns(
     out = np.full((q, factor_array.shape[0]), np.nan)
     for t in range(factor_array.shape[0]):
         buckets = _buckets(factor_array[t], forward_array[t], q)
-        for bucket_index, members in enumerate(buckets):
-            if members.size:
-                out[bucket_index, t] = float(
-                    np.mean(forward_array[t, members])
-                )
+        out[:, t] = _bucket_means(forward_array[t], buckets)
     return out
 
 
@@ -150,7 +156,9 @@ def summarize_ic(ic: Any) -> ICSummary:
         return ICSummary(float("nan"), float("nan"), float("nan"), float("nan"), 0)
     std = float(np.std(finite, ddof=1)) if finite.size >= 2 else float("nan")
     mean = float(np.mean(finite))
-    information_ratio = mean / std if std and std > 0 and np.isfinite(std) else float("nan")
+    information_ratio = (
+        mean / std if std and std > 0 and np.isfinite(std) else float("nan")
+    )
     return ICSummary(
         mean=mean,
         std=std,
@@ -188,8 +196,7 @@ def long_short_backtest(
     q = as_size(n_quantiles, "n_quantiles", minimum=2)
     if not np.isfinite(cost_bps) or cost_bps < 0.0:
         raise ValueError("cost_bps must be finite and non-negative")
-    if not np.isfinite(periods_per_year) or periods_per_year <= 0.0:
-        raise ValueError("periods_per_year must be finite and positive")
+    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
     periods, assets = factor_array.shape
 
@@ -202,11 +209,7 @@ def long_short_backtest(
     for t in range(periods):
         buckets = _buckets(factor_array[t], forward_array[t], q)
         non_empty = [bucket for bucket in buckets if bucket.size]
-        for bucket_index, members in enumerate(buckets):
-            if members.size:
-                quantile_returns[bucket_index, t] = float(
-                    np.mean(forward_array[t, members])
-                )
+        quantile_returns[:, t] = _bucket_means(forward_array[t], buckets)
 
         weights = np.zeros(assets, dtype=np.float64)
         if len(non_empty) >= 2:

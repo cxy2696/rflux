@@ -8,7 +8,13 @@ from typing import Any
 import numpy as np
 
 from . import qflux
-from ._common import as_f64_1d, as_size
+from ._common import (
+    as_f64_1d,
+    as_finite_float,
+    as_open_unit_float,
+    as_positive_float,
+    as_size,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +73,9 @@ def performance_summary(
     finite = data[np.isfinite(data)]
     if finite.size < 2:
         raise ValueError("at least two finite returns are required")
-    if not (np.isfinite(periods_per_year) and periods_per_year > 0):
-        raise ValueError("periods_per_year must be positive")
+    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
+    risk_free = as_finite_float(risk_free, "risk_free")
+    confidence = as_open_unit_float(confidence, "confidence")
     elapsed = (
         int(data.size)
         if periods is None

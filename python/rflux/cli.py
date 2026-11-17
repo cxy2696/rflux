@@ -15,7 +15,12 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ._ffi import LibraryNotFoundError, RFluxError, abi_version, get_lib, native_version
+from ._ffi import (
+    LibraryNotFoundError,
+    abi_version,
+    get_lib,
+    native_version,
+)
 from ._version import __version__
 from . import qflux
 from .analysis import analyze_prices
@@ -216,6 +221,14 @@ def read_price_csv(
     )
 
 
+def _read_args_prices(args: argparse.Namespace) -> PriceFile:
+    return read_price_csv(
+        args.path,
+        date_column=args.date_column,
+        delimiter=args.delimiter,
+    )
+
+
 def _format_value(
     value: Any, *, percent: bool = False, width: int = 9, signed: bool = True
 ) -> str:
@@ -227,6 +240,29 @@ def _format_value(
     if isinstance(value, float):
         return f"{value:.3f}".rjust(width)
     return str(value).rjust(width)
+
+
+def _add_date_metadata(report: dict[str, Any], parsed: PriceFile) -> None:
+    if parsed.dates:
+        report["input"]["date_start"] = parsed.dates[0]
+        report["input"]["date_end"] = parsed.dates[-1]
+    report["input"]["warnings"] = parsed.warnings
+
+
+def _append_footer(lines: list[str], parsed: PriceFile) -> None:
+    if parsed.dates:
+        lines.append(f"date range: {parsed.dates[0]} .. {parsed.dates[-1]}")
+    if parsed.warnings:
+        lines.append("")
+        lines.extend(f"warning: {message}" for message in parsed.warnings)
+
+
+def _emit_output(output: str, destination: str | None) -> None:
+    if destination:
+        Path(destination).write_text(output + "\n", encoding="utf-8")
+        print(f"wrote {destination}")
+    else:
+        print(output)
 
 
 def _format_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
@@ -292,13 +328,7 @@ def _format_text(report: dict[str, Any], source: str, parsed: PriceFile) -> str:
             f"HMM: states={hmm['states']}, latest={hmm['latest_state']}, "
             f"filtered=[{latest}], converged={hmm['converged']}"
         )
-    if parsed.dates:
-        lines.append(
-            f"date range: {parsed.dates[0]} .. {parsed.dates[-1]}"
-        )
-    if parsed.warnings:
-        lines.append("")
-        lines.extend(f"warning: {message}" for message in parsed.warnings)
+    _append_footer(lines, parsed)
     if report["errors"]:
         lines.append("")
         lines.extend(f"note: {message}" for message in report["errors"])
@@ -361,29 +391,19 @@ def _format_risk_text(report: dict[str, Any], source: str, parsed: PriceFile) ->
         f"Sharpe={_format_value(metrics['sharpe']).strip()}, "
         f"maxDD={_format_value(metrics['max_drawdown'], percent=True).strip()}"
     )
-    if parsed.dates:
-        lines.append(f"date range: {parsed.dates[0]} .. {parsed.dates[-1]}")
-    if parsed.warnings:
-        lines.append("")
-        lines.extend(f"warning: {message}" for message in parsed.warnings)
+    _append_footer(lines, parsed)
     return "\n".join(lines)
 
 
 def _command_risk(args: argparse.Namespace) -> int:
-    parsed = read_price_csv(
-        args.path,
-        date_column=args.date_column,
-        delimiter=args.delimiter,
-    )
+    parsed = _read_args_prices(args)
     weights = _parse_weights(args.weights)
     if len(weights) != len(parsed.names):
         raise ValueError(
             f"got {len(weights)} weights for {len(parsed.names)} assets: "
             f"{parsed.names}"
         )
-    return_panel = np.column_stack(
-        [qflux.returns(parsed.prices[:, column]) for column in range(parsed.prices.shape[1])]
-    )
+    return_panel = qflux.returns_panel(parsed.prices)
     report = portfolio_risk(
         return_panel,
         weights,
@@ -392,66 +412,62 @@ def _command_risk(args: argparse.Namespace) -> int:
         risk_free=args.risk_free,
         confidence=args.confidence,
     )
-    if parsed.dates:
-        report["input"]["date_start"] = parsed.dates[0]
-        report["input"]["date_end"] = parsed.dates[-1]
+    _add_date_metadata(report, parsed)
     report["input"]["source"] = str(args.path)
-    report["input"]["warnings"] = parsed.warnings
     output = (
         json.dumps(report, ensure_ascii=False, indent=2)
         if args.format == "json"
         else _format_risk_text(report, str(args.path), parsed)
     )
-    if args.output:
-        Path(args.output).write_text(output + "\n", encoding="utf-8")
-        print(f"wrote {args.output}")
-    else:
-        print(output)
+    _emit_output(output, args.output)
     return 0
 
 
-def _doctor_payload() -> tuple[dict[str, Any], bool]:
-    payload: dict[str, Any] = {
-        "python_version": __version__,
-        "native": {"loaded": False},
-        "optional": {},
-    }
-    ok = True
+def _native_info() -> dict[str, Any]:
     try:
         lib = get_lib()
-        payload["native"] = {
+        return {
             "loaded": True,
             "version": native_version(),
             "abi_version": abi_version(),
             "path": getattr(lib, "_name", None),
         }
     except (LibraryNotFoundError, OSError, ImportError) as exc:
-        ok = False
-        payload["native"]["error"] = str(exc)
+        return {"loaded": False, "error": str(exc)}
+
+
+def _doctor_payload() -> tuple[dict[str, Any], bool]:
+    native = _native_info()
+    payload: dict[str, Any] = {
+        "python_version": __version__,
+        "native": native,
+        "optional": {},
+    }
     for module in ("numpy", "pandas", "akshare", "yfinance"):
         payload["optional"][module] = importlib.util.find_spec(module) is not None
-    return payload, ok
+    return payload, bool(native["loaded"])
 
 
 def _command_version(as_json: bool) -> int:
+    native = _native_info()
     payload: dict[str, Any] = {"version": __version__}
-    try:
-        payload["native_version"] = native_version()
-        payload["abi_version"] = abi_version()
-    except (LibraryNotFoundError, OSError, ImportError) as exc:
-        payload["native_error"] = str(exc)
+    if native["loaded"]:
+        payload["native_version"] = native["version"]
+        payload["abi_version"] = native["abi_version"]
+    else:
+        payload["native_error"] = native["error"]
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"rflux {payload['version']}")
-        if "native_version" in payload:
+        if native["loaded"]:
             print(
                 f"native library {payload['native_version']} "
                 f"(ABI {payload['abi_version']})"
             )
         else:
             print(f"native library error: {payload['native_error']}")
-    return 0 if "native_error" not in payload else 1
+    return 0 if native["loaded"] else 1
 
 
 def _command_doctor(as_json: bool) -> int:
@@ -475,11 +491,7 @@ def _command_doctor(as_json: bool) -> int:
 
 
 def _command_analyze(args: argparse.Namespace) -> int:
-    parsed = read_price_csv(
-        args.path,
-        date_column=args.date_column,
-        delimiter=args.delimiter,
-    )
+    parsed = _read_args_prices(args)
     report = analyze_prices(
         parsed.prices,
         names=parsed.names,
@@ -493,21 +505,14 @@ def _command_analyze(args: argparse.Namespace) -> int:
         network_threshold=args.threshold,
         seed=args.seed,
     )
-    if parsed.dates:
-        report["input"]["date_start"] = parsed.dates[0]
-        report["input"]["date_end"] = parsed.dates[-1]
-    report["input"]["warnings"] = parsed.warnings
+    _add_date_metadata(report, parsed)
     report["input"]["dropped_columns"] = parsed.dropped_columns
     output = (
         json.dumps(report, ensure_ascii=False, indent=2)
         if args.format == "json"
         else _format_text(report, str(args.path), parsed)
     )
-    if args.output:
-        Path(args.output).write_text(output + "\n", encoding="utf-8")
-        print(f"wrote {args.output}")
-    else:
-        print(output)
+    _emit_output(output, args.output)
     return 0
 
 
@@ -568,21 +573,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "doctor":
             return _command_doctor(args.json)
         if args.command == "analyze":
-            if args.states < 1 or args.max_iter < 1 or args.n_init < 1:
-                raise ValueError("states, max-iter and n-init must be positive")
             return _command_analyze(args)
         if args.command == "risk":
-            if args.periods_per_year <= 0.0:
-                raise ValueError("periods-per-year must be positive")
             return _command_risk(args)
         parser.error(f"unknown command {args.command}")
-    except (ValueError, OSError, RFluxError, ImportError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
     except Exception as exc:  # keep the CLI usable without a traceback
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    return 2
 
 
 if __name__ == "__main__":

@@ -62,20 +62,59 @@ def _one_input(values: Any, name: str = "values") -> np.ndarray:
     return as_f64_1d(values, name)
 
 
+def _series_call(
+    name: str, values: Any, *arguments: Any, input_name: str = "values"
+) -> np.ndarray:
+    """Call a native ``(data, n, ..., out)`` kernel and return a new array."""
+    data = _one_input(values, input_name)
+    return call_vector(
+        name, data.size, getattr(get_lib(), name),
+        double_ptr(data), data.size, *arguments)
+
+
+def _pair_inputs(
+    x: Any, y: Any, x_name: str = "x", y_name: str = "y"
+) -> tuple[np.ndarray, np.ndarray]:
+    xa = _one_input(x, x_name)
+    ya = _one_input(y, y_name)
+    if xa.size != ya.size:
+        raise ValueError(f"{x_name} and {y_name} must have equal lengths")
+    return xa, ya
+
+
+def _multi_output(
+    name: str,
+    count: int,
+    size: int,
+    function: Any,
+    *arguments: Any,
+) -> list[np.ndarray]:
+    outputs = [empty_f64(size) for _ in range(count)]
+    check(
+        function(*arguments, *(double_ptr(output) for output in outputs)),
+        name,
+    )
+    return outputs
+
+
 def returns(prices: Any, *, log: bool = False) -> np.ndarray:
     """Simple (default) or log returns; first element is NaN."""
-    values = _one_input(prices, "prices")
-    return call_vector(
-        "rflux_returns", values.size, get_lib().rflux_returns,
-        double_ptr(values), values.size, 1 if log else 0)
+    return _series_call(
+        "rflux_returns", prices, 1 if log else 0, input_name="prices")
+
+
+def returns_panel(prices: Any, *, log: bool = False) -> np.ndarray:
+    """Column-wise returns of an ``(observations, assets)`` price panel."""
+    panel = as_f64_2d(prices, "prices")
+    out = np.empty_like(panel, dtype=np.float64)
+    for column in range(panel.shape[1]):
+        out[:, column] = returns(panel[:, column], log=log)
+    return out
 
 
 def sma(values: Any, window: int) -> np.ndarray:
     """Simple moving average with a NaN warm-up of ``window - 1``."""
-    data = _one_input(values)
-    return call_vector(
-        "rflux_sma", data.size, get_lib().rflux_sma,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call("rflux_sma", values, as_size(window, "window"))
 
 
 def rolling_mean(values: Any, window: int) -> np.ndarray:
@@ -84,50 +123,36 @@ def rolling_mean(values: Any, window: int) -> np.ndarray:
 
 
 def rolling_sum(values: Any, window: int) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_sum", data.size, get_lib().rflux_rolling_sum,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call(
+        "rflux_rolling_sum", values, as_size(window, "window"))
 
 
 def rolling_std(values: Any, window: int, ddof: int = 0) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_std", data.size, get_lib().rflux_rolling_std,
-        double_ptr(data), data.size, as_size(window, "window"),
+    return _series_call(
+        "rflux_rolling_std", values, as_size(window, "window"),
         as_size(ddof, "ddof", minimum=0))
 
 
 def rolling_min(values: Any, window: int) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_min", data.size, get_lib().rflux_rolling_min,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call(
+        "rflux_rolling_min", values, as_size(window, "window"))
 
 
 def rolling_max(values: Any, window: int) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_max", data.size, get_lib().rflux_rolling_max,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call(
+        "rflux_rolling_max", values, as_size(window, "window"))
 
 
 def rolling_zscore(values: Any, window: int, ddof: int = 0) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_zscore", data.size, get_lib().rflux_rolling_zscore,
-        double_ptr(data), data.size, as_size(window, "window"),
+    return _series_call(
+        "rflux_rolling_zscore", values, as_size(window, "window"),
         as_size(ddof, "ddof", minimum=0))
 
 
-def rolling_quantile(
-    values: Any, window: int, q: float
-) -> np.ndarray:
+def rolling_quantile(values: Any, window: int, q: float) -> np.ndarray:
     """Rolling Type-7 quantile over complete windows."""
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_quantile", data.size, get_lib().rflux_rolling_quantile,
-        double_ptr(data), data.size, as_size(window, "window"), float(q))
+    return _series_call(
+        "rflux_rolling_quantile", values, as_size(window, "window"), float(q))
 
 
 def rolling_median(values: Any, window: int) -> np.ndarray:
@@ -137,64 +162,47 @@ def rolling_median(values: Any, window: int) -> np.ndarray:
 
 def ema(values: Any, span: int) -> np.ndarray:
     """EMA with alpha = 2/(span+1), seeded on the first finite value."""
-    data = _one_input(values)
-    return call_vector(
-        "rflux_ema", data.size, get_lib().rflux_ema,
-        double_ptr(data), data.size, as_size(span, "span"))
+    return _series_call("rflux_ema", values, as_size(span, "span"))
 
 
 def rsi(prices: Any, period: int = 14) -> np.ndarray:
-    data = _one_input(prices, "prices")
-    return call_vector(
-        "rflux_rsi", data.size, get_lib().rflux_rsi,
-        double_ptr(data), data.size, as_size(period, "period"))
+    return _series_call(
+        "rflux_rsi", prices, as_size(period, "period"), input_name="prices")
 
 
 def macd(
     prices: Any, fast: int = 12, slow: int = 26, signal: int = 9
 ) -> MACDResult:
     data = _one_input(prices, "prices")
-    n = data.size
-    macd_line = empty_f64(n)
-    signal_line = empty_f64(n)
-    histogram = empty_f64(n)
-    check(
-        get_lib().rflux_macd(
-            double_ptr(data),
-            n,
-            as_size(fast, "fast"),
-            as_size(slow, "slow"),
-            as_size(signal, "signal"),
-            double_ptr(macd_line),
-            double_ptr(signal_line),
-            double_ptr(histogram),
-        ),
+    outputs = _multi_output(
         "rflux_macd",
+        3,
+        data.size,
+        get_lib().rflux_macd,
+        double_ptr(data),
+        data.size,
+        as_size(fast, "fast"),
+        as_size(slow, "slow"),
+        as_size(signal, "signal"),
     )
-    return MACDResult(macd_line, signal_line, histogram)
+    return MACDResult(*outputs)
 
 
 def bollinger(
     prices: Any, window: int = 20, n_std: float = 2.0
 ) -> BollingerBands:
     data = _one_input(prices, "prices")
-    n = data.size
-    middle = empty_f64(n)
-    upper = empty_f64(n)
-    lower = empty_f64(n)
-    check(
-        get_lib().rflux_bollinger(
-            double_ptr(data),
-            n,
-            as_size(window, "window"),
-            float(n_std),
-            double_ptr(middle),
-            double_ptr(upper),
-            double_ptr(lower),
-        ),
+    outputs = _multi_output(
         "rflux_bollinger",
+        3,
+        data.size,
+        get_lib().rflux_bollinger,
+        double_ptr(data),
+        data.size,
+        as_size(window, "window"),
+        float(n_std),
     )
-    return BollingerBands(middle, upper, lower)
+    return BollingerBands(*outputs)
 
 
 def atr(
@@ -212,17 +220,12 @@ def atr(
 
 
 def drawdown(equity: Any) -> np.ndarray:
-    data = _one_input(equity, "equity")
-    return call_vector(
-        "rflux_drawdown", data.size, get_lib().rflux_drawdown,
-        double_ptr(data), data.size)
+    return _series_call(
+        "rflux_drawdown", equity, input_name="equity")
 
 
 def rolling_corr(x: Any, y: Any, window: int) -> np.ndarray:
-    xa = _one_input(x, "x")
-    ya = _one_input(y, "y")
-    if xa.size != ya.size:
-        raise ValueError("x and y must have equal lengths")
+    xa, ya = _pair_inputs(x, y)
     return call_vector(
         "rflux_rolling_corr", xa.size, get_lib().rflux_rolling_corr,
         double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"))
@@ -232,10 +235,7 @@ def rolling_cov(
     x: Any, y: Any, window: int, ddof: int = 0
 ) -> np.ndarray:
     """Rolling covariance over complete windows; ``ddof`` defaults to 0."""
-    xa = _one_input(x, "x")
-    ya = _one_input(y, "y")
-    if xa.size != ya.size:
-        raise ValueError("x and y must have equal lengths")
+    xa, ya = _pair_inputs(x, y)
     return call_vector(
         "rflux_rolling_cov", xa.size, get_lib().rflux_rolling_cov,
         double_ptr(xa), double_ptr(ya), xa.size, as_size(window, "window"),
@@ -244,27 +244,20 @@ def rolling_cov(
 
 def rolling_beta(asset: Any, benchmark: Any, window: int) -> np.ndarray:
     """Rolling OLS beta of ``asset`` on ``benchmark``; NaN for degenerate windows."""
-    y = _one_input(asset, "asset")
-    x = _one_input(benchmark, "benchmark")
-    if y.size != x.size:
-        raise ValueError("asset and benchmark must have equal lengths")
+    y, x = _pair_inputs(asset, benchmark, "asset", "benchmark")
     return call_vector(
         "rflux_rolling_beta", y.size, get_lib().rflux_rolling_beta,
         double_ptr(y), double_ptr(x), y.size, as_size(window, "window"))
 
 
 def rolling_slope(values: Any, window: int) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_slope", data.size, get_lib().rflux_rolling_slope,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call(
+        "rflux_rolling_slope", values, as_size(window, "window"))
 
 
 def rolling_r2(values: Any, window: int) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rolling_r2", data.size, get_lib().rflux_rolling_r2,
-        double_ptr(data), data.size, as_size(window, "window"))
+    return _series_call(
+        "rflux_rolling_r2", values, as_size(window, "window"))
 
 
 def describe(values: Any) -> Moments:
@@ -307,10 +300,7 @@ def quantile(values: Any, q: float) -> float:
 
 
 def pearson(x: Any, y: Any) -> float:
-    xa = _one_input(x, "x")
-    ya = _one_input(y, "y")
-    if xa.size != ya.size:
-        raise ValueError("x and y must have equal lengths")
+    xa, ya = _pair_inputs(x, y)
     return call_scalar(
         "rflux_pearson", get_lib().rflux_pearson,
         double_ptr(xa), double_ptr(ya), xa.size)
@@ -349,45 +339,37 @@ def sortino(
 def var_cvar(returns_: Any, confidence: float = 0.95) -> TailRisk:
     """Historical VaR/CVaR; both are positive losses and may be negative."""
     data = _one_input(returns_, "returns")
-    var = np.empty(1, dtype=np.float64)
-    cvar = np.empty(1, dtype=np.float64)
-    check(
-        get_lib().rflux_var_cvar(
-            double_ptr(data), data.size, float(confidence), double_ptr(var),
-            double_ptr(cvar)
-        ),
+    var, cvar = _multi_output(
         "rflux_var_cvar",
+        2,
+        1,
+        get_lib().rflux_var_cvar,
+        double_ptr(data),
+        data.size,
+        float(confidence),
     )
     return TailRisk(float(var[0]), float(cvar[0]))
 
 
 def rank(values: Any) -> np.ndarray:
     """Average ascending rank; ties share their mean rank, NaN stays NaN."""
-    data = _one_input(values)
-    return call_vector(
-        "rflux_rank", data.size, get_lib().rflux_rank,
-        double_ptr(data), data.size)
+    return _series_call("rflux_rank", values)
 
 
 def percentile_rank(values: Any) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_percentile_rank", data.size, get_lib().rflux_percentile_rank,
-        double_ptr(data), data.size)
+    return _series_call("rflux_percentile_rank", values)
 
 
 def zscore(values: Any, ddof: int = 0) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_zscore", data.size, get_lib().rflux_zscore,
-        double_ptr(data), data.size, as_size(ddof, "ddof", minimum=0))
+    return _series_call(
+        "rflux_zscore", values, as_size(ddof, "ddof", minimum=0))
 
 
-def winsorize(values: Any, lower_q: float = 0.01, upper_q: float = 0.99) -> np.ndarray:
-    data = _one_input(values)
-    return call_vector(
-        "rflux_winsorize", data.size, get_lib().rflux_winsorize,
-        double_ptr(data), data.size, float(lower_q), float(upper_q))
+def winsorize(
+    values: Any, lower_q: float = 0.01, upper_q: float = 0.99
+) -> np.ndarray:
+    return _series_call(
+        "rflux_winsorize", values, float(lower_q), float(upper_q))
 
 
 def neutralize(
@@ -425,6 +407,7 @@ __all__ = [
     "quantile",
     "rank",
     "returns",
+    "returns_panel",
     "rolling_beta",
     "rolling_corr",
     "rolling_cov",

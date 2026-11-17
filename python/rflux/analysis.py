@@ -2,44 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from typing import Any, Sequence
 
 import numpy as np
 
 from . import metrics, percolab, qflux, regimelab
-from ._common import asset_names as _asset_names
+from ._common import (
+    as_f64_panel,
+    as_finite_float,
+    as_positive_float,
+    as_size,
+    asset_names as _asset_names,
+)
 from ._ffi import abi_version, native_version
 from ._json import jsonable
 from ._version import __version__
 
 
-def _as_price_panel(prices: Any) -> np.ndarray:
-    array = np.asarray(prices, dtype=np.float64)
-    if array.ndim == 1:
-        array = array.reshape(-1, 1)
-    if array.ndim != 2 or array.shape[0] < 2 or array.shape[1] < 1:
-        raise ValueError("prices must be a 2D panel with at least 2 rows and 1 asset")
-    return np.ascontiguousarray(array)
+_SUMMARY_FIELDS = tuple(field.name for field in fields(metrics.PerformanceMetrics))
 
 
 def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[str, Any]:
     values = np.asarray(returns, dtype=np.float64)
     finite = values[np.isfinite(values)]
-    result: dict[str, Any] = {
-        "n_periods": int(finite.size),
-        "elapsed_periods": int(values.size),
-        "total_return": None,
-        "annualized_return": None,
-        "annualized_volatility": None,
-        "sharpe": None,
-        "sortino": None,
-        "max_drawdown": None,
-        "calmar": None,
-        "var": None,
-        "cvar": None,
-        "hit_rate": None,
-    }
+    result: dict[str, Any] = {field: None for field in _SUMMARY_FIELDS}
+    result["n_periods"] = int(finite.size)
+    result["elapsed_periods"] = int(values.size)
     if finite.size < 2:
         return result
     stats = metrics.performance_summary(
@@ -47,8 +36,7 @@ def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[st
         periods_per_year=periods_per_year,
         risk_free=risk_free,
     )
-    for key, value in asdict(stats).items():
-        result[key] = value
+    result.update(asdict(stats))
     return result
 
 
@@ -79,21 +67,19 @@ def analyze_prices(
     in those sections are listed under ``errors`` and do not hide the basic
     return statistics.
     """
-    panel = _as_price_panel(prices)
+    panel = as_f64_panel(prices, "prices", min_rows=2)
     n_obs, n_assets = panel.shape
     asset_names = _asset_names(names, n_assets)
-    if not (np.isfinite(periods_per_year) and periods_per_year > 0):
-        raise ValueError("periods_per_year must be positive")
-    if not np.isfinite(risk_free):
-        raise ValueError("risk_free must be finite")
-    if include_hmm and hmm_states < 1:
-        raise ValueError("hmm_states must be positive")
+    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
+    risk_free = as_finite_float(risk_free, "risk_free")
+    if include_hmm:
+        hmm_states = as_size(hmm_states, "hmm_states")
+        hmm_max_iter = as_size(hmm_max_iter, "hmm_max_iter")
+        hmm_n_init = as_size(hmm_n_init, "hmm_n_init")
     if include_network and not 0.0 < network_threshold <= 1.0:
         raise ValueError("network_threshold must be in (0, 1]")
 
-    returns = np.empty_like(panel)
-    for column in range(n_assets):
-        returns[:, column] = qflux.returns(panel[:, column])
+    returns = qflux.returns_panel(panel)
 
     counts = np.sum(np.isfinite(returns), axis=1)
     sums = np.nansum(returns, axis=1)
@@ -191,16 +177,17 @@ def analyze_prices(
             errors.append("HMM skipped: not enough finite market returns")
         else:
             model = None
+            observations = hmm_values.reshape(-1, 1)
             try:
                 model = regimelab.fit_hmm(
-                    hmm_values.reshape(-1, 1),
+                    observations,
                     n_states=hmm_states,
                     max_iter=hmm_max_iter,
                     n_init=hmm_n_init,
                     seed=seed,
                 )
                 fit = model.fit_info
-                filtered = model.filtered(hmm_values.reshape(-1, 1))
+                filtered = model.filtered(observations)
                 latest = filtered[-1]
                 forecast = model.forecast(latest, horizon=5)
                 parameters = model.parameters

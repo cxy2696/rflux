@@ -24,6 +24,15 @@ class TestLibraryAndIndicators(unittest.TestCase):
         self.assertTrue(np.isnan(sma[:2]).all())
         np.testing.assert_allclose(sma[2:], np.arange(2.0, 10.0))
 
+        panel = np.column_stack((prices, 2.0 * prices))
+        simple_panel = qflux.returns_panel(panel)
+        self.assertEqual(simple_panel.shape, panel.shape)
+        np.testing.assert_allclose(
+            simple_panel[:, 0], simple, equal_nan=True
+        )
+        log_panel = qflux.returns_panel(panel, log=True)
+        np.testing.assert_allclose(log_panel[:, 1], log, equal_nan=True)
+
     def test_ema_rsi_macd_bollinger_atr(self):
         prices = np.arange(1.0, 21.0)
         ema = qflux.ema(prices, 3)

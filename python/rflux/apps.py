@@ -15,7 +15,16 @@ from typing import Any, Sequence
 import numpy as np
 
 from . import metrics, qflux
-from ._common import as_f64_1d, as_i32_1d, as_size, asset_names as _asset_names
+from ._common import (
+    as_f64_1d,
+    as_f64_panel,
+    as_finite_float,
+    as_i32_1d,
+    as_open_unit_float,
+    as_positive_float,
+    as_size,
+    asset_names as _asset_names,
+)
 from ._json import jsonable
 from ._version import __version__
 
@@ -42,26 +51,19 @@ def portfolio_risk(
     satisfy ``sum(component_volatility) == annualized_volatility`` whenever
     portfolio volatility is positive.
     """
-    panel = np.asarray(returns, dtype=np.float64)
-    if panel.ndim == 1:
-        panel = panel.reshape(-1, 1)
-    if panel.ndim != 2 or panel.shape[0] < 2 or panel.shape[1] < 1:
-        raise ValueError("returns must have at least 2 rows and 1 asset")
+    panel = as_f64_panel(returns, "returns", min_rows=2)
     n_assets = panel.shape[1]
-    weight_array = np.asarray(weights, dtype=np.float64)
-    if weight_array.ndim != 1 or weight_array.size != n_assets:
-        raise ValueError(f"weights must be a 1D array of length {n_assets}")
+    weight_array = as_f64_1d(weights, "weights")
+    if weight_array.size != n_assets:
+        raise ValueError(f"weights must have length {n_assets}")
     if not np.all(np.isfinite(weight_array)):
         raise ValueError("weights must be finite")
     gross = float(np.sum(np.abs(weight_array)))
     if not (gross > 0.0):
         raise ValueError("weights must have positive gross exposure")
-    if not np.isfinite(periods_per_year) or periods_per_year <= 0.0:
-        raise ValueError("periods_per_year must be finite and positive")
-    if not np.isfinite(risk_free):
-        raise ValueError("risk_free must be finite")
-    if not np.isfinite(confidence) or not 0.0 < confidence < 1.0:
-        raise ValueError("confidence must be in (0, 1)")
+    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
+    risk_free = as_finite_float(risk_free, "risk_free")
+    confidence = as_open_unit_float(confidence, "confidence")
     ddof = as_size(ddof, "ddof", minimum=1)
 
     complete = panel[np.all(np.isfinite(panel), axis=1)]
@@ -178,12 +180,9 @@ def regime_attribution(
         state_count = int(state_labels.max()) + 1
     else:
         raise ValueError("labels must contain at least one valid state")
-    if not np.isfinite(periods_per_year) or periods_per_year <= 0.0:
-        raise ValueError("periods_per_year must be finite and positive")
-    if not np.isfinite(risk_free):
-        raise ValueError("risk_free must be finite")
-    if not np.isfinite(confidence) or not 0.0 < confidence < 1.0:
-        raise ValueError("confidence must be in (0, 1)")
+    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
+    risk_free = as_finite_float(risk_free, "risk_free")
+    confidence = as_open_unit_float(confidence, "confidence")
 
     total_sum = float(np.sum(values[np.isfinite(values)]))
     states: dict[str, Any] = {}

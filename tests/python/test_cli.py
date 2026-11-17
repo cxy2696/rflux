@@ -157,6 +157,32 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("error:", error)
 
+    def test_output_file_and_invalid_arguments(self):
+        sample = (
+            Path(__file__).resolve().parents[2]
+            / "examples/data/sample_prices.csv"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "report.txt"
+            status, output, error = self._run(
+                [
+                    "analyze",
+                    str(sample),
+                    "--no-hmm",
+                    "--no-network",
+                    "--output",
+                    str(destination),
+                ]
+            )
+            self.assertEqual(status, 0, error)
+            self.assertIn("wrote", output)
+            self.assertIn("rflux", destination.read_text(encoding="utf-8"))
+        status, _, error = self._run(
+            ["analyze", str(sample), "--periods-per-year", "0"]
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("error:", error)
+
 
 if __name__ == "__main__":
     unittest.main()

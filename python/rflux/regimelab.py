@@ -130,6 +130,12 @@ class GaussianHMM:
             raise RuntimeError("GaussianHMM handle is closed")
         return self._handle
 
+    def _state_probabilities(self, state_probs: Any) -> np.ndarray:
+        probabilities = as_f64_1d(state_probs, "state_probs")
+        if probabilities.size != self._n_states:
+            raise ValueError(f"state_probs must have length {self._n_states}")
+        return probabilities
+
     def close(self) -> None:
         if self._handle is not None:
             get_lib().rflux_hmm_destroy(self._handle)
@@ -270,9 +276,7 @@ class GaussianHMM:
         This is ``sum_k P(s=k) * mu[k, feature]`` under the model's current
         parameters.  It is an in-sample conditional mean, not a price forecast.
         """
-        probabilities = as_f64_1d(state_probs, "state_probs")
-        if probabilities.size != self._n_states:
-            raise ValueError(f"state_probs must have length {self._n_states}")
+        probabilities = self._state_probabilities(state_probs)
         if np.any(~np.isfinite(probabilities)) or np.any(probabilities < 0.0):
             raise ValueError("state_probs must be finite and non-negative")
         total = float(probabilities.sum())
@@ -366,11 +370,7 @@ class GaussianHMM:
 
     def forecast(self, state_probs: Any, horizon: int = 1) -> np.ndarray:
         """Prior hidden-state distribution ``state_probs @ transition**horizon``."""
-        probabilities = as_f64_1d(state_probs, "state_probs")
-        if probabilities.size != self._n_states:
-            raise ValueError(
-                f"state_probs must have length {self._n_states}"
-            )
+        probabilities = self._state_probabilities(state_probs)
         horizon = as_size(horizon, "horizon", minimum=0)
         return call_vector(
             "rflux_hmm_forecast", self._n_states, get_lib().rflux_hmm_forecast,
@@ -378,9 +378,7 @@ class GaussianHMM:
 
     def filter_step(self, state_probs: Any, observation: Any) -> np.ndarray:
         """Causal one-step update from a prior state distribution."""
-        probabilities = as_f64_1d(state_probs, "state_probs")
-        if probabilities.size != self._n_states:
-            raise ValueError(f"state_probs must have length {self._n_states}")
+        probabilities = self._state_probabilities(state_probs)
         single = np.asarray(observation, dtype=np.float64)
         if single.ndim == 0:
             if self._n_features != 1:
@@ -623,6 +621,48 @@ def _hungarian(cost: np.ndarray) -> np.ndarray:
     return assignment
 
 
+def _validate_variance_weight(value: float) -> float:
+    if not np.isfinite(value) or value < 0.0:
+        raise ValueError("variance_weight must be finite and non-negative")
+    return float(value)
+
+
+def _alignment_cost(
+    reference_means: np.ndarray,
+    reference_variances: np.ndarray,
+    target_means: np.ndarray,
+    target_variances: np.ndarray,
+    variance_weight: float,
+) -> np.ndarray:
+    scale = np.sqrt(reference_variances)
+    mean_cost = np.sum(
+        (target_means[None, :, :] - reference_means[:, None, :]) ** 2
+        / (scale[:, None, :] ** 2),
+        axis=2,
+    )
+    log_ratio = np.log(target_variances[None, :, :]) - np.log(
+        reference_variances[:, None, :]
+    )
+    return mean_cost + variance_weight * np.sum(log_ratio**2, axis=2)
+
+
+def _matched_order(
+    reference_means: np.ndarray,
+    reference_variances: np.ndarray,
+    target_means: np.ndarray,
+    target_variances: np.ndarray,
+    variance_weight: float,
+) -> np.ndarray:
+    cost = _alignment_cost(
+        reference_means,
+        reference_variances,
+        target_means,
+        target_variances,
+        variance_weight,
+    )
+    return _hungarian(cost)
+
+
 def match_states(
     reference: HMMParameters,
     target: HMMParameters,
@@ -639,18 +679,17 @@ def match_states(
     _, _, reference_means, reference_variances = _parameter_arrays(reference)
     _, _, target_means, target_variances = _parameter_arrays(target)
     if reference_means.shape != target_means.shape:
-        raise ValueError("reference and target must have the same state/feature shape")
-    if not np.isfinite(variance_weight) or variance_weight < 0.0:
-        raise ValueError("variance_weight must be finite and non-negative")
-    scale = np.sqrt(reference_variances)
-    mean_cost = (target_means[None, :, :] - reference_means[:, None, :]) ** 2
-    mean_cost = np.sum(mean_cost / (scale[:, None, :] ** 2), axis=2)
-    log_ratio = np.log(target_variances[None, :, :]) - np.log(
-        reference_variances[:, None, :]
+        raise ValueError(
+            "reference and target must have the same state/feature shape"
+        )
+    variance_weight = _validate_variance_weight(variance_weight)
+    return _matched_order(
+        reference_means,
+        reference_variances,
+        target_means,
+        target_variances,
+        variance_weight,
     )
-    variance_cost = variance_weight * np.sum(log_ratio**2, axis=2)
-    cost = mean_cost + variance_cost
-    return _hungarian(cost)
 
 
 def align_parameters(
@@ -666,7 +705,14 @@ def align_parameters(
     )
     if reference_start.size != start.size:
         raise ValueError("reference and target state counts must match")
-    order = match_states(reference, target, variance_weight=variance_weight)
+    variance_weight = _validate_variance_weight(variance_weight)
+    order = _matched_order(
+        reference_means,
+        reference_variances,
+        means,
+        variances,
+        variance_weight,
+    )
     k = start.size
     aligned = HMMParameters(
         start_prob=start[order].copy(),
@@ -674,35 +720,46 @@ def align_parameters(
         means=means[order].copy(),
         variances=variances[order].copy(),
     )
-    scale = np.sqrt(reference_variances)
-    mean_cost = np.sum(
-        (aligned.means - reference_means) ** 2 / (scale**2)
+    cost = float(
+        np.trace(
+            _alignment_cost(
+                reference_means,
+                reference_variances,
+                aligned.means,
+                aligned.variances,
+                variance_weight,
+            )
+        )
     )
-    log_ratio = np.log(aligned.variances) - np.log(reference_variances)
-    cost = float(mean_cost + variance_weight * np.sum(log_ratio**2))
     if order.size != k:
         raise ValueError("state matching returned an invalid assignment")
     return StateAlignment(order=order, parameters=aligned, cost=cost)
 
 
+def _as_permutation(order: Any, *, allow_empty: bool) -> np.ndarray:
+    mapping = np.asarray(order, dtype=np.int64)
+    if mapping.ndim != 1 or (mapping.size == 0 and not allow_empty):
+        raise ValueError(
+            "order must be a non-empty permutation" if not allow_empty
+            else "order must be one-dimensional"
+        )
+    if not np.array_equal(np.sort(mapping), np.arange(mapping.size)):
+        raise ValueError("order must be a permutation")
+    return mapping
+
+
 def align_probabilities(probabilities: Any, order: Any) -> np.ndarray:
     """Reorder state-probability columns from target to reference labels."""
     values = as_f64_2d(probabilities, "probabilities")
-    mapping = np.asarray(order, dtype=np.int64)
-    if mapping.ndim != 1 or mapping.size != values.shape[1]:
+    mapping = _as_permutation(order, allow_empty=True)
+    if mapping.size != values.shape[1]:
         raise ValueError("order must have one entry per probability column")
-    if not np.array_equal(np.sort(mapping), np.arange(mapping.size)):
-        raise ValueError("order must be a permutation")
     return np.ascontiguousarray(values[:, mapping])
 
 
 def align_labels(labels: Any, order: Any) -> np.ndarray:
     """Reorder integer state labels from target to reference labels."""
-    mapping = np.asarray(order, dtype=np.int64)
-    if mapping.ndim != 1 or mapping.size == 0:
-        raise ValueError("order must be a non-empty permutation")
-    if not np.array_equal(np.sort(mapping), np.arange(mapping.size)):
-        raise ValueError("order must be a permutation")
+    mapping = _as_permutation(order, allow_empty=False)
     values = np.asarray(labels)
     if values.ndim != 1:
         raise ValueError("labels must be one-dimensional")
