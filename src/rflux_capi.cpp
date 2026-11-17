@@ -641,6 +641,13 @@ rflux_status rflux_hmm_filter_step(const rflux_hmm* model,
         [&] { return model->model.filter_step(state_probs, observation); });
 }
 
+rflux_status rflux_hmm_expected_durations(const rflux_hmm* model, double* out) {
+    return guarded_vector(
+        "rflux_hmm_expected_durations", out, "out",
+        [&] { require_model(model, "model"); },
+        [&] { return model->model.expected_durations(); });
+}
+
 rflux_status rflux_hmm_stationary(const rflux_hmm* model, double* out) {
     return guarded_vector(
         "rflux_hmm_stationary", out, "out",
@@ -742,6 +749,14 @@ rflux_status rflux_network_clustering(const double* weights, size_t n,
                                       double* out) {
     return guarded_vector("rflux_network_clustering", out, "out", [&] {
         return rflux::percolab::clustering_coefficients(weights, n);
+    });
+}
+
+rflux_status rflux_network_betweenness(const double* weights, size_t n,
+                                      int32_t normalized, double* out) {
+    return guarded_vector("rflux_network_betweenness", out, "out", [&] {
+        return rflux::percolab::betweenness_centrality(
+            weights, n, normalized != 0);
     });
 }
 

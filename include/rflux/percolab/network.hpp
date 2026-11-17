@@ -38,6 +38,10 @@ std::vector<double> clustering_coefficients(const double* weights,
 std::vector<double> pagerank(const double* adjacency, std::size_t n,
                              double damping, std::size_t max_iter, double tol);
 
+/* Brandes betweenness for an undirected unweighted graph (edges > 0). */
+std::vector<double> betweenness_centrality(const double* adjacency,
+                                           std::size_t n, bool normalized);
+
 /* Minimum spanning tree of a complete finite symmetric distance matrix. */
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,
                                            std::size_t n);

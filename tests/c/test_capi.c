@@ -379,6 +379,9 @@ static int test_hmm(void) {
         double stationary[2];
         CHECK(rflux_hmm_stationary(model, stationary) == RFLUX_OK);
         CHECK(approx(stationary[0] + stationary[1], 1.0, 1e-9));
+        double durations[2];
+        CHECK(rflux_hmm_expected_durations(model, durations) == RFLUX_OK);
+        CHECK(durations[0] > 0.0 && durations[1] > 0.0);
     }
 
     {
@@ -570,6 +573,19 @@ static int test_graphs(void) {
               RFLUX_OK);
         CHECK(approx(giant[0], 0.0, 1e-12));
         CHECK(approx(giant[1], 1.0, 1e-12));
+    }
+
+    {
+        const double path3[9] = {
+            0, 1, 0,
+            1, 0, 1,
+            0, 1, 0};
+        double between[3];
+        CHECK(rflux_network_betweenness(path3, 3, 1, between) == RFLUX_OK);
+        CHECK(approx(between[1], 1.0, 1e-12));
+        CHECK(approx(between[0], 0.0, 1e-12));
+        CHECK(rflux_network_betweenness(path3, 3, 0, between) == RFLUX_OK);
+        CHECK(approx(between[1], 1.0, 1e-12));
     }
 
     {

@@ -453,6 +453,13 @@ RFLUX_API rflux_status rflux_hmm_filter_step(
  */
 RFLUX_API rflux_status rflux_hmm_stationary(const rflux_hmm* model, double* out);
 
+/*
+ * Expected sojourn length of each state: 1 / (1 - A_kk).  Absorbing states
+ * produce positive infinity.  out has length n_states.
+ */
+RFLUX_API rflux_status rflux_hmm_expected_durations(const rflux_hmm* model,
+                                                    double* out);
+
 /* ------------------------------------------------------------------------- */
 /* regimelab: causal rule-based regimes                                      */
 /* ------------------------------------------------------------------------- */
@@ -542,6 +549,14 @@ RFLUX_API rflux_status rflux_network_centrality(const double* weights, size_t n,
  */
 RFLUX_API rflux_status rflux_network_clustering(const double* weights, size_t n,
                                                 double* out);
+
+/*
+ * Brandes betweenness centrality for an undirected unweighted graph.  Edges
+ * exist where weights[i,j] > 0 and i != j.  When normalized is non-zero,
+ * values are divided by the maximum for an undirected graph of this size.
+ */
+RFLUX_API rflux_status rflux_network_betweenness(
+    const double* weights, size_t n, int32_t normalized, double* out);
 
 /*
  * PageRank on a directed non-negative weighted graph.  Rows are outgoing

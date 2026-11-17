@@ -159,6 +159,15 @@ def clustering(adjacency: Any) -> np.ndarray:
         get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
 
 
+def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
+    """Brandes betweenness for an undirected unweighted graph."""
+    matrix = as_square(adjacency, "adjacency")
+    return call_vector(
+        "rflux_network_betweenness", matrix.shape[0],
+        get_lib().rflux_network_betweenness,
+        double_ptr(matrix), matrix.shape[0], 1 if normalized else 0)
+
+
 def pagerank(
     adjacency: Any,
     damping: float = 0.85,
@@ -458,6 +467,7 @@ __all__ = [
     "GraphComponents",
     "MSTResult",
     "PercolationScan",
+    "betweenness",
     "bond_percolation",
     "bond_percolation_weighted",
     "centrality",

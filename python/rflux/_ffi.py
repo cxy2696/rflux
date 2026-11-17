@@ -221,6 +221,8 @@ def _configure(lib: ctypes.CDLL) -> None:
          [ctypes.c_void_p, c_double_p, c_double_p, c_double_p])
     bind("rflux_hmm_stationary", ctypes.c_int,
          [ctypes.c_void_p, c_double_p])
+    bind("rflux_hmm_expected_durations", ctypes.c_int,
+         [ctypes.c_void_p, c_double_p])
 
     # rule-based regimes
     bind("rflux_volatility_regime", ctypes.c_int,
@@ -245,6 +247,8 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, c_double_p])
     bind("rflux_pagerank", ctypes.c_int,
          [c_double_p, size_t, double, size_t, double, c_double_p])
+    bind("rflux_network_betweenness", ctypes.c_int,
+         [c_double_p, size_t, ctypes.c_int, c_double_p])
     bind("rflux_network_mst", ctypes.c_int,
          [c_double_p, size_t, c_uint32_p, c_uint32_p, c_double_p, c_size_p])
     bind("rflux_bond_percolation", ctypes.c_int,

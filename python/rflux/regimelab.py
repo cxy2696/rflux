@@ -410,6 +410,12 @@ class GaussianHMM:
             "rflux_hmm_stationary", self._n_states,
             get_lib().rflux_hmm_stationary, self._require_handle())
 
+    def expected_durations(self) -> np.ndarray:
+        """Expected sojourn length of each state from the transition diagonal."""
+        return call_vector(
+            "rflux_hmm_expected_durations", self._n_states,
+            get_lib().rflux_hmm_expected_durations, self._require_handle())
+
     def save(self, path: Any) -> None:
         """Save parameters to a compressed NumPy ``.npz`` file."""
         parameters = self.parameters

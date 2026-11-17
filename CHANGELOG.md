@@ -9,6 +9,11 @@ causal semantics are called out explicitly when they change.
   akshare and tushare loaders.
 - Shared edge and node percolation trial kernels between weighted and
   unweighted scans.
+- Added HMM expected state durations through C++, the C ABI and Python.
+- Added Brandes betweenness centrality for undirected graphs through C++, the
+  C ABI and Python.
+- Extracted the partial-pivoting dense solver into a reusable internal linear
+  algebra helper for the HMM stationary distribution.
 - Reduced Python binding boilerplate with shared `call_vector`, `call_i32` and
   `call_scalar` helpers; qflux, percolab and regimelab wrappers now allocate,
   call and check through one path.

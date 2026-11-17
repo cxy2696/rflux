@@ -253,6 +253,75 @@ std::vector<double> pagerank(const double* adjacency, std::size_t n,
     return rank;
 }
 
+std::vector<double> betweenness_centrality(const double* adjacency,
+                                           std::size_t n, bool normalized) {
+    require_adjacency(adjacency, n, "adjacency");
+    std::vector<std::vector<std::size_t>> neighbors(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            if (i != j && adjacency[i * n + j] > 0.0) {
+                neighbors[i].push_back(j);
+            }
+        }
+    }
+
+    std::vector<long double> raw(n, 0.0L);
+    std::vector<int> distance(n, -1);
+    std::vector<long double> paths(n, 0.0L);
+    std::vector<long double> delta(n, 0.0L);
+    std::vector<std::vector<std::size_t>> predecessors(n);
+    std::vector<std::size_t> queue(n, 0);
+    std::vector<std::size_t> order;
+    order.reserve(n);
+
+    for (std::size_t source = 0; source < n; ++source) {
+        std::fill(distance.begin(), distance.end(), -1);
+        std::fill(paths.begin(), paths.end(), 0.0L);
+        std::fill(delta.begin(), delta.end(), 0.0L);
+        for (auto& list : predecessors) list.clear();
+        order.clear();
+
+        distance[source] = 0;
+        paths[source] = 1.0L;
+        std::size_t head = 0;
+        std::size_t tail = 0;
+        queue[tail++] = source;
+        while (head < tail) {
+            const std::size_t node = queue[head++];
+            order.push_back(node);
+            for (std::size_t next : neighbors[node]) {
+                if (distance[next] < 0) {
+                    distance[next] = distance[node] + 1;
+                    queue[tail++] = next;
+                }
+                if (distance[next] == distance[node] + 1) {
+                    paths[next] += paths[node];
+                    predecessors[next].push_back(node);
+                }
+            }
+        }
+
+        for (auto it = order.rbegin(); it != order.rend(); ++it) {
+            const std::size_t node = *it;
+            for (std::size_t previous : predecessors[node]) {
+                delta[previous] +=
+                    paths[previous] / paths[node] * (1.0L + delta[node]);
+            }
+            if (node != source) raw[node] += delta[node];
+        }
+    }
+
+    const long double scale =
+        normalized && n > 2
+            ? static_cast<long double>((n - 1) * (n - 2))
+            : 2.0L;
+    std::vector<double> out(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = static_cast<double>(raw[i] / scale);
+    }
+    return out;
+}
+
 std::vector<MstEdge> minimum_spanning_tree(const double* distance,
                                            std::size_t n) {
     require_adjacency(distance, n, "distance");

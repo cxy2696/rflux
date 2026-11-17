@@ -180,6 +180,9 @@ int test_hmm() {
     const std::vector<double> stationary = model.stationary_distribution();
     CHECK(approx(stationary[0], 2.0 / 3.0, 1e-12));
     CHECK(approx(stationary[1], 1.0 / 3.0, 1e-12));
+    const std::vector<double> durations = model.expected_durations();
+    CHECK(approx(durations[0], 10.0, 1e-12));
+    CHECK(approx(durations[1], 5.0, 1e-12));
 
     const std::vector<double> observations = {-1.2, -0.9, -1.1, 1.0, 1.2, 0.8};
     const std::vector<std::int32_t> path =
@@ -338,6 +341,21 @@ int test_graphs() {
         for (std::size_t i = 1; i < 4; ++i) {
             CHECK(approx(star_centrality[i], 0.40824829046, 1e-8));
         }
+    }
+
+    {
+        const std::vector<double> path3 = {
+            0, 1, 0,
+            1, 0, 1,
+            0, 1, 0};
+        const std::vector<double> between =
+            rflux::percolab::betweenness_centrality(path3.data(), 3, true);
+        CHECK(approx(between[0], 0.0, 1e-12));
+        CHECK(approx(between[1], 1.0, 1e-12));
+        CHECK(approx(between[2], 0.0, 1e-12));
+        const std::vector<double> raw_between =
+            rflux::percolab::betweenness_centrality(path3.data(), 3, false);
+        CHECK(approx(raw_between[1], 1.0, 1e-12));
     }
 
     {

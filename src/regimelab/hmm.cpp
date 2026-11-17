@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "internal/common.hpp"
+#include "internal/linalg.hpp"
 
 namespace rflux::regimelab {
 namespace {
@@ -1040,45 +1041,9 @@ std::vector<double> GaussianHMM::stationary_distribution() const {
     }
     rhs[k - 1] = 1.0L;
 
-    for (std::size_t col = 0; col < k; ++col) {
-        std::size_t pivot = col;
-        long double best = std::abs(matrix[col * k + col]);
-        for (std::size_t row = col + 1; row < k; ++row) {
-            const long double value = std::abs(matrix[row * k + col]);
-            if (value > best) {
-                best = value;
-                pivot = row;
-            }
-        }
-        if (!(best > 1e-18L)) {
-            throw NumericalError(
-                "HMM transition matrix has no unique stationary distribution");
-        }
-        if (pivot != col) {
-            for (std::size_t j = 0; j < k; ++j) {
-                std::swap(matrix[col * k + j], matrix[pivot * k + j]);
-            }
-            std::swap(rhs[col], rhs[pivot]);
-        }
-        const long double diagonal = matrix[col * k + col];
-        for (std::size_t row = col + 1; row < k; ++row) {
-            const long double factor = matrix[row * k + col] / diagonal;
-            if (factor == 0.0L) continue;
-            for (std::size_t j = col; j < k; ++j) {
-                matrix[row * k + j] -= factor * matrix[col * k + j];
-            }
-            rhs[row] -= factor * rhs[col];
-        }
-    }
-
-    std::vector<long double> solution(k, 0.0L);
-    for (std::size_t row = k; row-- > 0;) {
-        long double value = rhs[row];
-        for (std::size_t col = row + 1; col < k; ++col) {
-            value -= matrix[row * k + col] * solution[col];
-        }
-        solution[row] = value / matrix[row * k + row];
-    }
+    const std::vector<long double> solution =
+        detail::solve_dense(std::move(matrix), std::move(rhs), k,
+                            "HMM stationary distribution");
     long double total = 0.0L;
     for (long double value : solution) {
         if (value < -1e-12L) {
@@ -1093,6 +1058,18 @@ std::vector<double> GaussianHMM::stationary_distribution() const {
     for (std::size_t state = 0; state < k; ++state) {
         out[state] = static_cast<double>(
             std::max(solution[state], 0.0L) / total);
+    }
+    return out;
+}
+
+std::vector<double> GaussianHMM::expected_durations() const {
+    validate_model();
+    std::vector<double> out(n_states_, 0.0);
+    for (std::size_t state = 0; state < n_states_; ++state) {
+        const double stay = parameters_.transition[state * n_states_ + state];
+        out[state] = stay >= 1.0
+                         ? std::numeric_limits<double>::infinity()
+                         : 1.0 / (1.0 - stay);
     }
     return out;
 }

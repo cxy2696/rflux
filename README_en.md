@@ -11,7 +11,7 @@ The current release is `0.4.2`; the C ABI version is `1`.
 | Area | Contents |
 | --- | --- |
 | `qflux` | Returns, SMA, EMA, RSI, MACD, Bollinger, ATR, drawdown; rolling mean, volatility, min/max, z-score, correlation, covariance, beta, slope, R²; moments, quantiles, Sharpe, Sortino, VaR/CVaR; ranking, percentile rank, winsorization, group neutralization and pairwise correlation matrices |
-| `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
+| `regimelab` | Diagonal Gaussian HMM with multiple restarts, filtered/smoothed probabilities, Viterbi, state forecasting, one-step filtering, stationary distribution, expected durations, out-of-sample scoring and state alignment; causal volatility, trend and composite regimes |
 | `percolab` | Correlation distance, threshold graphs, connected components, strength, eigenvector centrality, clustering, minimum spanning trees, bond/site percolation with weighted variants and SIR diffusion |
 | Python tools | Optional akshare/yfinance/tushare/CSV adapters, performance and risk summaries, factor IC, quantile portfolios, a simple cost-aware long-short backtest, portfolio risk contributions and regime attribution |
 

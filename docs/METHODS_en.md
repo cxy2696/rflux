@@ -300,6 +300,13 @@ P(s_t=k\mid \text{prior},x_t)
 $$
 
 The stationary distribution satisfies $\pi A=\pi$ and $\sum_k\pi_k=1$.
+The expected sojourn length of state k is:
+
+$$
+\mathbb E[T_k]=\frac{1}{1-A_{kk}}
+$$
+
+An absorbing state ( $A_{kk}=1$ ) returns positive infinity.
 
 ### 4.3 Initialisation and fitting
 
@@ -399,6 +406,7 @@ The MST uses Kruskal's algorithm and returns n-1 edges. The distance matrix must
 - Eigenvector centrality: L2-normalised power iteration on $A+I$ . Adding the identity does not change eigenvectors; it shifts the spectrum and prevents period-2 oscillation on bipartite graphs. An all-zero graph returns zeros. Non-convergence raises a numerical error.
 - Local clustering coefficient: actual neighbour-neighbour edges divided by possible edges. Degree below 2 gives NaN.
 - PageRank: power iteration on a non-negative weighted directed adjacency with damping $d\in[0,1)$ . A dangling row (zero outgoing weight) spreads its current mass uniformly across all nodes, and each step adds the $(1-d)/n$ teleport term. Non-convergence raises a numerical error.
+- Brandes betweenness centrality: BFS from every source on an undirected unweighted graph, accumulating shortest-path dependencies. `normalized=1` divides by the maximum undirected betweenness $(n-1)(n-2)/2$.
 
 $$
 p^{(t+1)}=\frac{1-d}{n}\mathbf 1

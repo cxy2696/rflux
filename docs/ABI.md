@@ -115,7 +115,7 @@ void rflux_clear_error(void);
 | `rflux_hmm_viterbi` | T 个 `int32_t` |
 | `rflux_hmm_filtered` / `rflux_hmm_smoothed` | T·K，行主序 |
 | `rflux_hmm_score` | 1 个标量（当前参数下的对数似然） |
-| `rflux_hmm_forecast` / `rflux_hmm_filter_step` / `rflux_hmm_stationary` | K |
+| `rflux_hmm_forecast` / `rflux_hmm_filter_step` / `rflux_hmm_stationary` / `rflux_hmm_expected_durations` | K |
 | `rflux_volatility_regime` | labels n、volatility n |
 | `rflux_trend_regime` | labels n、fast_ma n、slow_ma n |
 | `rflux_composite_regime` | n |
@@ -126,7 +126,7 @@ void rflux_clear_error(void);
 | --- | --- |
 | `rflux_corr_to_distance` | n² |
 | `rflux_graph_components` | labels n + components + largest |
-| `rflux_network_strength` / `rflux_network_centrality` / `rflux_network_clustering` / `rflux_pagerank` | n |
+| `rflux_network_strength` / `rflux_network_centrality` / `rflux_network_clustering` / `rflux_network_betweenness` / `rflux_pagerank` | n |
 | `rflux_network_mst` | 至少 n-1 的三组边数组 + n_edges |
 | `rflux_bond_percolation` / `rflux_site_percolation` / `rflux_bond_percolation_weighted` / `rflux_site_percolation_weighted` | 每组 p 的 giant_mean、giant_std、susceptibility，共 n_probabilities |
 | `rflux_risk_diffusion` | mean_affected 长度 steps+1，infection_frequency 长度 n |

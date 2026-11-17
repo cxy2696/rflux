@@ -72,6 +72,37 @@ class TestGraphs(unittest.TestCase):
                 np.array([[1.0, 0.5], [0.1, 1.0]]), 0.2
             )
 
+    def test_betweenness_on_path_and_star(self):
+        path = np.array(
+            [[0.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]
+        )
+        np.testing.assert_allclose(
+            percolab.betweenness(path), [0.0, 1.0, 0.0], atol=1e-12
+        )
+        np.testing.assert_allclose(
+            percolab.betweenness(path, normalized=False),
+            [0.0, 1.0, 0.0],
+            atol=1e-12,
+        )
+        star = np.array(
+            [
+                [0.0, 1.0, 1.0, 1.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+            ]
+        )
+        np.testing.assert_allclose(
+            percolab.betweenness(star), [1.0, 0.0, 0.0, 0.0], atol=1e-12
+        )
+        np.testing.assert_allclose(
+            percolab.betweenness(star, normalized=False),
+            [3.0, 0.0, 0.0, 0.0],
+            atol=1e-12,
+        )
+        with self.assertRaises(Exception):
+            percolab.betweenness(np.array([[0.0, 1.0], [0.0, 0.0]]))
+
     def test_pagerank_directed_and_dangling(self):
         cycle = np.array(
             [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]

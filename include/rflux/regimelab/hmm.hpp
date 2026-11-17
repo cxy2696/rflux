@@ -86,6 +86,9 @@ public:
     /* Long-run distribution of the transition matrix. */
     std::vector<double> stationary_distribution() const;
 
+    /* Expected sojourn lengths from the transition diagonal. */
+    std::vector<double> expected_durations() const;
+
 private:
     void validate_observations(const double* observations,
                                std::size_t n_obs) const;

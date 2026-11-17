@@ -214,6 +214,9 @@ class TestGaussianHMM(unittest.TestCase):
                 [2.0 / 3.0, 1.0 / 3.0],
                 atol=1e-12,
             )
+            np.testing.assert_allclose(
+                model.expected_durations(), [10.0, 5.0], atol=1e-12
+            )
             with self.assertRaises(ValueError):
                 model.filter_step([0.6, 0.4], [0.0, 1.0])
         finally:
