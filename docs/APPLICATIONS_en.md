@@ -175,7 +175,8 @@ These applications do not model borrow fees, transaction costs, taxes, capacity,
 investment advice:
 
 ```bash
-rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35
+rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35 \
+  --portfolio-value 1000000 --risk-per-trade 0.005
 ```
 
 It starts from HRP weights, adjusts them with 20/60-day momentum, trend and
@@ -183,6 +184,8 @@ RSI, then scales gross exposure by realised volatility and an optional HMM
 stress state.  The report contains:
 
 - current/target weights, change, signal score and reason per asset;
+- a 2-daily-sigma stop reference, target notional, weight-based shares and
+  risk-budget-limited shares;
 - cash weight, gross exposure and turnover;
 - target historical volatility, max drawdown and VaR/CVaR;
 - data/model errors and an explicit non-personalised-advice disclaimer.

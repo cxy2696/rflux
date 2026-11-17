@@ -89,10 +89,13 @@ def _signal_row(
     finite = close[np.isfinite(close)]
     if finite.size < 2:
         return {
+            "last_price": float(finite[-1]) if finite.size else None,
             "momentum_20": None,
             "momentum_60": None,
             "trend": 0.0,
             "rsi_14": None,
+            "daily_sigma": None,
+            "reference_stop": None,
         }
     last = float(finite[-1])
     def trailing(window: int) -> float:
@@ -116,11 +119,23 @@ def _signal_row(
         rsi_value = float(qflux.rsi(close, 14)[-1])
     except Exception:
         rsi_value = float("nan")
+    column_returns = returns[:, column]
+    usable = column_returns[np.isfinite(column_returns)]
+    daily_sigma = (
+        float(np.std(usable[-20:], ddof=1))
+        if usable.size >= 2 else float("nan")
+    )
     return {
+        "last_price": last,
         "momentum_20": float(momentum_20) if np.isfinite(momentum_20) else None,
         "momentum_60": float(momentum_60) if np.isfinite(momentum_60) else None,
         "trend": float(trend),
         "rsi_14": rsi_value if np.isfinite(rsi_value) else None,
+        "daily_sigma": daily_sigma if np.isfinite(daily_sigma) else None,
+        "reference_stop": (
+            last * (1.0 - 2.0 * daily_sigma)
+            if np.isfinite(daily_sigma) and daily_sigma > 0.0 else None
+        ),
     }
 
 
@@ -134,6 +149,8 @@ def trade_advice(
     max_weight: float = 0.35,
     target_volatility: float = 0.15,
     confidence: float = 0.95,
+    portfolio_value: float | None = None,
+    risk_per_trade: float = 0.005,
     include_hmm: bool = True,
     hmm_states: int = 3,
     hmm_max_iter: int = 200,
@@ -166,6 +183,11 @@ def trade_advice(
     confidence = as_finite_float(confidence, "confidence")
     if not 0.0 < confidence < 1.0:
         raise ValueError("confidence must be in (0, 1)")
+    if portfolio_value is not None:
+        portfolio_value = as_positive_float(portfolio_value, "portfolio_value")
+    risk_per_trade = as_finite_float(risk_per_trade, "risk_per_trade")
+    if not 0.0 < risk_per_trade < 1.0:
+        raise ValueError("risk_per_trade must be in (0, 1)")
     current = _current_weights(current_weights, n_assets)
 
     returns = qflux.returns_panel(panel)
@@ -320,6 +342,31 @@ def trade_advice(
         reasons.append(f"trend {signals[name]['trend']:+.1f}")
         if signals[name]["rsi_14"] is not None:
             reasons.append(f"RSI14 {signals[name]['rsi_14']:.1f}")
+        signal = signals[name]
+        stop = signal["reference_stop"]
+        last_price = signal["last_price"]
+        notional = (
+            float(target[index]) * portfolio_value
+            if portfolio_value is not None else None
+        )
+        target_shares = (
+            int(np.floor(notional / last_price))
+            if notional is not None and last_price and last_price > 0.0
+            else None
+        )
+        risk_shares = None
+        if (
+            portfolio_value is not None and stop is not None and last_price
+            and last_price > stop > 0.0
+        ):
+            risk_shares = int(np.floor(
+                portfolio_value * risk_per_trade / (last_price - stop)
+            ))
+        recommended_shares = None
+        if target_shares is not None:
+            recommended_shares = target_shares
+            if risk_shares is not None:
+                recommended_shares = min(target_shares, risk_shares)
         actions.append({
             "asset": name,
             "action": action,
@@ -327,6 +374,17 @@ def trade_advice(
             "target_weight": float(target[index]),
             "delta": change,
             "signal_score": float(score[index]),
+            "last_price": last_price,
+            "reference_stop": stop,
+            "stop_distance_pct": (
+                float((last_price - stop) / last_price)
+                if last_price and stop is not None and last_price > 0.0
+                else None
+            ),
+            "target_notional": notional,
+            "target_shares": target_shares,
+            "risk_limited_shares": risk_shares,
+            "recommended_shares": recommended_shares,
             "reason": "; ".join(reasons),
         })
 
@@ -394,6 +452,8 @@ def trade_advice(
             ),
             "target_var": float(var_cvar.var) if var_cvar is not None else None,
             "target_cvar": float(var_cvar.cvar) if var_cvar is not None else None,
+            "portfolio_value": portfolio_value,
+            "risk_per_trade": risk_per_trade,
             "current": asdict(current_metrics) if current_metrics is not None else None,
             "target": asdict(target_metrics) if target_metrics is not None else None,
         },
@@ -401,6 +461,7 @@ def trade_advice(
         "notes": [
             "Long-only, no leverage; cash is the unallocated remainder.",
             "Weights are research proposals from historical data, not a forecast.",
+            "Reference stops are 2 daily-sigma below the last close, not live orders.",
             "Transaction costs, taxes, liquidity and lot sizes are not modelled.",
         ],
         "disclaimer": (

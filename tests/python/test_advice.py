@@ -52,6 +52,23 @@ class TestTradeAdvice(unittest.TestCase):
                 self.prices, names=self.names, max_weight=0.10, include_hmm=False
             )
 
+    def test_position_sizing_and_stop_reference(self):
+        report = advice.trade_advice(
+            self.prices,
+            names=self.names,
+            include_hmm=False,
+            portfolio_value=1_000_000.0,
+        )
+        for item in report["allocation"]["actions"]:
+            self.assertIsNotNone(item["last_price"])
+            self.assertIsNotNone(item["reference_stop"])
+            self.assertLess(item["reference_stop"], item["last_price"])
+            self.assertGreaterEqual(item["recommended_shares"], 0)
+            if item["risk_limited_shares"] is not None:
+                self.assertLessEqual(
+                    item["recommended_shares"], item["target_shares"]
+                )
+
     def test_regime_section_is_json_safe(self):
         report = advice.trade_advice(
             self.prices,

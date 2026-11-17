@@ -174,12 +174,14 @@ PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
 `rflux advice` 生成的是可审计的再平衡提案，不是个性化投资建议：
 
 ```bash
-rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35
+rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35 \
+  --portfolio-value 1000000 --risk-per-trade 0.005
 ```
 
 它先计算 HRP 基础权重，再用 20/60 日动量、趋势和 RSI 调整，最后按已实现波动率和可选 HMM 压力状态缩放总仓位。输出包含：
 
 - 每项资产的当前权重、目标权重、变动、信号分数和理由；
+- 2 日波动参考止损、目标金额、按权重计算的股数、按单笔风险预算计算的股数；
 - 现金权重、总敞口、换手率；
 - 目标组合的历史波动率、最大回撤、VaR/CVaR；
 - 数据/模型错误和明确的非个性化建议声明。

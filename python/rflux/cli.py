@@ -588,7 +588,12 @@ def _format_advice_text(report: dict[str, Any], source: str, parsed: PriceFile) 
     lines.append("")
     lines.append("reasons:")
     for item in allocation["actions"]:
-        lines.append(f"  {item['asset']}: {item['reason']}")
+        detail = f"  {item['asset']}: {item['reason']}"
+        if item.get("reference_stop") is not None:
+            detail += f"; stop reference {item['reference_stop']:.2f}"
+        if item.get("recommended_shares") is not None:
+            detail += f"; shares {item['recommended_shares']}"
+        lines.append(detail)
     risk = report["risk"]
     lines.append("")
     lines.append(
@@ -632,6 +637,8 @@ def _command_advice(args: argparse.Namespace) -> int:
         max_weight=args.max_weight,
         target_volatility=args.target_vol,
         confidence=args.confidence,
+        portfolio_value=args.portfolio_value,
+        risk_per_trade=args.risk_per_trade,
         include_hmm=not args.no_hmm,
         hmm_states=args.states,
         hmm_max_iter=args.max_iter,
@@ -699,6 +706,8 @@ def build_parser() -> argparse.ArgumentParser:
     advice.add_argument("--max-weight", type=float, default=0.35)
     advice.add_argument("--target-vol", type=float, default=0.15)
     advice.add_argument("--confidence", type=float, default=0.95)
+    advice.add_argument("--portfolio-value", type=float, default=None)
+    advice.add_argument("--risk-per-trade", type=float, default=0.005)
     advice.add_argument("--no-hmm", action="store_true")
     advice.add_argument("--states", type=int, default=3)
     advice.add_argument("--max-iter", type=int, default=200)
