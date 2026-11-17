@@ -60,6 +60,30 @@ def _akshare_etf_endpoint(ak: Any) -> Any:
     return endpoint
 
 
+def _akshare_fetch(
+    ak: Any,
+    symbol: str,
+    *,
+    start_date: str,
+    end_date: str,
+    period: str,
+    adjust: str,
+    asset_type: str,
+) -> Any:
+    endpoint = (
+        _akshare_etf_endpoint(ak)
+        if _akshare_asset_type(asset_type, symbol) == "etf"
+        else _akshare_hist_endpoint(ak)
+    )
+    return endpoint(
+        symbol=provider_symbol(symbol, "akshare"),
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        adjust=adjust,
+    )
+
+
 def _akshare_asset_type(asset_type: str, symbol: str) -> str:
     normalized = str(asset_type).strip().lower()
     if normalized == "auto":
@@ -283,16 +307,14 @@ def load_akshare(
         "akshare",
         "日期",
         price_column,
-        lambda symbol: (
-            _akshare_etf_endpoint(ak)
-            if _akshare_asset_type(asset_type, symbol) == "etf"
-            else _akshare_hist_endpoint(ak)
-        )(
-            symbol=symbol,
-            period=period,
+        lambda symbol: _akshare_fetch(
+            ak,
+            symbol,
             start_date=start_date,
             end_date=end_date,
+            period=period,
             adjust=adjust,
+            asset_type=asset_type,
         ),
         pd,
     )
@@ -813,18 +835,15 @@ class AkShareLoader(DataLoader):
         end_date = _compact_date(
             end, datetime.now().strftime("%Y%m%d"), "akshare end"
         )
-        endpoint = (
-            _akshare_etf_endpoint(ak)
-            if _akshare_asset_type(self.asset_type, symbol) == "etf"
-            else _akshare_hist_endpoint(ak)
-        )
         try:
-            raw = endpoint(
-                symbol=provider_symbol(symbol, "akshare"),
-                period=self.period,
+            raw = _akshare_fetch(
+                ak,
+                symbol,
                 start_date=start_date,
                 end_date=end_date,
+                period=self.period,
                 adjust=kwargs.pop("adjust", self.adjust),
+                asset_type=self.asset_type,
             )
         except Exception as exc:
             raise DataSourceError(f"akshare failed for {symbol}: {exc}") from exc

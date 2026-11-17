@@ -20,6 +20,7 @@ C ABI 仍为 `1`。本版本新增 C++ 算法接口层、统一数据层和原�
 - 新增因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控的 C ABI 入口；Python 在无原生扩展时统一走 C ABI。
 - 移除 Tushare 适配器和相关依赖；项目不配置 PyPI 发布。
 - 修正 `largest_component` 对多次 trial 均值做截断的问题，改为四舍五入。
+- 合并 CLI 参数定义和 AKShare 端点调用路径；清理工作区里的 `python/build` 旧产物。
 - AKShare 增加 ETF 路由（`fund_etf_hist_em`），支持股票/ETF 自动识别。
 - 新增 `PercolationScan.p_half_giant()`，处理稀疏相关网络上 susceptibility 在 `p = 0` 端点退化的问题。
 - 修复 `trade_advice` 在首行收益为 NaN 时的协方差估计。

@@ -16,6 +16,14 @@ CORR = np.array(
 )
 
 COMPLETE = np.ones((4, 4)) - np.eye(4)
+PATH4 = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, 0.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ]
+)
 
 
 class TestGraphs(unittest.TestCase):
@@ -205,14 +213,7 @@ class TestGraphs(unittest.TestCase):
         self.assertIn(network.path_stats.connected, (True, False))
 
     def test_path_statistics(self):
-        path4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        path4 = PATH4
         stats = percolab.path_statistics(path4)
         self.assertAlmostEqual(stats.efficiency, 13.0 / 18.0, places=12)
         self.assertAlmostEqual(
@@ -248,14 +249,7 @@ class TestGraphs(unittest.TestCase):
             percolab.path_statistics(np.array([[0.0, 1.0], [0.0, 0.0]]))
 
     def test_core_numbers(self):
-        path4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        path4 = PATH4
         np.testing.assert_array_equal(
             percolab.core_numbers(path4), [1, 1, 1, 1]
         )
@@ -327,14 +321,7 @@ class TestGraphs(unittest.TestCase):
     def test_transitivity_assortativity_modularity(self):
         complete = np.ones((4, 4)) - np.eye(4)
         self.assertAlmostEqual(percolab.transitivity(complete), 1.0)
-        path4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        path4 = PATH4
         self.assertAlmostEqual(percolab.transitivity(path4), 0.0)
         self.assertTrue(np.isnan(percolab.transitivity(np.zeros((4, 4)))))
         self.assertAlmostEqual(percolab.assortativity(path4), -0.5)
@@ -523,14 +510,7 @@ class TestGraphs(unittest.TestCase):
         np.testing.assert_allclose(curve.susceptibility, np.zeros(5))
         np.testing.assert_array_equal(curve.n_components, [1, 1, 1, 1, 0])
 
-        path4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        path4 = PATH4
         path_curve = percolab.targeted_removal(
             path4, order=[1, 2, 0, 3], checkpoints=2
         )
@@ -575,14 +555,7 @@ class TestGraphs(unittest.TestCase):
         self.assertEqual(empty_curve.core_fraction.size, 0)
 
     def test_bridges_articulation_and_truss(self):
-        path4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        path4 = PATH4
         np.testing.assert_array_equal(
             percolab.bridges(path4), [[0, 1], [1, 2], [2, 3]]
         )

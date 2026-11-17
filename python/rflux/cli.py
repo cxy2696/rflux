@@ -656,6 +656,24 @@ def _command_advice(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_csv_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("path", help="wide CSV with a header")
+    parser.add_argument("--date-column", default=None)
+    parser.add_argument("--delimiter", default=",")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--output", default=None)
+    parser.add_argument("--periods-per-year", type=float, default=252.0)
+    parser.add_argument("--risk-free", type=float, default=0.0)
+
+
+def _add_hmm_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--no-hmm", action="store_true")
+    parser.add_argument("--states", type=int, default=3)
+    parser.add_argument("--max-iter", type=int, default=200)
+    parser.add_argument("--n-init", type=int, default=3)
+    parser.add_argument("--seed", type=int, default=42)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rflux",
@@ -677,56 +695,32 @@ def build_parser() -> argparse.ArgumentParser:
     analyze = subparsers.add_parser(
         "analyze", help="summary, network and HMM diagnostics for a price CSV"
     )
-    analyze.add_argument("path", help="wide CSV with a header")
-    analyze.add_argument("--date-column", default=None)
-    analyze.add_argument("--delimiter", default=",")
-    analyze.add_argument("--format", choices=("text", "json"), default="text")
-    analyze.add_argument("--output", default=None)
-    analyze.add_argument("--periods-per-year", type=float, default=252.0)
-    analyze.add_argument("--risk-free", type=float, default=0.0)
-    analyze.add_argument("--no-hmm", action="store_true")
+    _add_csv_arguments(analyze)
+    _add_hmm_arguments(analyze)
     analyze.add_argument("--no-network", action="store_true")
-    analyze.add_argument("--states", type=int, default=3)
-    analyze.add_argument("--max-iter", type=int, default=200)
-    analyze.add_argument("--n-init", type=int, default=3)
     analyze.add_argument("--threshold", type=float, default=0.5)
-    analyze.add_argument("--seed", type=int, default=42)
+
     advice = subparsers.add_parser(
         "advice", help="risk-aware rebalance proposal for a price CSV"
     )
-    advice.add_argument("path", help="wide CSV with a header")
-    advice.add_argument("--date-column", default=None)
-    advice.add_argument("--delimiter", default=",")
+    _add_csv_arguments(advice)
+    _add_hmm_arguments(advice)
     advice.add_argument("--weights", default=None,
                         help="current weights, comma-separated")
-    advice.add_argument("--format", choices=("text", "json"), default="text")
-    advice.add_argument("--output", default=None)
-    advice.add_argument("--periods-per-year", type=float, default=252.0)
-    advice.add_argument("--risk-free", type=float, default=0.0)
     advice.add_argument("--max-weight", type=float, default=0.35)
     advice.add_argument("--target-vol", type=float, default=0.15)
     advice.add_argument("--confidence", type=float, default=0.95)
     advice.add_argument("--portfolio-value", type=float, default=None)
     advice.add_argument("--risk-per-trade", type=float, default=0.005)
-    advice.add_argument("--no-hmm", action="store_true")
-    advice.add_argument("--states", type=int, default=3)
-    advice.add_argument("--max-iter", type=int, default=200)
-    advice.add_argument("--n-init", type=int, default=3)
-    advice.add_argument("--seed", type=int, default=42)
+
     risk = subparsers.add_parser(
         "risk", help="portfolio volatility and Euler risk contributions"
     )
-    risk.add_argument("path", help="wide price CSV with a header")
+    _add_csv_arguments(risk)
     risk.add_argument(
         "--weights", required=True,
         help="comma-separated weights in CSV data-column order"
     )
-    risk.add_argument("--date-column", default=None)
-    risk.add_argument("--delimiter", default=",")
-    risk.add_argument("--format", choices=("text", "json"), default="text")
-    risk.add_argument("--output", default=None)
-    risk.add_argument("--periods-per-year", type=float, default=252.0)
-    risk.add_argument("--risk-free", type=float, default=0.0)
     risk.add_argument("--confidence", type=float, default=0.95)
     return parser
 

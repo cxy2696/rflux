@@ -20,6 +20,15 @@ def make_observations(seed=4, n=500):
     )
 
 
+def _known_parameters():
+    return regimelab.HMMParameters(
+        start_prob=np.array([0.6, 0.4]),
+        transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
+        means=np.array([[-1.0], [1.0]]),
+        variances=np.array([[1.0], [1.0]]),
+    )
+
+
 class TestGaussianHMM(unittest.TestCase):
     def test_options_layout_matches_native(self):
         options = HMMOptions()
@@ -105,12 +114,7 @@ class TestGaussianHMM(unittest.TestCase):
                     reloaded.close()
 
     def test_parameter_setter_and_known_forecast(self):
-        parameters = regimelab.HMMParameters(
-            start_prob=np.array([0.6, 0.4]),
-            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
-            means=np.array([[-1.0], [1.0]]),
-            variances=np.array([[1.0], [1.0]]),
-        )
+        parameters = _known_parameters()
         model = regimelab.GaussianHMM(2, 1)
         try:
             model.set_parameters(parameters)
@@ -129,12 +133,7 @@ class TestGaussianHMM(unittest.TestCase):
             model.filtered(np.array([0.0]))
 
     def test_handle_copy_is_rejected_and_clone_is_independent(self):
-        parameters = regimelab.HMMParameters(
-            start_prob=np.array([0.6, 0.4]),
-            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
-            means=np.array([[-1.0], [1.0]]),
-            variances=np.array([[1.0], [1.0]]),
-        )
+        parameters = _known_parameters()
         model = regimelab.GaussianHMM(2, 1)
         model.set_parameters(parameters)
         try:
@@ -195,12 +194,7 @@ class TestGaussianHMM(unittest.TestCase):
             model.close()
 
     def test_filter_step_and_stationary_distribution(self):
-        parameters = regimelab.HMMParameters(
-            start_prob=np.array([0.6, 0.4]),
-            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
-            means=np.array([[-1.0], [1.0]]),
-            variances=np.array([[1.0], [1.0]]),
-        )
+        parameters = _known_parameters()
         model = regimelab.GaussianHMM(2, 1)
         try:
             model.set_parameters(parameters)
@@ -224,12 +218,7 @@ class TestGaussianHMM(unittest.TestCase):
 
     def test_invalid_parameter_tables_are_rejected(self):
         model = regimelab.GaussianHMM(2, 1)
-        good = regimelab.HMMParameters(
-            start_prob=np.array([0.6, 0.4]),
-            transition=np.array([[0.9, 0.1], [0.2, 0.8]]),
-            means=np.array([[-1.0], [1.0]]),
-            variances=np.array([[1.0], [1.0]]),
-        )
+        good = _known_parameters()
         try:
             for bad in (
                 regimelab.HMMParameters(
