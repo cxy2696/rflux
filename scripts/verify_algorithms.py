@@ -26,9 +26,11 @@ from typing import Any, Callable
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "python"))
-
-import rflux  # noqa: E402
+try:
+    import rflux  # noqa: E402
+except ImportError:  # source checkout without an installed package
+    sys.path.insert(0, str(ROOT / "python"))
+    import rflux  # noqa: E402, F811
 from rflux import (  # noqa: E402
     advice,
     analysis,

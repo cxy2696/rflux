@@ -86,9 +86,11 @@ c-test: $(BUILD)/test_capi
 python-test: $(SHARED_LIB)
 	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) -m unittest discover -s tests/python -p 'test_*.py' -v
 
+# Prefer the installed package (and its native extension); the script adds
+# python/ itself when rflux is not importable.
 algo-check: $(SHARED_LIB)
-	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) scripts/verify_algorithms.py --label native
-	RFLUX_DISABLE_NATIVE=1 RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) scripts/verify_algorithms.py --label ctypes-fallback
+	RFLUX_LIBRARY=$(SHARED_LIB_ABS) $(PYTHON) scripts/verify_algorithms.py --label native
+	RFLUX_DISABLE_NATIVE=1 RFLUX_LIBRARY=$(SHARED_LIB_ABS) $(PYTHON) scripts/verify_algorithms.py --label ctypes-fallback
 
 python-lib: $(SHARED_LIB)
 	@mkdir -p python/rflux/_lib
