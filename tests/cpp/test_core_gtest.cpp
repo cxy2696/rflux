@@ -313,6 +313,16 @@ TEST(PortfolioLabGTest, HrpWeightsAreValid) {
     EXPECT_TRUE(std::isfinite(allocator.weights(covariance, 2)[0]));
 }
 
+TEST(ExecutionGTest, OrderBookMetrics) {
+    const auto metrics = rflux::execution::order_book_metrics(
+        (const double[]){99.9}, (const double[]){100.0},
+        (const double[]){100.1}, (const double[]){200.0}, 1);
+    EXPECT_NEAR(metrics.spread[0], 0.2, 1e-12);
+    EXPECT_NEAR(metrics.mid[0], 100.0, 1e-12);
+    EXPECT_NEAR(metrics.microprice[0], 99.9666666667, 1e-9);
+    EXPECT_NEAR(metrics.imbalance[0], -1.0 / 3.0, 1e-12);
+}
+
 TEST(ExecutionGTest, LinearScheduleAtZeroRisk) {
     const rflux::execution::AlmgrenChrissPlanner planner(1.0, 0.0, 0.0, 0.0);
     const auto plan = planner.plan(10.0, 4, 1.0);
@@ -332,6 +342,16 @@ TEST(ExecutionGTest, RiskAversionFrontLoadsSchedule) {
     EXPECT_NEAR(total, 1000.0, 1e-8);
     EXPECT_GT(plan.trades.front(), plan.trades.back());
     EXPECT_GT(plan.kappa, 0.0);
+}
+
+TEST(MLLabGTest, CvarAndGraphSmooth) {
+    const double returns[4] = {0.01, -0.02, -0.05, 0.03};
+    EXPECT_NEAR(rflux::mllab::cvar_loss(returns, 4, 0.95), 0.05, 1e-12);
+    const double signal[3] = {1, 0, 1};
+    const double adjacency[9] = {0, 1, 1, 1, 0, 1, 1, 1, 0};
+    const auto smooth =
+        rflux::mllab::graph_smooth(signal, adjacency, 3, 0.5, 3);
+    EXPECT_NEAR(smooth[0], smooth[2], 1e-12);
 }
 
 TEST(MLLabGTest, HuberResistsOutlier) {

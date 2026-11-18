@@ -155,6 +155,9 @@ void rflux_clear_error(void);
 | `rflux_tail_dependence` | n_assets x n_assets symmetric matrix |
 | `rflux_almgren_chriss_plan` | trades of length `slices`; cost/variance/kappa are either all provided or all omitted |
 | `rflux_huber_regression` | coefficients length `n_features`; intercept, scale, iterations, converged |
+| `rflux_cvar_loss` | one scalar |
+| `rflux_graph_smooth` | signal length `n` |
+| `rflux_order_book_metrics` | four arrays of length `n` |
 | `rflux_site_percolation_analyze` | giant, std, susceptibility, largest_component, systemic |
 | `rflux_site_percolation_threshold` | one scalar |
 | `rflux_pretrade_check` | allowed 0/1 and a NUL-terminated reason |

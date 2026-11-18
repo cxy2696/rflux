@@ -115,7 +115,7 @@ Release 和 RelWithDebInfo 默认开启，Debug 和 sanitizer 构建自动跳过
 
 ## C ABI 覆盖
 
-0.7 的核心算法都有 C ABI 入口：因子面板/IC/换手率、HRP/NCO 与风险平价权重、调仓门控、尾部相依、Almgren-Chriss 计划、Huber 回归、site percolation 分析和阈值、下单前风控。Python 在原生扩展不可用时使用这些 C 函数，不再维护第二套 NumPy 算法实现。
+0.7 的核心算法都有 C ABI 入口：因子面板/IC/换手率、HRP/NCO 与风险平价权重、调仓门控、尾部相依、CVaR、图平滑、盘口指标、Almgren-Chriss 计划、Huber 回归、site percolation 分析和阈值、下单前风控。Python 在原生扩展不可用时使用这些 C 函数，不再维护第二套 NumPy 算法实现。
 
 ## 共享代码
 

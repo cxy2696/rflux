@@ -110,11 +110,7 @@ def order_book_metrics(
     ask_price: Any,
     ask_size: Any,
 ) -> dict[str, np.ndarray]:
-    """Level-1 spread, mid, microprice and size imbalance.
-
-    ``imbalance`` is ``(bid_size - ask_size) / (bid_size + ask_size)`` and
-    ``microprice`` weights the opposite side by its available size.
-    """
+    """Level-1 order-book metrics, implemented in C++."""
     bid = as_f64_1d(bid_price, "bid_price")
     ask = as_f64_1d(ask_price, "ask_price")
     bid_qty = as_f64_1d(bid_size, "bid_size")
@@ -131,19 +127,31 @@ def order_book_metrics(
         raise ValueError("sizes must be non-negative")
     if np.any(ask < bid):
         raise ValueError("ask price must not be below bid price")
-    total = bid_qty + ask_qty
-    with np.errstate(divide="ignore", invalid="ignore"):
-        microprice = np.where(
-            total > 0.0,
-            (ask * bid_qty + bid * ask_qty) / np.where(total > 0.0, total, 1.0),
-            (bid + ask) * 0.5,
+    n = bid.size
+    def fallback() -> tuple[np.ndarray, ...]:
+        spread = empty_f64(n)
+        mid = empty_f64(n)
+        microprice = empty_f64(n)
+        imbalance = empty_f64(n)
+        check(
+            get_lib().rflux_order_book_metrics(
+                double_ptr(bid), double_ptr(bid_qty), double_ptr(ask),
+                double_ptr(ask_qty), n, double_ptr(spread), double_ptr(mid),
+                double_ptr(microprice), double_ptr(imbalance)
+            ),
+            "rflux_order_book_metrics",
         )
-        imbalance = np.where(
-            total > 0.0, (bid_qty - ask_qty) / np.where(total > 0.0, total, 1.0), 0.0
-        )
+        return spread, mid, microprice, imbalance
+
+    spread, mid, microprice, imbalance = native_or(
+        native_module,
+        "rflux_order_book_metrics",
+        lambda: native_module.order_book_metrics(bid, bid_qty, ask, ask_qty),
+        fallback,
+    )
     return {
-        "spread": ask - bid,
-        "mid": (ask + bid) * 0.5,
+        "spread": spread,
+        "mid": mid,
         "microprice": microprice,
         "imbalance": imbalance,
     }

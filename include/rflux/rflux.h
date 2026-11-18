@@ -864,6 +864,22 @@ RFLUX_API rflux_status rflux_huber_regression(
     int32_t fit_intercept, double* coefficients, double* intercept,
     double* scale, size_t* iterations, int32_t* converged);
 
+/* Historical CVaR of losses at confidence alpha. */
+RFLUX_API rflux_status rflux_cvar_loss(const double* returns, size_t n,
+                                       double alpha, double* out);
+
+/* Graph smoothing: s <- (1-alpha) s + alpha D^-1 A s, steps times. */
+RFLUX_API rflux_status rflux_graph_smooth(const double* signal,
+                                          const double* adjacency, size_t n,
+                                          double alpha, size_t steps,
+                                          double* out);
+
+/* Level-1 order-book metrics; each output has n entries. */
+RFLUX_API rflux_status rflux_order_book_metrics(
+    const double* bid_price, const double* bid_size, const double* ask_price,
+    const double* ask_size, size_t n, double* spread, double* mid,
+    double* microprice, double* imbalance);
+
 /* Site percolation on a dense symmetric non-negative adjacency matrix.
  * `p` is the occupation probability.  systemic receives 1 when the giant
  * component reaches the detector's crisis_fraction.  largest_component is the

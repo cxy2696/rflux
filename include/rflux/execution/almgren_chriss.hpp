@@ -42,4 +42,16 @@ private:
     double risk_aversion_;
 };
 
+struct OrderBookMetrics {
+    std::vector<double> spread;
+    std::vector<double> mid;
+    std::vector<double> microprice;
+    std::vector<double> imbalance;
+};
+
+/* Level-1 spread, mid, microprice and size imbalance. */
+[[nodiscard]] OrderBookMetrics order_book_metrics(
+    const double* bid_price, const double* bid_size, const double* ask_price,
+    const double* ask_size, std::size_t n);
+
 }  // namespace rflux::execution

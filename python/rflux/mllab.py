@@ -133,7 +133,7 @@ def huber_regression(
 
 
 def cvar_loss(returns: Any, *, alpha: float = 0.95) -> float:
-    """Historical CVaR of losses at confidence ``alpha`` (positive is a loss)."""
+    """Historical CVaR of losses at confidence ``alpha``, implemented in C++."""
     values = as_f64_1d(returns, "returns")
     if values.size == 0:
         raise ValueError("returns must not be empty")
@@ -142,20 +142,30 @@ def cvar_loss(returns: Any, *, alpha: float = 0.95) -> float:
     alpha = float(alpha)
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must be in (0, 1)")
-    losses = -values
-    tail = np.quantile(losses, alpha)
-    selected = losses[losses >= tail]
-    return float(selected.mean())
+
+    def fallback() -> float:
+        out = ctypes.c_double()
+        check(
+            get_lib().rflux_cvar_loss(
+                double_ptr(values), values.size, float(alpha),
+                ctypes.byref(out)
+            ),
+            "rflux_cvar_loss",
+        )
+        return float(out.value)
+
+    return float(native_or(
+        native_module,
+        "rflux_cvar_loss",
+        lambda: native_module.cvar_loss(values, float(alpha)),
+        fallback,
+    ))
 
 
 def graph_smooth(
     signal: Any, adjacency: Any, *, alpha: float = 0.5, steps: int = 3
 ) -> np.ndarray:
-    """Diffuse a per-node signal over a graph.
-
-    This is a lightweight graph-regularisation primitive, not a trained GNN:
-    ``s <- (1-alpha) s + alpha D^-1 A s`` for ``steps`` iterations.
-    """
+    """Diffuse a per-node signal over a graph, implemented in C++."""
     values = as_f64_1d(signal, "signal")
     matrix = as_f64_2d(adjacency, "adjacency")
     if matrix.shape[0] != matrix.shape[1] or matrix.shape[0] != values.size:
@@ -168,14 +178,23 @@ def graph_smooth(
     if not 0.0 <= alpha <= 1.0:
         raise ValueError("alpha must be in [0, 1]")
     steps = as_size(steps, "steps")
-    degree = matrix.sum(axis=1)
-    normalized = np.divide(
-        matrix,
-        degree[:, None],
-        out=np.zeros_like(matrix),
-        where=degree[:, None] > 0.0,
+
+    def fallback() -> np.ndarray:
+        out = empty_f64(values.size)
+        check(
+            get_lib().rflux_graph_smooth(
+                double_ptr(values), double_ptr(matrix), values.size,
+                float(alpha), steps, double_ptr(out)
+            ),
+            "rflux_graph_smooth",
+        )
+        return out
+
+    return native_or(
+        native_module,
+        "rflux_graph_smooth",
+        lambda: native_module.graph_smooth(
+            values, matrix, float(alpha), steps
+        ),
+        fallback,
     )
-    result = values.astype(np.float64, copy=True)
-    for _ in range(steps):
-        result = (1.0 - alpha) * result + alpha * (normalized @ result)
-    return result

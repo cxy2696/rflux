@@ -1199,6 +1199,42 @@ rflux_status rflux_tail_dependence(const double* returns, size_t n_obs,
     });
 }
 
+rflux_status rflux_cvar_loss(const double* returns, size_t n, double alpha,
+                             double* out) {
+    return api_guard("rflux_cvar_loss", [&] {
+        require_output(out, "out");
+        *out = rflux::mllab::cvar_loss(returns, n, alpha);
+    });
+}
+
+rflux_status rflux_graph_smooth(const double* signal,
+                                const double* adjacency, size_t n,
+                                double alpha, size_t steps, double* out) {
+    return guarded_vector("rflux_graph_smooth", out, "out", [&] {
+        return rflux::mllab::graph_smooth(signal, adjacency, n, alpha,
+                                          steps);
+    });
+}
+
+rflux_status rflux_order_book_metrics(
+    const double* bid_price, const double* bid_size, const double* ask_price,
+    const double* ask_size, size_t n, double* spread, double* mid,
+    double* microprice, double* imbalance) {
+    return api_guard("rflux_order_book_metrics", [&] {
+        require_output(spread, "spread");
+        require_output(mid, "mid");
+        require_output(microprice, "microprice");
+        require_output(imbalance, "imbalance");
+        const auto values = rflux::execution::order_book_metrics(
+            bid_price, bid_size, ask_price, ask_size, n);
+        std::copy(values.spread.begin(), values.spread.end(), spread);
+        std::copy(values.mid.begin(), values.mid.end(), mid);
+        std::copy(values.microprice.begin(), values.microprice.end(),
+                  microprice);
+        std::copy(values.imbalance.begin(), values.imbalance.end(), imbalance);
+    });
+}
+
 rflux_status rflux_huber_regression(
     const double* features, const double* target, size_t n_obs,
     size_t n_features, double epsilon, size_t max_iter, double tol,

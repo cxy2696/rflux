@@ -58,4 +58,15 @@ private:
     bool fitted_ = false;
 };
 
+
+/* Historical CVaR of losses at confidence alpha (positive is a loss). */
+[[nodiscard]] double cvar_loss(const double* returns, std::size_t n,
+                               double alpha);
+
+/* s <- (1-alpha) s + alpha D^-1 A s for `steps` iterations. */
+[[nodiscard]] std::vector<double> graph_smooth(const double* signal,
+                                               const double* adjacency,
+                                               std::size_t n, double alpha,
+                                               std::size_t steps);
+
 }  // namespace rflux::mllab

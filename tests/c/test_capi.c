@@ -846,6 +846,26 @@ static int test_algorithms(void) {
         CHECK(approx(intercept, 1.0, 1e-9));
     }
     {
+        const double returns[4] = {0.01, -0.02, -0.05, 0.03};
+        double cvar;
+        CHECK(rflux_cvar_loss(returns, 4, 0.95, &cvar) == RFLUX_OK);
+        CHECK(approx(cvar, 0.05, 1e-12));
+        const double signal[3] = {1, 0, 1};
+        const double adjacency[9] = {0, 1, 1, 1, 0, 1, 1, 1, 0};
+        double smooth[3];
+        CHECK(rflux_graph_smooth(signal, adjacency, 3, 0.5, 3, smooth) ==
+              RFLUX_OK);
+        CHECK(approx(smooth[0], smooth[2], 1e-12));
+        double out_spread[1], out_mid[1], out_micro[1], out_imbalance[1];
+        CHECK(rflux_order_book_metrics(
+                  (const double[]){99.9}, (const double[]){100.0},
+                  (const double[]){100.1}, (const double[]){200.0}, 1,
+                  out_spread, out_mid, out_micro, out_imbalance) == RFLUX_OK);
+        CHECK(approx(out_spread[0], 0.2, 1e-12));
+        CHECK(approx(out_mid[0], 100.0, 1e-12));
+        CHECK(approx(out_imbalance[0], -1.0 / 3.0, 1e-12));
+    }
+    {
         const double returns[8] = {-2, -1, -1, 0, 0, 1, 1, 2};
         double dependence[4];
         CHECK(rflux_tail_dependence(returns, 4, 2, 0.25, 0, dependence) ==

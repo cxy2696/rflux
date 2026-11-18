@@ -137,6 +137,9 @@ void rflux_clear_error(void);
 | `rflux_tail_dependence` | n_assets x n_assets 对称矩阵 |
 | `rflux_almgren_chriss_plan` | trades 长度 `slices`；cost/variance/kappa 可选但必须成组传入 |
 | `rflux_huber_regression` | coefficients 长度 `n_features`；intercept、scale、iterations、converged |
+| `rflux_cvar_loss` | 1 个标量 |
+| `rflux_graph_smooth` | 长度 `n` 的信号 |
+| `rflux_order_book_metrics` | 4 个长度 `n` 的数组 |
 | `rflux_site_percolation_analyze` | giant、std、susceptibility、largest_component、systemic |
 | `rflux_site_percolation_threshold` | 1 个标量 |
 | `rflux_pretrade_check` | allowed 0/1 与 NUL 结尾 reason |

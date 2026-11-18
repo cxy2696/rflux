@@ -65,10 +65,12 @@ set(RFLUX_CORE_SOURCES
     src/portfoliolab/hrp.cpp
     src/portfoliolab/factory.cpp
     src/execution/almgren_chriss.cpp
+    src/execution/microstructure.cpp
     src/execution/factory.cpp
     src/regimelab/detector.cpp
     src/regimelab/factory.cpp
     src/mllab/huber.cpp
+    src/mllab/robust.cpp
     src/mllab/factory.cpp)
 
 find_package(Threads REQUIRED)

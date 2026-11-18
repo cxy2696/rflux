@@ -686,6 +686,57 @@ py::tuple almgren_chriss(double quantity, std::size_t slices, double horizon,
                           plan.expected_variance, plan.kappa);
 }
 
+double cvar_loss(const DoubleArray& returns, double alpha) {
+    require_1d(returns, "returns");
+    return run_released([&] {
+        return rflux::mllab::cvar_loss(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)), alpha);
+    });
+}
+
+py::array_t<double> graph_smooth(const DoubleArray& signal,
+                                 const DoubleArray& adjacency, double alpha,
+                                 std::size_t steps) {
+    require_1d(signal, "signal");
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1) ||
+        adjacency.shape(0) != signal.shape(0)) {
+        throw rflux::InvalidArgument(
+            "adjacency must be square and match signal length");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::mllab::graph_smooth(
+            signal.data(), adjacency.data(),
+            static_cast<std::size_t>(signal.shape(0)), alpha, steps);
+    });
+    return vector_to_array(result);
+}
+
+py::tuple order_book_metrics(const DoubleArray& bid_price,
+                             const DoubleArray& bid_size,
+                             const DoubleArray& ask_price,
+                             const DoubleArray& ask_size) {
+    require_1d(bid_price, "bid_price");
+    require_1d(bid_size, "bid_size");
+    require_1d(ask_price, "ask_price");
+    require_1d(ask_size, "ask_size");
+    if (bid_price.shape(0) != bid_size.shape(0) ||
+        bid_price.shape(0) != ask_price.shape(0) ||
+        bid_price.shape(0) != ask_size.shape(0)) {
+        throw rflux::InvalidArgument(
+            "order-book arrays must have equal lengths");
+    }
+    const auto result = run_released([&] {
+        return rflux::execution::order_book_metrics(
+            bid_price.data(), bid_size.data(), ask_price.data(),
+            ask_size.data(), static_cast<std::size_t>(bid_price.shape(0)));
+    });
+    return py::make_tuple(vector_to_array(result.spread),
+                          vector_to_array(result.mid),
+                          vector_to_array(result.microprice),
+                          vector_to_array(result.imbalance));
+}
+
 py::tuple huber_regression(const DoubleArray& features,
                            const DoubleArray& target, double epsilon,
                            std::size_t max_iter, double tol,
@@ -955,6 +1006,14 @@ PYBIND11_MODULE(_native, module) {
                py::arg("target"), py::arg("epsilon") = 1.35,
                py::arg("max_iter") = 100, py::arg("tol") = 1e-8,
                py::arg("fit_intercept") = true);
+    module.def("cvar_loss", &cvar_loss, py::arg("returns"),
+               py::arg("alpha") = 0.95);
+    module.def("graph_smooth", &graph_smooth, py::arg("signal"),
+               py::arg("adjacency"), py::arg("alpha") = 0.5,
+               py::arg("steps") = 3);
+    module.def("order_book_metrics", &order_book_metrics, py::arg("bid_price"),
+               py::arg("bid_size"), py::arg("ask_price"),
+               py::arg("ask_size"));
 
     py::class_<NativeHMM>(module, "GaussianHMM")
         .def(py::init<std::size_t, std::size_t>(), py::arg("n_states"),
