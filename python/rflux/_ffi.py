@@ -312,6 +312,14 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, c_double_p])
     bind("rflux_hrp_order", ctypes.c_int,
          [c_double_p, size_t, c_size_p])
+    bind("rflux_risk_parity_weights", ctypes.c_int,
+         [c_double_p, size_t, c_double_p])
+    bind("rflux_nco_weights", ctypes.c_int,
+         [c_double_p, size_t, double, c_double_p])
+    bind("rflux_rebalance_targets", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, double, c_double_p])
+    bind("rflux_rebalance_targets", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, double, c_double_p])
 
     # execution and robust prediction
     bind("rflux_almgren_chriss_plan", ctypes.c_int,
@@ -321,6 +329,8 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, c_double_p, size_t, size_t, double, size_t, double,
           ctypes.c_int32, c_double_p, c_double_p, c_double_p, c_size_p,
           c_int32_p])
+    bind("rflux_tail_dependence", ctypes.c_int,
+         [c_double_p, size_t, size_t, double, ctypes.c_int32, c_double_p])
 
     # percolation detector and pre-trade gate
     bind("rflux_site_percolation_analyze", ctypes.c_int,

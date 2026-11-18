@@ -29,4 +29,22 @@ public:
 [[nodiscard]] std::vector<std::size_t> quasi_diagonal_order(
     const double* covariance, std::size_t n_assets);
 
+/* Diagonal inverse-variance weights; a simple risk-parity baseline. */
+[[nodiscard]] std::vector<double> risk_parity_weights(
+    const double* covariance, std::size_t n_assets);
+
+/*
+ * Nested clustered risk parity.  Correlations are grouped by single-linkage
+ * distance, each group is HRP-allocated and groups receive inverse
+ * cluster-variance budgets.
+ */
+[[nodiscard]] std::vector<double> nco_weights(
+    const double* covariance, std::size_t n_assets,
+    double distance_threshold = 0.5);
+
+/* Per-row rebalance gate: use target when max |target-current| >= threshold. */
+[[nodiscard]] std::vector<double> rebalance_targets(
+    const double* current, const double* target, std::size_t n_rows,
+    std::size_t n_assets, double threshold);
+
 }  // namespace rflux::portfoliolab

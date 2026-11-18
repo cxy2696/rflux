@@ -30,6 +30,7 @@
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
+#include "rflux/risk/tail_dependence.hpp"
 
 namespace {
 
@@ -244,6 +245,40 @@ TEST(FactorLabGTest, VolumeReversalAndAmihud) {
     const double first = std::abs(2.0 / 1.0 - 1.0) / (2.0 * 1.0);
     const double second = std::abs(4.0 / 2.0 - 1.0) / (4.0 * 2.0);
     EXPECT_NEAR(illiquidity[2], (first + second) / 2.0, 1e-12);
+}
+
+TEST(PortfolioLabGTest, RiskParityAndNcoWeights) {
+    const double covariance[4] = {0.04, 0.006, 0.006, 0.09};
+    const auto parity =
+        rflux::portfoliolab::risk_parity_weights(covariance, 2);
+    EXPECT_NEAR(parity[0], 0.6923076923076923, 1e-12);
+    EXPECT_NEAR(parity[1], 0.3076923076923077, 1e-12);
+    const auto nco = rflux::portfoliolab::nco_weights(covariance, 2, 0.5);
+    EXPECT_NEAR(nco[0] + nco[1], 1.0, 1e-12);
+    EXPECT_GE(nco[0], 0.0);
+    EXPECT_GE(nco[1], 0.0);
+}
+
+TEST(PortfolioLabGTest, RebalanceTargetsGateEachRow) {
+    const double current[4] = {0.5, 0.5, 0.5, 0.5};
+    const double target[4] = {0.51, 0.49, 0.7, 0.3};
+    const auto gated =
+        rflux::portfoliolab::rebalance_targets(current, target, 2, 2, 0.05);
+    EXPECT_NEAR(gated[0], 0.5, 1e-12);
+    EXPECT_NEAR(gated[1], 0.5, 1e-12);
+    EXPECT_NEAR(gated[2], 0.7, 1e-12);
+    EXPECT_NEAR(gated[3], 0.3, 1e-12);
+}
+
+TEST(RiskGTest, TailDependenceIsSymmetric) {
+    const double returns[8] = {-2, -1, -1, 0, 0, 1, 1, 2};
+    const auto lower =
+        rflux::risk::tail_dependence(returns, 4, 2, 0.25, false);
+    EXPECT_NEAR(lower[0], 1.0, 1e-12);
+    EXPECT_NEAR(lower[3], 1.0, 1e-12);
+    EXPECT_NEAR(lower[1], lower[2], 1e-12);
+    EXPECT_GE(lower[1], 0.0);
+    EXPECT_LE(lower[1], 1.0);
 }
 
 TEST(PortfolioLabGTest, HrpWeightsAreValid) {

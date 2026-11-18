@@ -6,7 +6,9 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ._common import as_f64_2d
+from ._common import as_f64_2d, double_ptr, empty_f64
+from ._ffi import check, get_lib
+from ._native_backend import native_module, native_or
 
 __all__ = ["tail_dependence"]
 
@@ -19,8 +21,7 @@ def tail_dependence(
     For each pair ``(i, j)`` the lower coefficient averages the two empirical
     conditionals ``P(r_i <= Q_i(q) | r_j <= Q_j(q))`` and
     ``P(r_j <= Q_j(q) | r_i <= Q_i(q))``; the upper coefficient does the same
-    for the upper tails.  Averaging makes the finite-sample matrix genuinely
-    symmetric.  The diagonal is one; pairs with no observations in either
+    for the upper tails.  Averaging makes the finite-sample matrix symmetric.  The diagonal is one; pairs with no observations in either
     conditioning tail are NaN.
     """
     values = as_f64_2d(returns, "returns")
@@ -33,32 +34,25 @@ def tail_dependence(
     if tail not in {"lower", "upper"}:
         raise ValueError("tail must be 'lower' or 'upper'")
     n_assets = values.shape[1]
-    result = np.eye(n_assets, dtype=np.float64)
-    threshold = q if tail == "lower" else 1.0 - q
-    events = np.empty(values.shape, dtype=bool)
-    for asset in range(n_assets):
-        column = values[:, asset]
-        valid = np.isfinite(column)
-        if not np.any(valid):
-            events[:, asset] = False
-            continue
-        cutoff = float(np.quantile(column[valid], threshold))
-        events[:, asset] = valid & (
-            column <= cutoff if tail == "lower" else column >= cutoff
+    upper = tail == "upper"
+    def fallback() -> np.ndarray:
+        out = empty_f64(n_assets * n_assets)
+        check(
+            get_lib().rflux_tail_dependence(
+                double_ptr(values),
+                values.shape[0],
+                n_assets,
+                float(q),
+                1 if upper else 0,
+                double_ptr(out),
+            ),
+            "rflux_tail_dependence",
         )
-    for i in range(n_assets):
-        for j in range(i + 1, n_assets):
-            joint = int((events[:, i] & events[:, j]).sum())
-            count_i = int(events[:, i].sum())
-            count_j = int(events[:, j].sum())
-            if count_i == 0 or count_j == 0:
-                value = np.nan
-            else:
-                # The population coefficient is symmetric, but the two
-                # finite-sample conditionals P(i | j) and P(j | i) are not.
-                # Average them so the reported matrix is genuinely symmetric
-                # instead of borrowing only one direction.
-                value = 0.5 * (joint / count_i + joint / count_j)
-            result[i, j] = value
-            result[j, i] = value
-    return result
+        return out.reshape(n_assets, n_assets)
+
+    return native_or(
+        native_module,
+        "rflux_tail_dependence",
+        lambda: native_module.tail_dependence(values, float(q), upper),
+        fallback,
+    )

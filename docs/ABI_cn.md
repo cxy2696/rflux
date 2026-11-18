@@ -129,6 +129,10 @@ void rflux_clear_error(void);
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`，行主序 |
 | `rflux_hrp_weights` | n_assets，long-only，和为 1 |
 | `rflux_hrp_order` | n_assets 个 `size_t` 叶序 |
+| `rflux_risk_parity_weights` | n_assets 逆方差权重 |
+| `rflux_nco_weights` | n_assets 聚类风险平价权重 |
+| `rflux_rebalance_targets` | n_rows * n_assets 门控权重 |
+| `rflux_tail_dependence` | n_assets x n_assets 对称矩阵 |
 | `rflux_almgren_chriss_plan` | trades 长度 `slices`；cost/variance/kappa 可选但必须成组传入 |
 | `rflux_huber_regression` | coefficients 长度 `n_features`；intercept、scale、iterations、converged |
 | `rflux_site_percolation_analyze` | giant、std、susceptibility、largest_component、systemic |

@@ -40,6 +40,7 @@
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
+#include "rflux/risk/tail_dependence.hpp"
 
 namespace py = pybind11;
 
@@ -576,6 +577,17 @@ py::array_t<double> factor_amihud(const DoubleArray& close,
     });
 }
 
+py::array_t<double> tail_dependence(const DoubleArray& returns, double q,
+                                    bool upper) {
+    require_2d(returns, "returns");
+    std::vector<double> result = run_released([&] {
+        return rflux::risk::tail_dependence(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            static_cast<std::size_t>(returns.shape(1)), q, upper);
+    });
+    return matrix_to_array(result, returns.shape(1), returns.shape(1));
+}
+
 py::array_t<double> hrp_weights(const DoubleArray& covariance) {
     require_2d(covariance, "covariance");
     if (covariance.shape(0) != covariance.shape(1)) {
@@ -584,6 +596,50 @@ py::array_t<double> hrp_weights(const DoubleArray& covariance) {
     std::vector<double> result = run_released([&] {
         return rflux::portfoliolab::HRPAllocator().weights(
             covariance.data(), static_cast<std::size_t>(covariance.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> risk_parity_weights(const DoubleArray& covariance) {
+    require_2d(covariance, "covariance");
+    if (covariance.shape(0) != covariance.shape(1)) {
+        throw rflux::InvalidArgument("covariance must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::portfoliolab::risk_parity_weights(
+            covariance.data(), static_cast<std::size_t>(covariance.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> rebalance_targets(const DoubleArray& current,
+                                      const DoubleArray& target,
+                                      double threshold) {
+    require_2d(current, "current");
+    require_2d(target, "target");
+    if (current.shape(0) != target.shape(0) ||
+        current.shape(1) != target.shape(1)) {
+        throw rflux::InvalidArgument("current and target must have equal shape");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::portfoliolab::rebalance_targets(
+            current.data(), target.data(),
+            static_cast<std::size_t>(current.shape(0)),
+            static_cast<std::size_t>(current.shape(1)), threshold);
+    });
+    return matrix_to_array(result, current.shape(0), current.shape(1));
+}
+
+py::array_t<double> nco_weights(const DoubleArray& covariance,
+                                double distance_threshold) {
+    require_2d(covariance, "covariance");
+    if (covariance.shape(0) != covariance.shape(1)) {
+        throw rflux::InvalidArgument("covariance must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::portfoliolab::nco_weights(
+            covariance.data(), static_cast<std::size_t>(covariance.shape(0)),
+            distance_threshold);
     });
     return vector_to_array(result);
 }
@@ -849,7 +905,15 @@ PYBIND11_MODULE(_native, module) {
                py::arg("close"), py::arg("volume"), py::arg("window"));
     module.def("factor_amihud", &factor_amihud, py::arg("close"),
                py::arg("volume"), py::arg("window"), py::arg("scale") = 1e6);
+    module.def("tail_dependence", &tail_dependence, py::arg("returns"),
+               py::arg("q") = 0.05, py::arg("upper") = false);
     module.def("hrp_weights", &hrp_weights, py::arg("covariance"));
+    module.def("risk_parity_weights", &risk_parity_weights,
+               py::arg("covariance"));
+    module.def("nco_weights", &nco_weights, py::arg("covariance"),
+               py::arg("distance_threshold") = 0.5);
+    module.def("rebalance_targets", &rebalance_targets, py::arg("current"),
+               py::arg("target"), py::arg("threshold") = 0.05);
     module.def("almgren_chriss", &almgren_chriss, py::arg("quantity"),
                py::arg("slices"), py::arg("horizon"),
                py::arg("temporary_impact"), py::arg("permanent_impact"),

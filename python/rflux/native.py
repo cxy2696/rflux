@@ -32,14 +32,18 @@ _EXPORTS = (
     "hrp_weights",
     "huber_regression",
     "macd",
+    "nco_weights",
     "neutralize",
     "pair_series",
     "pearson",
     "quantile",
+    "rebalance_targets",
+    "risk_parity_weights",
     "series",
     "series_into",
     "sharpe",
     "sortino",
+    "tail_dependence",
     "var_cvar",
 )
 
