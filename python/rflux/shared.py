@@ -56,9 +56,7 @@ class SharedArray:
         unlink_on_exit: bool = False,
     ) -> "SharedArray":
         """Allocate a contiguous array in a new shared-memory segment."""
-        shape_tuple = _normalize_shape(shape)
-        dtype_object = np.dtype(dtype)
-        nbytes = _byte_count(shape_tuple, dtype_object)
+        shape_tuple, dtype_object, nbytes = _layout(shape, dtype)
         shm = _shm.SharedMemory(name=name, create=True, size=max(nbytes, 1))
         try:
             array = np.ndarray(shape_tuple, dtype=dtype_object, buffer=shm.buf)
@@ -76,9 +74,7 @@ class SharedArray:
         dtype: Any = np.float64,
     ) -> "SharedArray":
         """Attach to an existing segment created by another process."""
-        shape_tuple = _normalize_shape(shape)
-        dtype_object = np.dtype(dtype)
-        nbytes = _byte_count(shape_tuple, dtype_object)
+        shape_tuple, dtype_object, nbytes = _layout(shape, dtype)
         shm = _shm.SharedMemory(name=name)
         if shm.size < nbytes:
             shm.close()
@@ -191,6 +187,14 @@ def _normalize_shape(shape: int | tuple[int, ...]) -> tuple[int, ...]:
     if any(item < 0 for item in result):
         raise ValueError("shape entries must be non-negative")
     return result
+
+
+def _layout(
+    shape: int | tuple[int, ...], dtype: Any
+) -> tuple[tuple[int, ...], np.dtype[Any], int]:
+    shape_tuple = _normalize_shape(shape)
+    dtype_object = np.dtype(dtype)
+    return shape_tuple, dtype_object, _byte_count(shape_tuple, dtype_object)
 
 
 def _byte_count(shape: tuple[int, ...], dtype: np.dtype[Any]) -> int:

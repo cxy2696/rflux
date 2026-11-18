@@ -14,7 +14,7 @@ import numpy as np
 
 from ._common import as_f64_2d, as_size, double_ptr, empty_f64
 from ._ffi import check, get_lib
-from ._native_backend import native_module, raise_as_rflux
+from ._native_backend import native_module, native_or
 from . import qflux
 
 __all__ = [
@@ -95,12 +95,12 @@ def momentum(close: Any, window: int = 20) -> np.ndarray:
     """Trailing simple return ``close[t] / close[t-window] - 1``."""
     prices = _panel(close, "close")
     window = as_size(window, "window")
-    if native_module is not None:
-        try:
-            return native_module.factor_momentum(prices, window)
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_factor_momentum", exc)
-    return _c_factor("rflux_factor_momentum", prices, None, window)
+    return native_or(
+        native_module,
+        "rflux_factor_momentum",
+        lambda: native_module.factor_momentum(prices, window),
+        lambda: _c_factor("rflux_factor_momentum", prices, None, window),
+    )
 
 
 
@@ -109,15 +109,12 @@ def volume_reversal(close: Any, volume: Any, window: int = 20) -> np.ndarray:
     prices = _panel(close, "close")
     volumes = _volume_panel(prices, volume)
     window = as_size(window, "window")
-    if native_module is not None:
-        try:
-            return native_module.factor_volume_reversal(
-                prices, volumes, window
-            )
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_factor_volume_reversal", exc)
-    return _c_factor(
-        "rflux_factor_volume_reversal", prices, volumes, window
+    return native_or(
+        native_module,
+        "rflux_factor_volume_reversal",
+        lambda: native_module.factor_volume_reversal(prices, volumes, window),
+        lambda: _c_factor(
+            "rflux_factor_volume_reversal", prices, volumes, window),
     )
 
 
@@ -127,15 +124,12 @@ def vwap_deviation(close: Any, volume: Any, window: int = 20) -> np.ndarray:
     prices = _panel(close, "close")
     volumes = _volume_panel(prices, volume)
     window = as_size(window, "window")
-    if native_module is not None:
-        try:
-            return native_module.factor_vwap_deviation(
-                prices, volumes, window
-            )
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_factor_vwap_deviation", exc)
-    return _c_factor(
-        "rflux_factor_vwap_deviation", prices, volumes, window
+    return native_or(
+        native_module,
+        "rflux_factor_vwap_deviation",
+        lambda: native_module.factor_vwap_deviation(prices, volumes, window),
+        lambda: _c_factor(
+            "rflux_factor_vwap_deviation", prices, volumes, window),
     )
 
 
@@ -149,15 +143,13 @@ def amihud(
     window = as_size(window, "window")
     if not np.isfinite(scale) or scale <= 0.0:
         raise ValueError("scale must be finite and positive")
-    if native_module is not None:
-        try:
-            return native_module.factor_amihud(
-                prices, volumes, window, float(scale)
-            )
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_factor_amihud", exc)
-    return _c_factor(
-        "rflux_factor_amihud", prices, volumes, window, float(scale)
+    return native_or(
+        native_module,
+        "rflux_factor_amihud",
+        lambda: native_module.factor_amihud(
+            prices, volumes, window, float(scale)),
+        lambda: _c_factor(
+            "rflux_factor_amihud", prices, volumes, window, float(scale)),
     )
 
 

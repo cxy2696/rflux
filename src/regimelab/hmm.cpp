@@ -13,6 +13,7 @@
 
 #include "internal/common.hpp"
 #include "internal/linalg.hpp"
+#include "internal/parallel.hpp"
 
 namespace rflux::regimelab {
 namespace {
@@ -296,18 +297,36 @@ std::vector<double> log_emission_matrix(const HmmParameters& parameters,
                                         const double* observations,
                                         std::size_t n) {
     std::vector<double> log_emission(checked_mul(n, k, "n*K overflow"), 0.0);
+    /*
+     * The Gaussian normaliser and 1/variance depend only on the state and
+     * feature, never on the observation index.  Hoisting them out of the
+     * time loop removes a log and a division for every (t, state, feature)
+     * cell while keeping the log-domain formulation unchanged.
+     */
+    std::vector<long double> normaliser(k, 0.0L);
+    std::vector<long double> inverse_variance(
+        checked_mul(k, d, "K*D overflow"), 0.0L);
+    for (std::size_t state = 0; state < k; ++state) {
+        long double value = 0.0L;
+        for (std::size_t j = 0; j < d; ++j) {
+            const long double variance = static_cast<long double>(
+                parameters.variances[state * d + j]);
+            value += -0.5L * static_cast<long double>(kLog2Pi) -
+                     0.5L * std::log(variance);
+            inverse_variance[state * d + j] = 1.0L / variance;
+        }
+        normaliser[state] = value;
+    }
+
     for (std::size_t t = 0; t < n; ++t) {
+        const double* row = observations + t * d;
         for (std::size_t state = 0; state < k; ++state) {
-            long double value = 0.0L;
+            long double value = normaliser[state];
             for (std::size_t j = 0; j < d; ++j) {
-                const long double variance = static_cast<long double>(
-                    parameters.variances[state * d + j]);
                 const long double diff =
-                    static_cast<long double>(observations[t * d + j]) -
+                    static_cast<long double>(row[j]) -
                     static_cast<long double>(parameters.means[state * d + j]);
-                value += -0.5L * static_cast<long double>(kLog2Pi) -
-                         0.5L * std::log(variance) -
-                         0.5L * diff * diff / variance;
+                value -= 0.5L * diff * diff * inverse_variance[state * d + j];
             }
             log_emission[t * k + state] = static_cast<double>(value);
         }
@@ -702,6 +721,16 @@ void GaussianHMM::validate_model() const {
     validate_emission_parameters(parameters_);
 }
 
+void GaussianHMM::validate_inference(const double* observations,
+                                     std::size_t n_obs) const {
+    validate_model();
+    validate_observations(observations, n_obs);
+}
+
+void GaussianHMM::require_fit_diagnostics() const {
+    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+}
+
 void GaussianHMM::fit(const double* observations, std::size_t n_obs,
                       const HmmOptions& options) {
     validate_options(options);
@@ -721,19 +750,36 @@ void GaussianHMM::fit(const double* observations, std::size_t n_obs,
                        std::max(global_variances[j], 1e-12));
     }
 
+    /*
+     * Restarts are independent: each draws its own seed from (seed, init) and
+     * never reads another restart's state.  Running them in parallel therefore
+     * preserves the result exactly; the winner is still selected in restart
+     * order with a strict comparison.  The worker cap bounds peak memory,
+     * because every restart holds O(n_obs * n_states) ln-space buffers.
+     */
+    constexpr std::size_t kMaxParallelRestarts = 4;
+    const std::size_t restart_threads =
+        (n_obs >= 512 && options.n_init >= 2) ? kMaxParallelRestarts : 1;
+    std::vector<Candidate> candidates(options.n_init);
+    detail::parallel_for(
+        options.n_init,
+        [&](std::size_t init) {
+            const std::uint64_t seed = detail::mix_seed(
+                options.seed, static_cast<std::uint64_t>(init));
+            try {
+                candidates[init] = train_once(
+                    observations, n_obs, n_features_, n_states_, options,
+                    global_means, variance_floors, seed);
+            } catch (const NumericalError&) {
+                candidates[init] = Candidate{};
+            }
+        },
+        restart_threads);
+
     Candidate overall;
     for (std::size_t init = 0; init < options.n_init; ++init) {
-        const std::uint64_t seed =
-            detail::mix_seed(options.seed, static_cast<std::uint64_t>(init));
-        try {
-            Candidate candidate = train_once(
-                observations, n_obs, n_features_, n_states_, options,
-                global_means, variance_floors, seed);
-            if (candidate.log_likelihood > overall.log_likelihood) {
-                overall = std::move(candidate);
-            }
-        } catch (const NumericalError&) {
-            continue;
+        if (candidates[init].log_likelihood > overall.log_likelihood) {
+            overall = std::move(candidates[init]);
         }
     }
     if (!std::isfinite(overall.log_likelihood)) {
@@ -780,34 +826,33 @@ const HmmParameters& GaussianHMM::parameters() const {
 }
 
 std::size_t GaussianHMM::iterations() const {
-    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+    require_fit_diagnostics();
     return iterations_;
 }
 
 bool GaussianHMM::converged() const {
-    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+    require_fit_diagnostics();
     return converged_;
 }
 
 double GaussianHMM::log_likelihood() const {
-    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+    require_fit_diagnostics();
     return log_likelihood_;
 }
 
 double GaussianHMM::aic() const {
-    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+    require_fit_diagnostics();
     return aic_;
 }
 
 double GaussianHMM::bic() const {
-    if (!has_fit_diagnostics_) throw NotReady("HMM has no fit diagnostics");
+    require_fit_diagnostics();
     return bic_;
 }
 
 double GaussianHMM::score(const double* observations,
                           std::size_t n_obs) const {
-    validate_model();
-    validate_observations(observations, n_obs);
+    validate_inference(observations, n_obs);
     const std::vector<double> log_emission = log_emission_matrix(
         parameters_, n_states_, n_features_, observations, n_obs);
     const LogModel logs = log_model(parameters_, n_states_);
@@ -816,8 +861,7 @@ double GaussianHMM::score(const double* observations,
 
 std::vector<double> GaussianHMM::filtered(const double* observations,
                                           std::size_t n_obs) const {
-    validate_model();
-    validate_observations(observations, n_obs);
+    validate_inference(observations, n_obs);
     const std::size_t count =
         checked_mul(n_obs, n_states_, "n_obs*K overflows size_t");
     const std::vector<double> log_emission = log_emission_matrix(
@@ -853,8 +897,7 @@ std::vector<double> GaussianHMM::filtered(const double* observations,
 
 std::vector<double> GaussianHMM::smoothed(const double* observations,
                                           std::size_t n_obs) const {
-    validate_model();
-    validate_observations(observations, n_obs);
+    validate_inference(observations, n_obs);
     const LogModel logs = log_model(parameters_, n_states_);
     const EstepResult result = expectation_step(
         parameters_, logs, n_states_, n_features_, observations, n_obs);
@@ -863,8 +906,7 @@ std::vector<double> GaussianHMM::smoothed(const double* observations,
 
 std::vector<std::int32_t> GaussianHMM::viterbi(const double* observations,
                                                std::size_t n_obs) const {
-    validate_model();
-    validate_observations(observations, n_obs);
+    validate_inference(observations, n_obs);
     const std::vector<double> log_emission = log_emission_matrix(
         parameters_, n_states_, n_features_, observations, n_obs);
     const LogModel logs = log_model(parameters_, n_states_);

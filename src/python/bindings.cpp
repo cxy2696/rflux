@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -137,131 +138,199 @@ void require_2d(const DoubleArray& values, const char* name) {
     }
 }
 
-py::array_t<double> vector_to_array(const std::vector<double>& values) {
-    py::array_t<double> out(static_cast<py::ssize_t>(values.size()));
+std::size_t matching_1d_length(const DoubleArray& x, const DoubleArray& y,
+                               const char* x_name = "x",
+                               const char* y_name = "y") {
+    require_1d(x, x_name);
+    require_1d(y, y_name);
+    if (x.size() != y.size()) {
+        throw rflux::InvalidArgument(std::string(x_name) + " and " + y_name +
+                                     " must have equal lengths");
+    }
+    return static_cast<std::size_t>(x.shape(0));
+}
+
+/* One allocation-and-copy path for every NumPy result, whatever its rank. */
+template <typename T>
+py::array_t<T> array_from(const std::vector<T>& values,
+                          std::initializer_list<py::ssize_t> shape) {
+    py::array_t<T> out(shape);
     if (!values.empty()) {
         std::memcpy(out.mutable_data(), values.data(),
-                    values.size() * sizeof(double));
+                    values.size() * sizeof(T));
     }
     return out;
+}
+
+py::array_t<double> vector_to_array(const std::vector<double>& values) {
+    return array_from(values, {static_cast<py::ssize_t>(values.size())});
 }
 
 py::array_t<double> matrix_to_array(const std::vector<double>& values,
                                     py::ssize_t rows, py::ssize_t columns) {
-    py::array_t<double> out({rows, columns});
-    if (!values.empty()) {
-        std::memcpy(out.mutable_data(), values.data(),
-                    values.size() * sizeof(double));
-    }
-    return out;
+    return array_from(values, {rows, columns});
 }
 
 py::array_t<std::int32_t> int_vector_to_array(
     const std::vector<std::int32_t>& values) {
-    py::array_t<std::int32_t> out(static_cast<py::ssize_t>(values.size()));
-    if (!values.empty()) {
-        std::memcpy(out.mutable_data(), values.data(),
-                    values.size() * sizeof(std::int32_t));
-    }
-    return out;
+    return array_from(values, {static_cast<py::ssize_t>(values.size())});
 }
 
-std::vector<double> run_series(const std::string& name, const double* values,
-                               std::size_t n,
-                               const std::vector<double>& args) {
+/*
+ * Run one native section with the GIL released.  Centralising the release here
+ * keeps every entry point on the same exception-safe reacquire path and
+ * removes the repeated brace-scoped blocks.
+ */
+template <typename Function>
+auto run_released(Function&& function) -> decltype(function()) {
+    py::gil_scoped_release release;
+    return function();
+}
+
+/* Allocate a NumPy result and let a kernel fill it while the GIL is free. */
+template <typename T = double, typename Kernel>
+py::array_t<T> filled_array(std::initializer_list<py::ssize_t> shape,
+                            Kernel&& kernel) {
+    py::array_t<T> result(shape);
+    T* out = result.mutable_data();
+    run_released([&] { kernel(out); });
+    return result;
+}
+
+/* Three parallel series (MACD and Bollinger bands) share one tuple builder. */
+template <typename Kernel>
+py::tuple filled_triple(std::size_t n, Kernel&& kernel) {
+    py::array_t<double> first(static_cast<py::ssize_t>(n));
+    py::array_t<double> second(static_cast<py::ssize_t>(n));
+    py::array_t<double> third(static_cast<py::ssize_t>(n));
+    double* a = first.mutable_data();
+    double* b = second.mutable_data();
+    double* c = third.mutable_data();
+    run_released([&] { kernel(a, b, c); });
+    return py::make_tuple(first, second, third);
+}
+
+/*
+ * Buffer-first dispatch shared by `series` and `series_into`.  The kernel
+ * writes straight into the caller's storage, so neither entry point allocates
+ * a temporary result vector.
+ */
+void run_series_into(const std::string& name, const double* values,
+                     std::size_t n, const std::vector<double>& args,
+                     double* out) {
     using namespace rflux::qflux;
 
     if (name == "rflux_returns") {
         require_arg_count(args, 1, "returns");
-        return returns(values, n, args[0] != 0.0);
+        returns_into(values, n, args[0] != 0.0, out);
+        return;
     }
     if (name == "rflux_sma") {
         require_arg_count(args, 1, "sma");
-        return sma(values, n, as_size_arg(args[0], "window"));
+        sma_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_sum") {
         require_arg_count(args, 1, "rolling_sum");
-        return rolling_sum(values, n, as_size_arg(args[0], "window"));
+        rolling_sum_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_std") {
         require_arg_count(args, 2, "rolling_std");
-        return rolling_std(values, n, as_size_arg(args[0], "window"),
-                           as_size_arg(args[1], "ddof", 0));
+        rolling_std_into(values, n, as_size_arg(args[0], "window"),
+                         as_size_arg(args[1], "ddof", 0), out);
+        return;
     }
     if (name == "rflux_rolling_min") {
         require_arg_count(args, 1, "rolling_min");
-        return rolling_min(values, n, as_size_arg(args[0], "window"));
+        rolling_min_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_max") {
         require_arg_count(args, 1, "rolling_max");
-        return rolling_max(values, n, as_size_arg(args[0], "window"));
+        rolling_max_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_zscore") {
         require_arg_count(args, 2, "rolling_zscore");
-        return rolling_zscore(values, n, as_size_arg(args[0], "window"),
-                              as_size_arg(args[1], "ddof", 0));
+        rolling_zscore_into(values, n, as_size_arg(args[0], "window"),
+                            as_size_arg(args[1], "ddof", 0), out);
+        return;
     }
     if (name == "rflux_rolling_quantile") {
         require_arg_count(args, 2, "rolling_quantile");
-        return rolling_quantile(values, n, as_size_arg(args[0], "window"),
-                                args[1]);
+        rolling_quantile_into(values, n, as_size_arg(args[0], "window"),
+                              args[1], out);
+        return;
     }
     if (name == "rflux_ema") {
         require_arg_count(args, 1, "ema");
-        return ema(values, n, as_size_arg(args[0], "span"));
+        ema_into(values, n, as_size_arg(args[0], "span"), out);
+        return;
     }
     if (name == "rflux_rsi") {
         require_arg_count(args, 1, "rsi");
-        return rsi(values, n, as_size_arg(args[0], "period"));
+        rsi_into(values, n, as_size_arg(args[0], "period"), out);
+        return;
     }
     if (name == "rflux_drawdown") {
         require_arg_count(args, 0, "drawdown");
-        return drawdown(values, n);
+        drawdown_into(values, n, out);
+        return;
     }
     if (name == "rflux_rolling_slope") {
         require_arg_count(args, 1, "rolling_slope");
-        return rolling_slope(values, n, as_size_arg(args[0], "window"));
+        rolling_slope_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_r2") {
         require_arg_count(args, 1, "rolling_r2");
-        return rolling_r2(values, n, as_size_arg(args[0], "window"));
+        rolling_r2_into(values, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rank") {
         require_arg_count(args, 0, "rank");
-        return rank(values, n);
+        rank_into(values, n, out);
+        return;
     }
     if (name == "rflux_percentile_rank") {
         require_arg_count(args, 0, "percentile_rank");
-        return percentile_rank(values, n);
+        percentile_rank_into(values, n, out);
+        return;
     }
     if (name == "rflux_zscore") {
         require_arg_count(args, 1, "zscore");
-        return zscore(values, n, as_size_arg(args[0], "ddof", 0));
+        zscore_into(values, n, as_size_arg(args[0], "ddof", 0), out);
+        return;
     }
     if (name == "rflux_winsorize") {
         require_arg_count(args, 2, "winsorize");
-        return winsorize(values, n, args[0], args[1]);
+        winsorize_into(values, n, args[0], args[1], out);
+        return;
     }
     throw rflux::InvalidArgument("unsupported native series operation: " + name);
 }
 
-std::vector<double> run_pair_series(const std::string& name, const double* x,
-                                    const double* y, std::size_t n,
-                                    const std::vector<double>& args) {
+void run_pair_series_into(const std::string& name, const double* x,
+                          const double* y, std::size_t n,
+                          const std::vector<double>& args, double* out) {
     using namespace rflux::qflux;
 
     if (name == "rflux_rolling_corr") {
         require_arg_count(args, 1, "rolling_corr");
-        return rolling_corr(x, y, n, as_size_arg(args[0], "window"));
+        rolling_corr_into(x, y, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     if (name == "rflux_rolling_cov") {
         require_arg_count(args, 2, "rolling_cov");
-        return rolling_cov(x, y, n, as_size_arg(args[0], "window"),
-                           as_size_arg(args[1], "ddof", 0));
+        rolling_cov_into(x, y, n, as_size_arg(args[0], "window"),
+                         as_size_arg(args[1], "ddof", 0), out);
+        return;
     }
     if (name == "rflux_rolling_beta") {
         require_arg_count(args, 1, "rolling_beta");
-        return rolling_beta(x, y, n, as_size_arg(args[0], "window"));
+        rolling_beta_into(x, y, n, as_size_arg(args[0], "window"), out);
+        return;
     }
     throw rflux::InvalidArgument("unsupported native pair operation: " + name);
 }
@@ -271,12 +340,9 @@ py::array_t<double> series(const std::string& name, const DoubleArray& values,
     require_1d(values, "values");
     const auto n = static_cast<std::size_t>(values.shape(0));
     const std::vector<double> numeric_args = parse_numeric_args(args);
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = run_series(name, values.data(), n, numeric_args);
-    }
-    return vector_to_array(result);
+    return filled_array({static_cast<py::ssize_t>(n)}, [&](double* out) {
+        run_series_into(name, values.data(), n, numeric_args, out);
+    });
 }
 
 py::array series_into(const std::string& name, const DoubleArray& values,
@@ -298,32 +364,20 @@ py::array series_into(const std::string& name, const DoubleArray& values,
         throw rflux::InvalidArgument("out must be writeable");
     }
     const std::vector<double> numeric_args = parse_numeric_args(args);
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = run_series(name, values.data(), n, numeric_args);
-    }
-    if (!result.empty()) {
-        std::memcpy(info.ptr, result.data(), result.size() * sizeof(double));
-    }
+    double* target = static_cast<double*>(info.ptr);
+    run_released([&] {
+        run_series_into(name, values.data(), n, numeric_args, target);
+    });
     return out;
 }
 
 py::array_t<double> pair_series(const std::string& name, const DoubleArray& x,
                                 const DoubleArray& y, const py::args& args) {
-    require_1d(x, "x");
-    require_1d(y, "y");
-    if (x.size() != y.size()) {
-        throw rflux::InvalidArgument("x and y must have equal lengths");
-    }
-    const auto n = static_cast<std::size_t>(x.shape(0));
+    const auto n = matching_1d_length(x, y);
     const std::vector<double> numeric_args = parse_numeric_args(args);
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = run_pair_series(name, x.data(), y.data(), n, numeric_args);
-    }
-    return vector_to_array(result);
+    return filled_array({static_cast<py::ssize_t>(n)}, [&](double* out) {
+        run_pair_series_into(name, x.data(), y.data(), n, numeric_args, out);
+    });
 }
 
 py::array_t<double> atr_series(const DoubleArray& high, const DoubleArray& low,
@@ -337,51 +391,39 @@ py::array_t<double> atr_series(const DoubleArray& high, const DoubleArray& low,
     }
     const auto n = static_cast<std::size_t>(high.shape(0));
     const std::size_t period_size = as_size_arg(period, "period");
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::atr(high.data(), low.data(), close.data(), n,
-                                   period_size);
-    }
-    return vector_to_array(result);
+    return filled_array({static_cast<py::ssize_t>(n)}, [&](double* out) {
+        rflux::qflux::atr_into(high.data(), low.data(), close.data(), n,
+                               period_size, out);
+    });
 }
 
 py::tuple macd_result(const DoubleArray& prices, std::size_t fast,
                        std::size_t slow, std::size_t signal) {
     require_1d(prices, "prices");
     const auto n = static_cast<std::size_t>(prices.shape(0));
-    rflux::qflux::MacdResult result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::macd(prices.data(), n, fast, slow, signal);
-    }
-    return py::make_tuple(vector_to_array(result.macd),
-                          vector_to_array(result.signal),
-                          vector_to_array(result.histogram));
+    return filled_triple(n, [&](double* macd, double* signal_line,
+                                double* histogram) {
+        rflux::qflux::macd_into(prices.data(), n, fast, slow, signal, macd,
+                                signal_line, histogram);
+    });
 }
 
 py::tuple bollinger_result(const DoubleArray& prices, std::size_t window,
                            double n_std) {
     require_1d(prices, "prices");
     const auto n = static_cast<std::size_t>(prices.shape(0));
-    rflux::qflux::BollingerBands result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::bollinger(prices.data(), n, window, n_std);
-    }
-    return py::make_tuple(vector_to_array(result.middle),
-                          vector_to_array(result.upper),
-                          vector_to_array(result.lower));
+    return filled_triple(n, [&](double* middle, double* upper, double* lower) {
+        rflux::qflux::bollinger_into(prices.data(), n, window, n_std, middle,
+                                     upper, lower);
+    });
 }
 
 py::tuple describe_values(const DoubleArray& values) {
     require_1d(values, "values");
     const auto n = static_cast<std::size_t>(values.shape(0));
-    rflux::qflux::Moments result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::describe(values.data(), n);
-    }
+    const rflux::qflux::Moments result = run_released([&] {
+        return rflux::qflux::describe(values.data(), n);
+    });
     return py::make_tuple(result.mean, result.variance, result.stddev,
                           result.skewness, result.excess_kurtosis,
                           result.n_valid);
@@ -390,61 +432,58 @@ py::tuple describe_values(const DoubleArray& values) {
 double quantile_value(const DoubleArray& values, double q) {
     require_1d(values, "values");
     const auto n = static_cast<std::size_t>(values.shape(0));
-    py::gil_scoped_release release;
-    return rflux::qflux::quantile(values.data(), n, q);
+    return run_released(
+        [&] { return rflux::qflux::quantile(values.data(), n, q); });
 }
 
 double pearson_value(const DoubleArray& x, const DoubleArray& y) {
-    require_1d(x, "x");
-    require_1d(y, "y");
-    if (x.size() != y.size()) {
-        throw rflux::InvalidArgument("x and y must have equal lengths");
-    }
-    const auto n = static_cast<std::size_t>(x.shape(0));
-    py::gil_scoped_release release;
-    return rflux::qflux::pearson(x.data(), y.data(), n);
+    const auto n = matching_1d_length(x, y);
+    return run_released(
+        [&] { return rflux::qflux::pearson(x.data(), y.data(), n); });
 }
 
 py::array_t<double> correlation_matrix_values(const DoubleArray& panel) {
     require_2d(panel, "panel");
     const auto n_obs = static_cast<std::size_t>(panel.shape(0));
     const auto n_assets = static_cast<std::size_t>(panel.shape(1));
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::correlation_matrix(panel.data(), n_obs,
-                                                  n_assets);
-    }
-    return matrix_to_array(result, static_cast<py::ssize_t>(n_assets),
-                           static_cast<py::ssize_t>(n_assets));
+    return filled_array(
+        {static_cast<py::ssize_t>(n_assets),
+         static_cast<py::ssize_t>(n_assets)},
+        [&](double* out) {
+            rflux::qflux::correlation_matrix_into(panel.data(), n_obs,
+                                                  n_assets, out);
+        });
+}
+
+using PerformanceRatio = double (*)(const double*, std::size_t, double, double);
+
+double ratio_value(const DoubleArray& values, PerformanceRatio kernel,
+                   double periods_per_year, double risk_free) {
+    require_1d(values, "returns");
+    const auto n = static_cast<std::size_t>(values.shape(0));
+    return run_released([&] {
+        return kernel(values.data(), n, periods_per_year, risk_free);
+    });
 }
 
 double sharpe_value(const DoubleArray& values, double periods_per_year,
                     double risk_free) {
-    require_1d(values, "returns");
-    const auto n = static_cast<std::size_t>(values.shape(0));
-    py::gil_scoped_release release;
-    return rflux::qflux::sharpe(values.data(), n, periods_per_year, risk_free);
+    return ratio_value(values, &rflux::qflux::sharpe, periods_per_year,
+                       risk_free);
 }
 
 double sortino_value(const DoubleArray& values, double periods_per_year,
                      double risk_free) {
-    require_1d(values, "returns");
-    const auto n = static_cast<std::size_t>(values.shape(0));
-    py::gil_scoped_release release;
-    return rflux::qflux::sortino(values.data(), n, periods_per_year,
-                                 risk_free);
+    return ratio_value(values, &rflux::qflux::sortino, periods_per_year,
+                       risk_free);
 }
 
 py::tuple var_cvar_value(const DoubleArray& values, double confidence) {
     require_1d(values, "returns");
     const auto n = static_cast<std::size_t>(values.shape(0));
-    rflux::qflux::TailRisk result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::historical_var_cvar(values.data(), n,
-                                                   confidence);
-    }
+    const rflux::qflux::TailRisk result = run_released([&] {
+        return rflux::qflux::historical_var_cvar(values.data(), n, confidence);
+    });
     return py::make_tuple(result.var, result.cvar);
 }
 
@@ -459,13 +498,10 @@ py::array_t<double> neutralize_values(
             "groups must be one-dimensional and match values");
     }
     const auto n = static_cast<std::size_t>(values.shape(0));
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::qflux::neutralize(values.data(), n, groups.data(),
-                                          group_count);
-    }
-    return vector_to_array(result);
+    return filled_array({static_cast<py::ssize_t>(n)}, [&](double* out) {
+        rflux::qflux::neutralize_into(values.data(), n, groups.data(),
+                                      group_count, out);
+    });
 }
 
 rflux::core::FactorContext make_factor_context(
@@ -494,53 +530,50 @@ py::array_t<double> compute_factor_panel(const DoubleArray& close,
                                          Compute&& compute) {
     const rflux::core::FactorContext context =
         make_factor_context(close, volume);
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = compute(context);
-    }
+    std::vector<double> result = run_released([&] { return compute(context); });
     return matrix_to_array(result, close.shape(0), close.shape(1));
 }
 
-py::array_t<double> factor_momentum(const DoubleArray& close,
-                                      std::size_t window) {
+template <typename Factory>
+py::array_t<double> window_factor(const DoubleArray& close,
+                                  const DoubleArray* volume,
+                                  Factory&& make_factor) {
     return compute_factor_panel(
-        close, nullptr, [window](const rflux::core::FactorContext& context) {
-            return rflux::factorlab::MomentumFactor(window).compute(context);
+        close, volume,
+        [&](const rflux::core::FactorContext& context) {
+            return make_factor().compute(context);
         });
+}
+
+py::array_t<double> factor_momentum(const DoubleArray& close,
+                                    std::size_t window) {
+    return window_factor(close, nullptr, [window] {
+        return rflux::factorlab::MomentumFactor(window);
+    });
 }
 
 py::array_t<double> factor_volume_reversal(const DoubleArray& close,
                                            const DoubleArray& volume,
                                            std::size_t window) {
-    return compute_factor_panel(
-        close, &volume,
-        [window](const rflux::core::FactorContext& context) {
-            return rflux::factorlab::VolumeReversalFactor(window).compute(
-                context);
-        });
+    return window_factor(close, &volume, [window] {
+        return rflux::factorlab::VolumeReversalFactor(window);
+    });
 }
 
 py::array_t<double> factor_vwap_deviation(const DoubleArray& close,
                                           const DoubleArray& volume,
                                           std::size_t window) {
-    return compute_factor_panel(
-        close, &volume,
-        [window](const rflux::core::FactorContext& context) {
-            return rflux::factorlab::VwapDeviationFactor(window).compute(
-                context);
-        });
+    return window_factor(close, &volume, [window] {
+        return rflux::factorlab::VwapDeviationFactor(window);
+    });
 }
 
 py::array_t<double> factor_amihud(const DoubleArray& close,
                                   const DoubleArray& volume,
                                   std::size_t window, double scale) {
-    return compute_factor_panel(
-        close, &volume,
-        [window, scale](const rflux::core::FactorContext& context) {
-            return rflux::factorlab::AmihudFactor(window, scale).compute(
-                context);
-        });
+    return window_factor(close, &volume, [window, scale] {
+        return rflux::factorlab::AmihudFactor(window, scale);
+    });
 }
 
 py::array_t<double> hrp_weights(const DoubleArray& covariance) {
@@ -548,12 +581,10 @@ py::array_t<double> hrp_weights(const DoubleArray& covariance) {
     if (covariance.shape(0) != covariance.shape(1)) {
         throw rflux::InvalidArgument("covariance must be square");
     }
-    std::vector<double> result;
-    {
-        py::gil_scoped_release release;
-        result = rflux::portfoliolab::HRPAllocator().weights(
+    std::vector<double> result = run_released([&] {
+        return rflux::portfoliolab::HRPAllocator().weights(
             covariance.data(), static_cast<std::size_t>(covariance.shape(0)));
-    }
+    });
     return vector_to_array(result);
 }
 
@@ -562,11 +593,9 @@ py::tuple almgren_chriss(double quantity, std::size_t slices, double horizon,
                          double volatility, double risk_aversion) {
     rflux::execution::AlmgrenChrissPlanner planner(
         temporary_impact, permanent_impact, volatility, risk_aversion);
-    rflux::core::ExecutionPlan plan;
-    {
-        py::gil_scoped_release release;
-        plan = planner.plan(quantity, slices, horizon);
-    }
+    const rflux::core::ExecutionPlan plan = run_released([&] {
+        return planner.plan(quantity, slices, horizon);
+    });
     return py::make_tuple(vector_to_array(plan.trades), plan.expected_cost,
                           plan.expected_variance, plan.kappa);
 }
@@ -583,12 +612,11 @@ py::tuple huber_regression(const DoubleArray& features,
     }
     rflux::mllab::HuberRegressor regressor(epsilon, max_iter, tol,
                                            fit_intercept);
-    {
-        py::gil_scoped_release release;
+    run_released([&] {
         regressor.fit(features.data(), target.data(),
                       static_cast<std::size_t>(features.shape(0)),
                       static_cast<std::size_t>(features.shape(1)));
-    }
+    });
     return py::make_tuple(vector_to_array(regressor.coefficients()),
                           regressor.intercept(), regressor.scale(),
                           regressor.iterations(), regressor.converged());
@@ -617,10 +645,7 @@ public:
         options.seed = seed;
         options.sort_states = sort_states;
         const auto n_obs = static_cast<std::size_t>(observations.shape(0));
-        {
-            py::gil_scoped_release release;
-            model_->fit(observations.data(), n_obs, options);
-        }
+        run_released([&] { model_->fit(observations.data(), n_obs, options); });
         return *this;
     }
 
@@ -636,8 +661,8 @@ public:
     double score(const DoubleArray& observations) const {
         require_2d(observations, "observations");
         const auto n_obs = static_cast<std::size_t>(observations.shape(0));
-        py::gil_scoped_release release;
-        return model_->score(observations.data(), n_obs);
+        return run_released(
+            [&] { return model_->score(observations.data(), n_obs); });
     }
 
     py::tuple parameters() const {
@@ -680,43 +705,40 @@ public:
         parameters.means.assign(means.data(), means.data() + means.size());
         parameters.variances.assign(variances.data(),
                                     variances.data() + variances.size());
-        py::gil_scoped_release release;
-        model_->set_parameters(parameters);
+        run_released([&] { model_->set_parameters(parameters); });
+    }
+
+    template <typename Function>
+    py::array_t<double> observations_matrix(const DoubleArray& observations,
+                                            Function&& function) const {
+        require_2d(observations, "observations");
+        const auto n_obs = static_cast<std::size_t>(observations.shape(0));
+        return matrix_to_array(
+            run_released([&] { return function(observations.data(), n_obs); }),
+            static_cast<py::ssize_t>(n_obs),
+            static_cast<py::ssize_t>(model_->n_states()));
     }
 
     py::array_t<std::int32_t> viterbi(const DoubleArray& observations) const {
         require_2d(observations, "observations");
         const auto n_obs = static_cast<std::size_t>(observations.shape(0));
-        std::vector<std::int32_t> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->viterbi(observations.data(), n_obs);
-        }
-        return int_vector_to_array(result);
+        return int_vector_to_array(run_released([&] {
+            return model_->viterbi(observations.data(), n_obs);
+        }));
     }
 
     py::array_t<double> filtered(const DoubleArray& observations) const {
-        require_2d(observations, "observations");
-        const auto n_obs = static_cast<std::size_t>(observations.shape(0));
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->filtered(observations.data(), n_obs);
-        }
-        return matrix_to_array(result, static_cast<py::ssize_t>(n_obs),
-                               static_cast<py::ssize_t>(model_->n_states()));
+        return observations_matrix(observations, [&](const double* data,
+                                                     std::size_t n_obs) {
+            return model_->filtered(data, n_obs);
+        });
     }
 
     py::array_t<double> smoothed(const DoubleArray& observations) const {
-        require_2d(observations, "observations");
-        const auto n_obs = static_cast<std::size_t>(observations.shape(0));
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->smoothed(observations.data(), n_obs);
-        }
-        return matrix_to_array(result, static_cast<py::ssize_t>(n_obs),
-                               static_cast<py::ssize_t>(model_->n_states()));
+        return observations_matrix(observations, [&](const double* data,
+                                                     std::size_t n_obs) {
+            return model_->smoothed(data, n_obs);
+        });
     }
 
     py::array_t<double> forecast(const DoubleArray& state_probs,
@@ -726,12 +748,9 @@ public:
         if (state_probs.size() != static_cast<py::ssize_t>(k)) {
             throw rflux::InvalidArgument("state_probs has the wrong length");
         }
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->forecast(state_probs.data(), k, horizon);
-        }
-        return vector_to_array(result);
+        return vector_to_array(run_released([&] {
+            return model_->forecast(state_probs.data(), k, horizon);
+        }));
     }
 
     py::array_t<double> filter_step(const DoubleArray& state_probs,
@@ -745,30 +764,19 @@ public:
         if (observation.size() != static_cast<py::ssize_t>(d)) {
             throw rflux::InvalidArgument("observation has the wrong length");
         }
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->filter_step(state_probs.data(), observation.data());
-        }
-        return vector_to_array(result);
+        return vector_to_array(run_released([&] {
+            return model_->filter_step(state_probs.data(), observation.data());
+        }));
     }
 
     py::array_t<double> stationary_distribution() const {
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->stationary_distribution();
-        }
-        return vector_to_array(result);
+        return vector_to_array(
+            run_released([&] { return model_->stationary_distribution(); }));
     }
 
     py::array_t<double> expected_durations() const {
-        std::vector<double> result;
-        {
-            py::gil_scoped_release release;
-            result = model_->expected_durations();
-        }
-        return vector_to_array(result);
+        return vector_to_array(
+            run_released([&] { return model_->expected_durations(); }));
     }
 
     std::size_t n_states() const { return model_->n_states(); }

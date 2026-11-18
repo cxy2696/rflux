@@ -68,10 +68,10 @@ rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
-`rflux advice` is a transparent, long-only research rebalance proposal:
-HRP base weights, 20/60-day momentum, trend and RSI adjustments, a volatility
-target, an optional HMM risk state, 2-sigma stop references and position
-sizing. It is not personalised investment advice and does not promise returns.
+`rflux advice` builds a long-only research rebalance proposal from HRP base
+weights, 20/60-day momentum, trend and RSI adjustments, a volatility target, an
+optional HMM risk state, 2-sigma stop references and position sizing. It reports
+a proposal; it does not forecast returns or provide personalised advice.
 
 ## Features
 
@@ -115,7 +115,10 @@ cmake --build --preset dev
 ctest --preset dev --output-on-failure
 ```
 
-Set `RFLUX_DISABLE_NATIVE=1` to force the ctypes C ABI path.
+CMake enables interprocedural optimization (IPO/LTO) for Release and
+RelWithDebInfo builds when the toolchain supports it. Add
+`-DRFLUX_ENABLE_IPO=OFF` to disable it. Set `RFLUX_DISABLE_NATIVE=1` to force
+the ctypes C ABI path.
 
 ## Documentation
 

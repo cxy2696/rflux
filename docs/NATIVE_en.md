@@ -11,7 +11,7 @@ pybind11 extension     NumPy buffers, GIL release, stable ABI
 Python research layer  validation, data adapters, CLI, configuration
 ```
 
-The extension is optional at the source level. When it is present the public
+The extension is optional. When it is present the public
 `qflux` functions and `regimelab.GaussianHMM` use it automatically; when
 it is absent the package falls back to the stable C ABI through `ctypes`.
 `RFLUX_DISABLE_NATIVE=1` forces the fallback for tests and diagnostics.
@@ -28,7 +28,9 @@ print(rflux.native_info())
 The native functions accept C-contiguous `float64` NumPy arrays through
 pybind11's buffer-aware array caster. A contiguous array is passed to C++
 without a data copy; a non-contiguous or non-`float64` input is cast first by
-NumPy. Outputs are new arrays, except for the explicit `out=`-style entry point:
+NumPy. Both output paths call the C++ `*_into` kernel: `series` allocates the
+NumPy array first and lets the kernel fill it (one allocation, no result copy),
+and `series_into` writes into a caller-supplied buffer:
 
 ```python
 import numpy as np

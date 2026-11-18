@@ -8,9 +8,16 @@ from typing import Any
 
 import numpy as np
 
-from ._common import as_f64_1d, as_finite_float, as_size, double_ptr, empty_f64
+from ._common import (
+    as_f64_1d,
+    as_finite_float,
+    as_positive_float,
+    as_size,
+    double_ptr,
+    empty_f64,
+)
 from ._ffi import check, get_lib
-from ._native_backend import native_module, raise_as_rflux
+from ._native_backend import native_module, native_or
 
 __all__ = [
     "ExecutionPlan",
@@ -34,13 +41,6 @@ def _nonnegative(value: Any, name: str) -> float:
     return number
 
 
-def _positive(value: Any, name: str) -> float:
-    number = as_finite_float(value, name)
-    if number <= 0.0:
-        raise ValueError(f"{name} must be positive")
-    return number
-
-
 def almgren_chriss(
     quantity: float,
     *,
@@ -52,50 +52,55 @@ def almgren_chriss(
     risk_aversion: float = 0.0,
 ) -> ExecutionPlan:
     """Optimal liquidation schedule under linear Almgren-Chriss impact."""
-    quantity = _positive(quantity, "quantity")
+    quantity = as_positive_float(quantity, "quantity")
     slices = as_size(slices, "slices")
-    horizon = _positive(horizon, "horizon")
-    temporary_impact = _positive(temporary_impact, "temporary_impact")
+    horizon = as_positive_float(horizon, "horizon")
+    temporary_impact = as_positive_float(temporary_impact, "temporary_impact")
     permanent_impact = _nonnegative(permanent_impact, "permanent_impact")
     volatility = _nonnegative(volatility, "volatility")
     risk_aversion = _nonnegative(risk_aversion, "risk_aversion")
-    if native_module is not None:
-        try:
-            trades, cost, variance, kappa = native_module.almgren_chriss(
-                quantity,
-                slices,
-                horizon,
-                temporary_impact,
-                permanent_impact,
-                volatility,
-                risk_aversion,
-            )
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_almgren_chriss", exc)
-        return ExecutionPlan(trades, float(cost), float(variance), float(kappa))
 
-    trades = empty_f64(slices)
-    cost = ctypes.c_double()
-    variance = ctypes.c_double()
-    kappa = ctypes.c_double()
-    check(
-        get_lib().rflux_almgren_chriss_plan(
-            float(quantity),
+    def native() -> ExecutionPlan:
+        trades, cost, variance, kappa = native_module.almgren_chriss(
+            quantity,
             slices,
-            float(horizon),
-            float(temporary_impact),
-            float(permanent_impact),
-            float(volatility),
-            float(risk_aversion),
-            double_ptr(trades),
-            ctypes.byref(cost),
-            ctypes.byref(variance),
-            ctypes.byref(kappa),
-        ),
-        "rflux_almgren_chriss_plan",
-    )
-    return ExecutionPlan(
-        trades, float(cost.value), float(variance.value), float(kappa.value)
+            horizon,
+            temporary_impact,
+            permanent_impact,
+            volatility,
+            risk_aversion,
+        )
+        return ExecutionPlan(
+            trades, float(cost), float(variance), float(kappa))
+
+    def fallback() -> ExecutionPlan:
+        trades = empty_f64(slices)
+        cost = ctypes.c_double()
+        variance = ctypes.c_double()
+        kappa = ctypes.c_double()
+        check(
+            get_lib().rflux_almgren_chriss_plan(
+                float(quantity),
+                slices,
+                float(horizon),
+                float(temporary_impact),
+                float(permanent_impact),
+                float(volatility),
+                float(risk_aversion),
+                double_ptr(trades),
+                ctypes.byref(cost),
+                ctypes.byref(variance),
+                ctypes.byref(kappa),
+            ),
+            "rflux_almgren_chriss_plan",
+        )
+        return ExecutionPlan(
+            trades, float(cost.value), float(variance.value),
+            float(kappa.value)
+        )
+
+    return native_or(
+        native_module, "rflux_almgren_chriss", native, fallback
     )
 
 

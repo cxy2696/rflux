@@ -11,7 +11,7 @@ pybind11 扩展          NumPy buffer、GIL 释放、稳定 ABI
 Python 研究层          参数校验、数据适配、CLI、配置
 ```
 
-原生扩展在源码层面是可选的。存在扩展时，公开的 `qflux` 函数和
+原生扩展是可选的。存在扩展时，公开的 `qflux` 函数和
 `regimelab.GaussianHMM` 自动走原生路径；不存在时回退到 ctypes 的稳定 C ABI。
 设置 `RFLUX_DISABLE_NATIVE=1` 可强制回退，用于测试和诊断。
 
@@ -26,8 +26,9 @@ print(rflux.native_info())
 
 原生函数通过 pybind11 的 buffer-aware array caster 接收 C 连续 `float64`
 NumPy 数组。连续数组直接进入 C++，不做数据拷贝；非连续或非 `float64`
-输入会先由 NumPy 转换。返回值通常是新数组，但显式输出入口可以复用调用方
-缓冲区：
+输入会先由 NumPy 转换。两条输出路径都直接调用 C++ 的 `*_into` 内核：
+`series` 先分配 NumPy 数组再由内核写入（一次分配，无结果拷贝），
+`series_into` 直接写入调用方缓冲区：
 
 ```python
 import numpy as np

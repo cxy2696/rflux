@@ -2,19 +2,19 @@
 
 **English** · [中文](CORE_cn.md)
 
-This page describes the 0.7 C++ extension layer.  The design differs from an Eigen-based header in three places:
+The 0.7 C++ layer follows three design rules:
 
-1. **No Eigen in the public boundary.**  rflux already exposes plain contiguous
-   buffers to the C ABI and pybind11.  Eigen would add a heavy header dependency,
-   alignment rules and ABI/lifetime questions.  The core uses `MarketSnapshotView`,
-   `MatrixView`, `OrderBookView` and standard ownership containers instead.
-2. **Predict/execute contracts carry enough context.**  A predictor has `fit`
+1. **No Eigen in the public boundary.** The C ABI and pybind11 take plain
+   contiguous buffers. Eigen would add a large header dependency, alignment rules
+   and ABI/lifetime questions. The core uses `MarketSnapshotView`, `MatrixView`,
+   `OrderBookView` and standard ownership containers.
+2. **Predictor and execution contracts carry context.** A predictor has `fit`
    and `fitted`; an execution request carries symbols, target/current weights,
-   portfolio value and timestamp, because orders cannot be derived from a bare
-   weight vector and one anonymous order book.
-3. **Factories are parameterized and thread-safe.**  Built-in factors need a
-   window/scale, so a zero-argument `unique_ptr<BaseFactor>()` creator is not
-   sufficient.  `FactorFactory` consumes a `FactorSpec`, rejects duplicate names
+   portfolio value and timestamp. A bare weight vector and one anonymous order
+   book are not enough to derive orders.
+3. **Factories take explicit specs and are thread-safe.** Built-in factors need
+   a window or scale; a zero-argument `unique_ptr<BaseFactor>()` creator cannot
+   carry that. `FactorFactory` consumes a `FactorSpec`, rejects duplicate names
    and copies creators under a mutex before invoking them.
 
 ## Cross-module structures
@@ -78,15 +78,57 @@ creation does not hold the registry lock while a constructor runs.
 - `SitePercolationDetector` runs random site percolation with a deterministic
   seed and union-find components.  It reports giant-component fraction, standard
   deviation, finite-cluster susceptibility, largest component and repetitions.
-- `estimate_threshold()` calibrates `p_c` on a configurable probability grid;
-  `percolation_threshold` is NaN until calibration.  This avoids pretending that
-  every `analyze(p)` call can derive a stable critical threshold in a hot path.
+- `estimate_threshold()` calibrates `p_c` on a configurable probability grid
+  and interpolates the first giant-fraction crossing; `percolation_threshold`
+  is NaN until calibration.  This avoids pretending that every `analyze(p)`
+  call can derive a stable critical threshold in a hot path.
 - `rflux::risk::PreTradeRiskControl` can gate an order on position, drawdown,
   turnover and a systemic-percolation flag.
 
-The Monte Carlo kernel is currently serial and uses a fixed grid for `p_c`.
-OpenMP/TBB acceleration and adaptive threshold search are explicit next steps,
-The union-find complexity per trial is O(n + m α(n)).
+The Monte Carlo kernel uses the internal deterministic fork-join helper in
+`src/internal/parallel.hpp`.  Probability points and replicate seeds are split
+into static index blocks, and every block keeps its original random stream and
+accumulation order, so results are bit-for-bit identical for any worker count.
+`RFLUX_THREADS=N` caps the workers and `RFLUX_THREADS=1` forces serial
+execution.  Threshold calibration interpolates the first grid crossing; a fully
+adaptive bisection search remains a next step.  The union-find complexity per trial is O(n + m α(n)).
+
+## Buffer-first numerical kernels
+
+Every qflux kernel has two overloads in its public header: `foo_into(...,
+double* out)` writes exactly `n` values and allocates nothing, while `foo(...)`
+allocates a result vector and forwards to the buffer version.  The C ABI and
+the Python bridge call the buffer version, so a call never materialises a
+temporary result vector: C writes straight into the caller's array and
+pybind11 writes straight into the NumPy output (`series_into` is therefore
+truly zero-copy).  `out` must not alias an input and must have room for `n`
+values; arguments are validated before the first write.
+
+`rolling_quantile` chooses its order-statistic structure from the window
+length.  Windows up to 1024 values keep a sorted buffer (binary search plus a
+contiguous shift, no global coordinate compression); longer windows use the
+Fenwick tree over compressed coordinates.  Both paths return the same Type-7
+statistic.
+
+## Deterministic parallelism
+
+`detail::parallel_for(count, fn, max_threads)` is the only threading primitive
+in the core.  It partitions `[0, count)` statically, never depends on scheduling
+state and re-throws the first worker exception.  It drives percolation scans
+(parallel over probability points), cluster-size sampling (private per-worker
+counters reduced in worker order), HMM Baum-Welch restarts (parallel over
+`n_init`, capped at four concurrent restarts to bound memory) and correlation
+matrices (parallel over assets on both the complete-panel and
+pairwise-complete paths).  Small inputs skip the fork-join because thread
+setup would cost more than the work, and nested calls fall back to serial
+execution so a kernel never oversubscribes the machine.
+
+## Build optimization
+
+CMake enables interprocedural optimization (IPO/LTO) for the core, C ABI,
+native extension, test and example targets when the compiler supports it.
+Release and RelWithDebInfo builds use it; Debug and sanitizer builds skip it.
+Pass `-DRFLUX_ENABLE_IPO=OFF` to compare builds or to avoid long link times.
 
 ## C ABI coverage
 
@@ -96,10 +138,29 @@ threshold, and the pre-trade gate.  Python uses those C functions when the
 pybind11 extension is unavailable instead of keeping a second NumPy
 implementation.
 
-## Duplication cleanup
+## Shared code
 
 - Percolation reuses the shared `UnionFind` and `mix_seed` helpers.
 - HMM k-medoid nearest-center selection is one helper.
 - Huber computes each residual pass once and reuses one linear-prediction helper.
 - Factor pybind11 bindings share `make_factor_context` / `compute_factor_panel`.
 - SQLite cache writes use array zips instead of `iterrows()`.
+- `SlidingBlocks<Ops>` is the only two-stack merging queue; `Moments1Ops` and
+  `Moments2Ops` supply the per-arity single/merge operations.
+- `for_each_complete_window` owns the warm-up, expiry and missing-data rules for
+  every rolling kernel, and both `rolling_quantile` backends reuse it.
+- The rolling correlation, covariance and beta kernels are one
+  `rolling_pair_stat_into` implementation with a statistic selector; Sharpe and
+  Sortino share one `performance_ratio` body.
+- The C ABI HMM entry points share `guarded_model_vector` / `guarded_model_i32`,
+  and the C++ model has one `validate_inference` / `require_fit_diagnostics`
+  guard.  The Python bridge has one `run_released`, `filled_array`,
+  `filled_triple` and `array_from` path.
+- The Python layer chooses the backend through `native_or` / `native_call` and
+  `GaussianHMM._native_or_abi`; report metadata, CLI report finishing,
+  percolation argument marshalling and probability-matrix reads each have one
+  helper.
+- jscpd reports zero exact clones for `src/`, `include/`, `python/rflux/` and
+  `tests/` at both the default 5-line/50-token and the stricter
+  5-line/40-token setting.  The bilingual documentation mirrors are the only
+  expected repeated blocks.

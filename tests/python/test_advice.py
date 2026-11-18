@@ -14,6 +14,11 @@ class TestTradeAdvice(unittest.TestCase):
         )
         self.names = ["AAA", "BBB", "CCC", "DDD"]
 
+    def _high_vol_prices(self, seed: int, n: int = 500) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        returns = rng.normal(0.0, 0.35 / np.sqrt(252.0), size=(n, 3))
+        return 100.0 * np.cumprod(1.0 + returns, axis=0)
+
     def test_allocation_is_long_only_and_capped(self):
         report = advice.trade_advice(
             self.prices,
@@ -79,6 +84,71 @@ class TestTradeAdvice(unittest.TestCase):
                 self.assertLessEqual(
                     item["recommended_shares"], item["target_shares"]
                 )
+
+    def test_volatility_scale_uses_portfolio_not_market_vol(self):
+        # One quiet and one volatile uncorrelated asset.  HRP concentrates on
+        # the quiet asset, so the proposed portfolio is below the 15% target
+        # even though the equal-weight market volatility is above it.
+        rng = np.random.default_rng(11)
+        n = 500
+        returns = np.column_stack([
+            rng.normal(0.0002, 0.05 / np.sqrt(252.0), n),
+            rng.normal(0.0002, 0.40 / np.sqrt(252.0), n),
+        ])
+        prices = 100.0 * np.cumprod(1.0 + returns, axis=0)
+        report = advice.trade_advice(
+            prices, names=["QUIET", "VOLATILE"], include_hmm=False,
+            max_weight=1.0, target_volatility=0.15,
+        )
+        self.assertGreater(report["risk"]["market_annualized_volatility"], 0.15)
+        self.assertLessEqual(
+            report["risk"]["portfolio_annualized_volatility"], 0.15 + 1e-12
+        )
+        self.assertEqual(report["allocation"]["volatility_scale"], 1.0)
+        self.assertEqual(report["allocation"]["exposure"], 1.0)
+
+    def test_volatility_scale_hits_target_on_high_vol_portfolio(self):
+        prices = self._high_vol_prices(12)
+        target = 0.12
+        report = advice.trade_advice(
+            prices, names=["A", "B", "C"], include_hmm=False,
+            max_weight=1.0, target_volatility=target,
+        )
+        exposure = report["allocation"]["exposure"]
+        portfolio_vol = report["risk"]["portfolio_annualized_volatility"]
+        self.assertLessEqual(exposure, 1.0)
+        self.assertAlmostEqual(
+            exposure * portfolio_vol, target, places=6
+        )
+
+    def test_expected_turnover_includes_cash(self):
+        prices = self._high_vol_prices(13)
+        report = advice.trade_advice(
+            prices, names=["A", "B", "C"], include_hmm=False,
+            max_weight=1.0, target_volatility=0.05,
+        )
+        allocation = report["allocation"]
+        target = np.asarray(allocation["target_weights"])
+        current = np.full(3, 1.0 / 3.0)
+        expected = 0.5 * (
+            np.abs(target - current).sum()
+            + abs(allocation["cash_weight"] - 0.0)
+        )
+        self.assertAlmostEqual(
+            allocation["expected_turnover"], float(expected), places=12
+        )
+
+    def test_momentum_requires_the_exact_calendar_base(self):
+        rng = np.random.default_rng(14)
+        prices = 100.0 * np.cumprod(
+            1.0 + rng.normal(0.0002, 0.01, size=(120, 2)), axis=0
+        )
+        prices[-21, 0] = np.nan
+        report = advice.trade_advice(
+            prices, names=["A", "B"], include_hmm=False, max_weight=1.0
+        )
+        self.assertIsNone(report["signals"]["A"]["momentum_20"])
+        self.assertIsNotNone(report["signals"]["B"]["momentum_20"])
 
     def test_regime_section_is_json_safe(self):
         report = advice.trade_advice(

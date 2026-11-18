@@ -64,12 +64,17 @@ def as_f64_2d(values: Any, name: str = "values") -> np.ndarray:
     return np.ascontiguousarray(array)
 
 
-def as_i32_1d(values: Any, name: str = "values") -> np.ndarray:
+def _as_integer_1d(values: Any, name: str) -> np.ndarray:
     array = np.asarray(values)
     if array.ndim != 1:
         raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
     if not np.issubdtype(array.dtype, np.integer):
         raise TypeError(f"{name} must contain integers")
+    return array
+
+
+def as_i32_1d(values: Any, name: str = "values") -> np.ndarray:
+    array = _as_integer_1d(values, name)
     info = np.iinfo(np.int32)
     if np.any(array < info.min) or np.any(array > info.max):
         raise ValueError(f"{name} must fit in the int32 range")
@@ -77,14 +82,50 @@ def as_i32_1d(values: Any, name: str = "values") -> np.ndarray:
 
 
 def as_u32_1d(values: Any, name: str = "values") -> np.ndarray:
-    array = np.asarray(values)
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
-    if not np.issubdtype(array.dtype, np.integer):
-        raise TypeError(f"{name} must contain integers")
+    array = _as_integer_1d(values, name)
     if np.any(array < 0) or np.any(array > np.iinfo(np.uint32).max):
         raise ValueError(f"{name} must be in the uint32 range")
     return np.ascontiguousarray(array, dtype=np.uint32)
+
+
+def equal_weight_market_returns(returns: np.ndarray) -> np.ndarray:
+    """Equal-weight cross-sectional mean of a periodic return panel.
+
+    Rows with no finite asset remain NaN so downstream HMM/report code can
+    exclude them explicitly instead of treating a missing row as zero.
+    """
+    values = np.asarray(returns, dtype=np.float64)
+    if values.ndim != 2:
+        raise ValueError(
+            f"returns must be two-dimensional, got shape {values.shape}"
+        )
+    counts = np.sum(np.isfinite(values), axis=1)
+    result = np.full(values.shape[0], np.nan, dtype=np.float64)
+    valid = counts > 0
+    result[valid] = np.nansum(values[valid], axis=1) / counts[valid]
+    return result
+
+
+def complete_case_covariance(
+    returns: np.ndarray, *, ddof: int = 1
+) -> tuple[np.ndarray, np.ndarray]:
+    """Covariance over rows where every asset is finite.
+
+    Returns ``(covariance, complete_rows)``.  When there are not enough rows the
+    covariance is a NaN matrix so callers can apply their own fallback while
+    still reporting the exact complete-case sample size.
+    """
+    values = np.asarray(returns, dtype=np.float64)
+    if values.ndim != 2:
+        raise ValueError(
+            f"returns must be two-dimensional, got shape {values.shape}"
+        )
+    complete = values[np.all(np.isfinite(values), axis=1)]
+    n_assets = values.shape[1]
+    if complete.shape[0] <= int(ddof):
+        return np.full((n_assets, n_assets), np.nan), complete
+    covariance = np.cov(complete, rowvar=False, ddof=int(ddof))
+    return np.atleast_2d(covariance), complete
 
 
 def as_f64_panel(

@@ -170,6 +170,18 @@ class TestUnifiedDataLayer(unittest.TestCase):
         self.assertEqual(frame["symbol"].iloc[0], "600519.SH")
         self.assertEqual(calls, {"stock": 1, "etf": 1})
 
+    def _load_with_fake_yfinance(self, ticker, download=None):
+        fake = types.ModuleType("yfinance")
+        fake.Ticker = lambda _: ticker
+        if download is not None:
+            fake.download = download
+        with mock.patch.dict(sys.modules, {"yfinance": fake}):
+            return data.YFinanceLoader().load(["AAPL.US"])
+
+    def _assert_apple_frame(self, frame):
+        self.assertEqual(frame["symbol"].iloc[0], "AAPL.US")
+        self.assertAlmostEqual(float(frame["close"].iloc[0]), 100.5)
+
     def test_yfinance_adapter(self):
         import pandas as pd
 
@@ -188,12 +200,7 @@ class TestUnifiedDataLayer(unittest.TestCase):
                     ),
                 )
 
-        fake = types.ModuleType("yfinance")
-        fake.Ticker = lambda ticker: Ticker()
-        with mock.patch.dict(sys.modules, {"yfinance": fake}):
-            frame = data.YFinanceLoader().load(["AAPL.US"])
-        self.assertEqual(frame["symbol"].iloc[0], "AAPL.US")
-        self.assertAlmostEqual(float(frame["close"].iloc[0]), 100.5)
+        self._assert_apple_frame(self._load_with_fake_yfinance(Ticker()))
 
     def test_retrying_loader(self):
         import pandas as pd
@@ -244,13 +251,9 @@ class TestUnifiedDataLayer(unittest.TestCase):
             },
             index=pd.DatetimeIndex(["2024-01-02"], name="Date"),
         )
-        fake = types.ModuleType("yfinance")
-        fake.Ticker = lambda ticker: FailingTicker()
-        fake.download = lambda *args, **kwargs: raw.copy()
-        with mock.patch.dict(sys.modules, {"yfinance": fake}):
-            frame = data.YFinanceLoader().load(["AAPL.US"])
-        self.assertEqual(frame["symbol"].iloc[0], "AAPL.US")
-        self.assertAlmostEqual(float(frame["close"].iloc[0]), 100.5)
+        frame = self._load_with_fake_yfinance(
+            FailingTicker(), lambda *args, **kwargs: raw.copy())
+        self._assert_apple_frame(frame)
 
     def test_sqlite_cache_and_cached_loader(self):
         with tempfile.TemporaryDirectory() as directory:

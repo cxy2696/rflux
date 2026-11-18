@@ -93,6 +93,9 @@ private:
     void validate_observations(const double* observations,
                                std::size_t n_obs) const;
     void validate_model() const;
+    void validate_inference(const double* observations,
+                            std::size_t n_obs) const;
+    void require_fit_diagnostics() const;
 
     std::size_t n_states_;
     std::size_t n_features_;

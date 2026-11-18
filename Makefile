@@ -15,8 +15,8 @@ CXXSTD   ?= -std=c++17
 WARN     ?= -Wall -Wextra -Wpedantic -Werror
 CPPFLAGS += -Iinclude -Isrc
 CFLAGS   += $(CSTD) $(WARN) -fPIC -MMD -MP
-CXXFLAGS += $(CXXSTD) $(WARN) -fPIC -fvisibility=hidden -MMD -MP
-LDLIBS   += -lm
+CXXFLAGS += $(CXXSTD) $(WARN) -fPIC -fvisibility=hidden -MMD -MP $(THREAD_FLAGS)
+LDLIBS   += -lm $(THREAD_FLAGS)
 PUBLIC_HEADERS := $(wildcard include/rflux/*.h) $(wildcard include/rflux/*/*.hpp)
 
 BUILD    := build
@@ -33,9 +33,12 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 SHARED_LIB := $(BUILD)/librflux.dylib
 SHARED_FLAGS := -dynamiclib
+THREAD_FLAGS :=
 else
 SHARED_LIB := $(BUILD)/librflux.so
 SHARED_FLAGS := -shared
+# libstdc++ still needs the pthread flag on glibc versions older than 2.34.
+THREAD_FLAGS := -pthread
 endif
 SHARED_LIB_ABS := $(abspath $(SHARED_LIB))
 RPATH := -Wl,-rpath,$(abspath $(BUILD))
@@ -43,7 +46,7 @@ RPATH := -Wl,-rpath,$(abspath $(BUILD))
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
 TESTS    := $(BUILD)/test_capi $(BUILD)/test_cpp
 
-.PHONY: all libs shared examples check c-test cpp-test python-test python-lib version-check docs-check native wheel clean
+.PHONY: all libs shared examples check c-test cpp-test python-test python-lib algo-check version-check docs-check dup-check native wheel clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -89,6 +92,10 @@ cpp-test: $(BUILD)/test_cpp
 python-test: $(SHARED_LIB)
 	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) -m unittest discover -s tests/python -p 'test_*.py' -v
 
+algo-check: $(SHARED_LIB)
+	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) scripts/verify_algorithms.py --label native
+	RFLUX_DISABLE_NATIVE=1 RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) scripts/verify_algorithms.py --label ctypes-fallback
+
 python-lib: $(SHARED_LIB)
 	@mkdir -p python/rflux/_lib
 	cp $(SHARED_LIB) python/rflux/_lib/
@@ -106,7 +113,12 @@ version-check:
 docs-check:
 	$(PYTHON) scripts/check_docs.py
 
-check: c-test cpp-test python-test version-check docs-check
+# jscpd needs Node/npx, so CI does not run it; use it before large refactors.
+dup-check:
+	npx --yes jscpd@4 src include python/rflux tests \
+		--min-lines 5 --min-tokens 40 --threshold 0 --reporters console
+
+check: c-test cpp-test python-test algo-check version-check docs-check
 
 clean:
 	rm -rf $(BUILD)

@@ -16,6 +16,25 @@ option(RFLUX_STABLE_ABI "Build the Python extension against the CPython stable A
 option(RFLUX_BUILD_GTEST "Build the GoogleTest suite when GoogleTest is available" ON)
 option(RFLUX_FETCH_GTEST "Download GoogleTest when it is not installed" OFF)
 option(RFLUX_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(RFLUX_ENABLE_IPO "Enable interprocedural optimization when supported" ON)
+
+include(CheckIPOSupported)
+set(RFLUX_IPO_SUPPORTED OFF)
+if(RFLUX_ENABLE_IPO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    check_ipo_supported(RESULT RFLUX_IPO_RESULT OUTPUT RFLUX_IPO_OUTPUT)
+    if(RFLUX_IPO_RESULT)
+        set(RFLUX_IPO_SUPPORTED ON)
+        message(STATUS "rflux: interprocedural optimization enabled")
+    else()
+        message(STATUS "rflux: interprocedural optimization unavailable: ${RFLUX_IPO_OUTPUT}")
+    endif()
+endif()
+
+function(rflux_enable_ipo target)
+    if(RFLUX_IPO_SUPPORTED)
+        set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+endfunction()
 
 if(SKBUILD)
     set(RFLUX_BUILD_PYTHON ON)
@@ -50,12 +69,15 @@ set(RFLUX_CORE_SOURCES
     src/mllab/huber.cpp
     src/mllab/factory.cpp)
 
+find_package(Threads REQUIRED)
+
 add_library(rflux_core STATIC ${RFLUX_CORE_SOURCES})
 target_include_directories(rflux_core
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
            $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(rflux_core PUBLIC cxx_std_17)
+target_link_libraries(rflux_core PUBLIC Threads::Threads)
 if(NOT WIN32)
     target_link_libraries(rflux_core PUBLIC m)
 endif()
@@ -63,6 +85,7 @@ set_target_properties(rflux_core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES)
+rflux_enable_ipo(rflux_core)
 
 add_library(rflux SHARED src/rflux_capi.cpp)
 add_library(rflux::rflux ALIAS rflux)
@@ -77,6 +100,7 @@ set_target_properties(rflux PROPERTIES
     SOVERSION 1
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES)
+rflux_enable_ipo(rflux)
 if(WIN32)
     target_compile_definitions(rflux PRIVATE RFLUX_BUILDING_DLL)
 endif()
@@ -128,6 +152,7 @@ if(RFLUX_BUILD_PYTHON)
         OUTPUT_NAME "_native"
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES)
+    rflux_enable_ipo(rflux_native)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(rflux_native PRIVATE -Wall -Wextra -Wpedantic)
         if(RFLUX_WARNINGS_AS_ERRORS)
@@ -148,11 +173,13 @@ if(RFLUX_BUILD_EXAMPLES)
         target_link_libraries(rflux_example_c PRIVATE m)
     endif()
     set_target_properties(rflux_example_c PROPERTIES OUTPUT_NAME example_c_basic)
+    rflux_enable_ipo(rflux_example_c)
 
     add_executable(rflux_example_cpp examples/cpp_research.cpp)
     target_link_libraries(rflux_example_cpp PRIVATE rflux_core)
     target_include_directories(rflux_example_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     set_target_properties(rflux_example_cpp PROPERTIES OUTPUT_NAME example_cpp_research)
+    rflux_enable_ipo(rflux_example_cpp)
 endif()
 
 if(RFLUX_BUILD_TESTS)
@@ -163,12 +190,14 @@ if(RFLUX_BUILD_TESTS)
         target_link_libraries(rflux_test_c PRIVATE m)
     endif()
     set_target_properties(rflux_test_c PROPERTIES OUTPUT_NAME test_capi)
+    rflux_enable_ipo(rflux_test_c)
     add_test(NAME rflux_c_abi COMMAND rflux_test_c)
 
     add_executable(rflux_test_cpp tests/cpp/test_cpp.cpp)
     target_link_libraries(rflux_test_cpp PRIVATE rflux_core)
     target_include_directories(rflux_test_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     set_target_properties(rflux_test_cpp PROPERTIES OUTPUT_NAME test_cpp)
+    rflux_enable_ipo(rflux_test_cpp)
     add_test(NAME rflux_cpp_core COMMAND rflux_test_cpp)
 
     if(RFLUX_BUILD_GTEST)
@@ -188,6 +217,7 @@ if(RFLUX_BUILD_TESTS)
         if(TARGET GTest::gtest_main)
             add_executable(rflux_test_gtest tests/cpp/test_core_gtest.cpp)
             target_link_libraries(rflux_test_gtest PRIVATE rflux_core GTest::gtest_main)
+            rflux_enable_ipo(rflux_test_gtest)
             target_include_directories(rflux_test_gtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
             add_test(NAME rflux_cpp_gtest COMMAND rflux_test_gtest)
         else()

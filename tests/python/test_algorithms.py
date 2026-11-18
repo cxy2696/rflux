@@ -151,6 +151,14 @@ class TestPortfolioLab(unittest.TestCase):
         )
 
 
+    def test_rebalance_targets_gates_each_period_independently(self):
+        current = np.array([[0.5, 0.5], [0.5, 0.5]])
+        target = np.array([[0.51, 0.49], [0.7, 0.3]])
+        gated = portfoliolab.rebalance_targets(current, target, threshold=0.05)
+        np.testing.assert_allclose(gated[0], current[0])
+        np.testing.assert_allclose(gated[1], target[1])
+
+
 class TestExecution(unittest.TestCase):
     def test_linear_and_risk_averse_schedules(self):
         linear = execution.almgren_chriss(
@@ -221,6 +229,27 @@ class TestRegimeAndRisk(unittest.TestCase):
         self.assertEqual(result.labels[0], 0)
         self.assertEqual(result.labels[39], 1)
         self.assertEqual(result.n_switches, 1)
+
+    def test_tail_dependence_symmetrises_conditionals(self):
+        rng = np.random.default_rng(9)
+        x = rng.normal(size=800)
+        y = 0.8 * x + 0.6 * rng.normal(size=800)
+        y[y < -0.6] = np.nan  # asymmetric missingness in the lower tail
+        values = np.column_stack([x, y])
+        q = 0.1
+        lower = tail_dependence(values, q=q)
+        np.testing.assert_allclose(lower, lower.T, equal_nan=True)
+        # Reconstruct the two conditionals exactly as the estimator does.
+        events = np.zeros_like(values, dtype=bool)
+        for column in range(values.shape[1]):
+            valid = np.isfinite(values[:, column])
+            cutoff = float(np.quantile(values[valid, column], q))
+            events[:, column] = valid & (values[:, column] <= cutoff)
+        joint = int((events[:, 0] & events[:, 1]).sum())
+        count_x = int(events[:, 0].sum())
+        count_y = int(events[:, 1].sum())
+        expected = 0.5 * (joint / count_x + joint / count_y)
+        self.assertAlmostEqual(lower[0, 1], expected, places=12)
 
     def test_tail_dependence(self):
         rng = np.random.default_rng(1)

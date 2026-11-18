@@ -2,7 +2,6 @@
 
 **English** · [中文](EXTENDING_cn.md)
 
-
 rflux has three small boundaries: the C++ core does the computation, the C ABI carries it across languages, and Python handles argument conversion and composition. Decide which layer a new feature belongs to before writing code.
 
 ## 1. Add a C++ kernel

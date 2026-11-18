@@ -2,11 +2,13 @@
 
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
 
 #include "internal/common.hpp"
+#include "internal/parallel.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
 #include "rflux/execution/factory.hpp"
 #include "rflux/core/market.hpp"
@@ -19,9 +21,12 @@
 #include "rflux/portfoliolab/hrp.hpp"
 #include "rflux/portfoliolab/factory.hpp"
 #include "rflux/percolab/detector.hpp"
+#include "rflux/percolab/percolation.hpp"
 #include "rflux/percolab/factory.hpp"
 #include "rflux/factorlab/factory.hpp"
 #include "rflux/qflux/indicators.hpp"
+#include "rflux/qflux/ranking.hpp"
+#include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
@@ -37,6 +42,37 @@ std::vector<double> increasing(std::size_t n, double start = 1.0) {
     std::vector<double> values(n);
     std::iota(values.begin(), values.end(), start);
     return values;
+}
+
+rflux::regimelab::GaussianHMM fitted_model(
+    const std::vector<double>& observations,
+    const rflux::regimelab::HmmOptions& options) {
+    rflux::regimelab::GaussianHMM model(2, 1);
+    model.fit(observations.data(), observations.size(), options);
+    return model;
+}
+
+/* Compare the buffer kernel with per-pair Pearson on contiguous columns. */
+void expect_correlation_matrix_matches_pearson(
+    const std::vector<double>& panel, std::size_t n_obs, std::size_t n_assets) {
+    std::vector<double> matrix(n_assets * n_assets, 0.0);
+    rflux::qflux::correlation_matrix_into(panel.data(), n_obs, n_assets,
+                                          matrix.data());
+    std::vector<std::vector<double>> columns(
+        n_assets, std::vector<double>(n_obs, 0.0));
+    for (std::size_t a = 0; a < n_assets; ++a) {
+        for (std::size_t t = 0; t < n_obs; ++t) {
+            columns[a][t] = panel[t * n_assets + a];
+        }
+    }
+    for (std::size_t a = 0; a < n_assets; ++a) {
+        EXPECT_NEAR(matrix[a * n_assets + a], 1.0, 1e-12);
+        for (std::size_t b = 0; b < n_assets; ++b) {
+            const double expected = rflux::qflux::pearson(
+                columns[a].data(), columns[b].data(), n_obs);
+            EXPECT_NEAR(matrix[a * n_assets + b], expected, 1e-12);
+        }
+    }
 }
 
 TEST(QfluxGTest, RollingQuantileAndWarmup) {
@@ -88,10 +124,10 @@ TEST(RegimelabGTest, DeterministicFitForFixedSeed) {
     options.n_init = 2;
     options.seed = 17;
 
-    rflux::regimelab::GaussianHMM first(2, 1);
-    rflux::regimelab::GaussianHMM second(2, 1);
-    first.fit(observations.data(), observations.size(), options);
-    second.fit(observations.data(), observations.size(), options);
+    const rflux::regimelab::GaussianHMM first = fitted_model(observations,
+                                                             options);
+    const rflux::regimelab::GaussianHMM second = fitted_model(observations,
+                                                              options);
 
     EXPECT_EQ(first.iterations(), second.iterations());
     EXPECT_EQ(first.converged(), second.converged());
@@ -371,3 +407,433 @@ TEST(AlgorithmFactoriesGTest, CreateEveryBuiltinFamily) {
 }
 
 }  // namespace
+
+/* ------------------------------------------------------------------ */
+/* Buffer-first kernels and deterministic parallel kernels             */
+/* ------------------------------------------------------------------ */
+
+/* Build a synthetic n_obs x n_assets panel from a value(t, a) callable. */
+template <typename Value>
+std::vector<double> synthetic_panel(std::size_t n_obs, std::size_t n_assets,
+                                    Value&& value) {
+    std::vector<double> panel(n_obs * n_assets);
+    for (std::size_t t = 0; t < n_obs; ++t) {
+        for (std::size_t a = 0; a < n_assets; ++a) {
+            panel[t * n_assets + a] = value(t, a);
+        }
+    }
+    return panel;
+}
+
+TEST(QfluxBufferGTest, BufferMatchesVectorOverloads) {
+    std::vector<double> values(257);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const double wave = std::sin(static_cast<double>(i) * 0.31) * 4.0;
+        values[i] = (i % 41 == 7) ? std::nan("") : 50.0 + wave + 0.01 * i;
+    }
+    const std::size_t n = values.size();
+    std::vector<double> other(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        other[i] = (i % 37 == 5) ? std::nan("")
+                                 : std::cos(static_cast<double>(i) * 0.17);
+    }
+    const auto check_vector = [&](const char* name, const double* expected,
+                                  const double* actual) {
+        for (std::size_t i = 0; i < n; ++i) {
+            const bool both_nan =
+                std::isnan(expected[i]) && std::isnan(actual[i]);
+            ASSERT_TRUE(both_nan ||
+                        std::abs(expected[i] - actual[i]) <= 1e-12)
+                << name << " index " << i << " differs";
+        }
+    };
+    std::vector<double> out(n, -1.0);
+
+    for (std::size_t window : {1u, 7u, 64u}) {
+        rflux::qflux::rolling_sum_into(values.data(), n, window, out.data());
+        check_vector("rolling_sum",
+                     rflux::qflux::rolling_sum(values.data(), n, window).data(),
+                     out.data());
+        rflux::qflux::rolling_std_into(values.data(), n, window, 0,
+                                       out.data());
+        check_vector("rolling_std",
+                     rflux::qflux::rolling_std(values.data(), n, window, 0)
+                         .data(),
+                     out.data());
+        rflux::qflux::rolling_zscore_into(values.data(), n, window, 0,
+                                          out.data());
+        check_vector("rolling_zscore",
+                     rflux::qflux::rolling_zscore(values.data(), n, window, 0)
+                         .data(),
+                     out.data());
+        rflux::qflux::rolling_min_into(values.data(), n, window, out.data());
+        check_vector("rolling_min",
+                     rflux::qflux::rolling_min(values.data(), n, window).data(),
+                     out.data());
+        rflux::qflux::rolling_max_into(values.data(), n, window, out.data());
+        check_vector("rolling_max",
+                     rflux::qflux::rolling_max(values.data(), n, window).data(),
+                     out.data());
+        rflux::qflux::rolling_quantile_into(values.data(), n, window, 0.3,
+                                            out.data());
+        check_vector("rolling_quantile",
+                     rflux::qflux::rolling_quantile(values.data(), n, window,
+                                                    0.3)
+                         .data(),
+                     out.data());
+    }
+
+    for (std::size_t window : {2u, 7u, 64u}) {
+        rflux::qflux::rolling_corr_into(values.data(), other.data(), n, window,
+                                        out.data());
+        check_vector("rolling_corr",
+                     rflux::qflux::rolling_corr(values.data(), other.data(), n,
+                                                window)
+                         .data(),
+                     out.data());
+        rflux::qflux::rolling_beta_into(values.data(), other.data(), n, window,
+                                        out.data());
+        check_vector("rolling_beta",
+                     rflux::qflux::rolling_beta(values.data(), other.data(), n,
+                                                window)
+                         .data(),
+                     out.data());
+        rflux::qflux::rolling_slope_into(values.data(), n, window, out.data());
+        check_vector("rolling_slope",
+                     rflux::qflux::rolling_slope(values.data(), n, window).data(),
+                     out.data());
+        rflux::qflux::rolling_r2_into(values.data(), n, window, out.data());
+        check_vector("rolling_r2",
+                     rflux::qflux::rolling_r2(values.data(), n, window).data(),
+                     out.data());
+    }
+
+    rflux::qflux::returns_into(values.data(), n, true, out.data());
+    check_vector("returns", rflux::qflux::returns(values.data(), n, true).data(),
+                 out.data());
+    rflux::qflux::sma_into(values.data(), n, 5, out.data());
+    check_vector("sma", rflux::qflux::sma(values.data(), n, 5).data(),
+                 out.data());
+    rflux::qflux::ema_into(values.data(), n, 5, out.data());
+    check_vector("ema", rflux::qflux::ema(values.data(), n, 5).data(),
+                 out.data());
+    rflux::qflux::rsi_into(values.data(), n, 5, out.data());
+    check_vector("rsi", rflux::qflux::rsi(values.data(), n, 5).data(),
+                 out.data());
+    rflux::qflux::drawdown_into(values.data(), n, out.data());
+    check_vector("drawdown", rflux::qflux::drawdown(values.data(), n).data(),
+                 out.data());
+    rflux::qflux::atr_into(values.data(), other.data(), values.data(), n, 5,
+                           out.data());
+    check_vector("atr",
+                 rflux::qflux::atr(values.data(), other.data(), values.data(),
+                                   n, 5)
+                     .data(),
+                 out.data());
+
+    const rflux::qflux::MacdResult macd_ref =
+        rflux::qflux::macd(values.data(), n, 3, 6, 2);
+    std::vector<double> macd_out(n, 0.0), signal_out(n, 0.0),
+        hist_out(n, 0.0);
+    rflux::qflux::macd_into(values.data(), n, 3, 6, 2, macd_out.data(),
+                            signal_out.data(), hist_out.data());
+    check_vector("macd", macd_ref.macd.data(), macd_out.data());
+    check_vector("macd_signal", macd_ref.signal.data(), signal_out.data());
+    check_vector("macd_histogram", macd_ref.histogram.data(), hist_out.data());
+
+    const auto bands = rflux::qflux::bollinger(values.data(), n, 9, 2.0);
+    std::vector<double> middle(n, 0.0), upper(n, 0.0), lower(n, 0.0);
+    rflux::qflux::bollinger_into(values.data(), n, 9, 2.0, middle.data(),
+                                 upper.data(), lower.data());
+    check_vector("bollinger_middle", bands.middle.data(), middle.data());
+    check_vector("bollinger_upper", bands.upper.data(), upper.data());
+    check_vector("bollinger_lower", bands.lower.data(), lower.data());
+
+    rflux::qflux::rank_into(values.data(), n, out.data());
+    check_vector("rank", rflux::qflux::rank(values.data(), n).data(),
+                 out.data());
+    rflux::qflux::percentile_rank_into(values.data(), n, out.data());
+    check_vector("percentile_rank",
+                 rflux::qflux::percentile_rank(values.data(), n).data(),
+                 out.data());
+    rflux::qflux::zscore_into(values.data(), n, 1, out.data());
+    check_vector("zscore", rflux::qflux::zscore(values.data(), n, 1).data(),
+                 out.data());
+    rflux::qflux::winsorize_into(values.data(), n, 0.05, 0.95, out.data());
+    check_vector("winsorize",
+                 rflux::qflux::winsorize(values.data(), n, 0.05, 0.95).data(),
+                 out.data());
+    std::vector<std::int32_t> groups(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        groups[i] = static_cast<std::int32_t>(i % 5);
+    }
+    rflux::qflux::neutralize_into(values.data(), n, groups.data(), 5,
+                                  out.data());
+    check_vector("neutralize",
+                 rflux::qflux::neutralize(values.data(), n, groups.data(), 5)
+                     .data(),
+                 out.data());
+}
+
+TEST(QfluxBufferGTest, RollingQuantileMatchesBruteForce) {
+    std::vector<double> values(1400);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const double wave = std::sin(static_cast<double>(i) * 0.7) * 3.0;
+        values[i] = (i % 53 == 11) ? std::nan("") : 10.0 + wave;
+    }
+    for (std::size_t window : {1u, 3u, 64u, 1025u}) {
+        for (double q : {0.0, 0.1, 0.5, 0.9, 1.0}) {
+            const auto actual = rflux::qflux::rolling_quantile(
+                values.data(), values.size(), window, q);
+            for (std::size_t i = 0; i + 1 < window; ++i) {
+                ASSERT_TRUE(std::isnan(actual[i]));
+            }
+            for (std::size_t i = window - 1; i < values.size(); ++i) {
+                const std::size_t begin = i + 1 - window;
+                std::vector<double> slice(values.begin() +
+                                              static_cast<std::ptrdiff_t>(begin),
+                                          values.begin() +
+                                              static_cast<std::ptrdiff_t>(i + 1));
+                const bool has_nan = std::any_of(slice.begin(), slice.end(),
+                                                 [](double v) {
+                                                     return !std::isfinite(v);
+                                                 });
+                if (has_nan) {
+                    ASSERT_TRUE(std::isnan(actual[i]));
+                    continue;
+                }
+                std::sort(slice.begin(), slice.end());
+                const double position = q * static_cast<double>(window - 1);
+                const std::size_t lower =
+                    static_cast<std::size_t>(std::floor(position));
+                const std::size_t upper = std::min(lower + 1, window - 1);
+                const double expected =
+                    slice[lower] + (position - static_cast<double>(lower)) *
+                                       (slice[upper] - slice[lower]);
+                ASSERT_NEAR(actual[i], expected, 1e-12);
+            }
+        }
+    }
+}
+
+TEST(QfluxBufferGTest, BufferDoesNotWritePastLength) {
+    const std::vector<double> values(37, 2.0);
+    const double sentinel = 12345.0;
+    std::vector<double> guarded(values.size() + 2, sentinel);
+    rflux::qflux::rolling_std_into(values.data(), values.size(), 5, 0,
+                                   guarded.data() + 1);
+    rflux::qflux::rolling_min_into(values.data(), values.size(), 5,
+                                   guarded.data() + 1);
+    EXPECT_DOUBLE_EQ(guarded.front(), sentinel);
+    EXPECT_DOUBLE_EQ(guarded.back(), sentinel);
+
+    std::vector<double> macd(values.size() + 2, sentinel);
+    std::vector<double> signal(values.size() + 2, sentinel);
+    std::vector<double> histogram(values.size() + 2, sentinel);
+    rflux::qflux::macd_into(values.data(), values.size(), 3, 7, 2,
+                            macd.data() + 1, signal.data() + 1,
+                            histogram.data() + 1);
+    EXPECT_DOUBLE_EQ(macd.front(), sentinel);
+    EXPECT_DOUBLE_EQ(signal.back(), sentinel);
+    EXPECT_DOUBLE_EQ(histogram.front(), sentinel);
+}
+
+TEST(QfluxBufferGTest, CorrelationMatrixCompleteMatchesPearson) {
+    const std::size_t n_obs = 64;
+    const std::size_t n_assets = 6;
+    const std::vector<double> panel = synthetic_panel(
+        n_obs, n_assets, [](std::size_t t, std::size_t a) {
+            return std::sin(static_cast<double>(t) * (0.1 + 0.05 * a)) +
+                   0.01 * static_cast<double>(t * a);
+        });
+    expect_correlation_matrix_matches_pearson(panel, n_obs, n_assets);
+}
+
+TEST(RegimelabGTest, RestartsAreDeterministicAndOrdered) {
+    std::vector<double> observations(1200);
+    for (std::size_t i = 0; i < observations.size(); ++i) {
+        const double noise = std::sin(static_cast<double>(i) * 0.23) * 0.2;
+        observations[i] = i < 600 ? -0.8 + noise : 0.9 + noise;
+    }
+    rflux::regimelab::HmmOptions options;
+    options.max_iter = 60;
+    options.n_init = 3;
+    options.seed = 23;
+
+    const rflux::regimelab::GaussianHMM first = fitted_model(observations,
+                                                             options);
+    const rflux::regimelab::GaussianHMM second = fitted_model(observations,
+                                                              options);
+    EXPECT_DOUBLE_EQ(first.log_likelihood(), second.log_likelihood());
+    EXPECT_EQ(first.parameters().means, second.parameters().means);
+    EXPECT_EQ(first.parameters().variances, second.parameters().variances);
+
+    /* Restart 0 uses options.seed itself, so one restart reproduces that
+     * candidate and cannot beat the multi-restart best. */
+    rflux::regimelab::HmmOptions single = options;
+    single.n_init = 1;
+    const rflux::regimelab::GaussianHMM one = fitted_model(observations,
+                                                           single);
+    EXPECT_GE(first.log_likelihood(), one.log_likelihood());
+}
+
+TEST(RegimelabGTest, VolatilityRegimeMatchesFullSortReference) {
+    const std::size_t n = 180;
+    std::vector<double> returns(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        returns[i] = (i % 97 == 0)
+                         ? std::nan("")
+                         : std::sin(static_cast<double>(i) * 0.37) * 0.01 +
+                               0.002 * static_cast<double>(i % 5);
+    }
+    const std::size_t vol_window = 10;
+    const std::size_t lookback = 40;
+    const double low_q = 0.2;
+    const double high_q = 0.8;
+    const auto result = rflux::regimelab::volatility_regime(
+        returns.data(), n, vol_window, lookback, low_q, high_q);
+
+    std::deque<double> history;
+    for (std::size_t t = 0; t < n; ++t) {
+        const double value = result.volatility[t];
+        if (!std::isfinite(value)) continue;
+        std::int32_t expected = -1;
+        if (history.size() >= 20) {
+            std::vector<double> reference(history.begin(), history.end());
+            std::sort(reference.begin(), reference.end());
+            const double lower = rflux::detail::quantile_sorted(reference, low_q);
+            const double upper = rflux::detail::quantile_sorted(reference, high_q);
+            expected = value > upper ? 2 : (value < lower ? 0 : 1);
+        }
+        EXPECT_EQ(result.labels[t], expected) << "index " << t;
+        history.push_back(value);
+        if (history.size() > lookback) history.pop_front();
+    }
+}
+
+TEST(PercolabGTest, ThresholdInterpolatesTheGiantCrossing) {
+    const double adjacency[4] = {
+        0.0, 1.0,
+        1.0, 0.0,
+    };
+    const auto network = rflux::percolab::make_network(adjacency, 2);
+    rflux::percolab::SitePercolationDetector::Options options;
+    options.repetitions = 512;
+    options.threshold_points = 6;  /* grid 0, .2, .4, .6, .8, 1 */
+    options.crisis_fraction = 0.5;
+    options.seed = 7;
+    rflux::percolab::SitePercolationDetector detector(options);
+    const double threshold = detector.estimate_threshold(network);
+    /* For a two-node connected graph the mean giant fraction equals p, so a
+     * grid scan first crosses 0.5 at p=0.6 while interpolation reaches 0.5. */
+    EXPECT_NEAR(threshold, 0.5, 0.08);
+    EXPECT_TRUE(detector.calibrated());
+    EXPECT_DOUBLE_EQ(detector.analyze(network, 1.0).percolation_threshold,
+                     threshold);
+}
+
+TEST(PercolabGTest, MonteCarloScansAreDeterministic) {
+    /* n >= 128 also exercises the parallel scan path under TSan/ASan. */
+    const std::size_t n = 160;
+    std::vector<double> adjacency(n * n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = i + 1; j < n; ++j) {
+            if ((i * 7 + j * 3) % 5 != 0) {
+                const double weight =
+                    0.2 + 0.8 * static_cast<double>((i * 13 + j * 11) % 17) /
+                              16.0;
+                adjacency[i * n + j] = weight;
+                adjacency[j * n + i] = weight;
+            }
+        }
+    }
+    const double probabilities[] = {0.1, 0.3, 0.5, 0.7, 0.9};
+    const auto first = rflux::percolab::site_percolation(
+        adjacency.data(), n, probabilities, 5, 9, 123);
+    const auto second = rflux::percolab::site_percolation(
+        adjacency.data(), n, probabilities, 5, 9, 123);
+    ASSERT_EQ(first.size(), second.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_DOUBLE_EQ(first[i].giant_mean, second[i].giant_mean);
+        EXPECT_DOUBLE_EQ(first[i].giant_std, second[i].giant_std);
+        EXPECT_DOUBLE_EQ(first[i].susceptibility, second[i].susceptibility);
+    }
+    const auto sizes_first = rflux::percolab::cluster_size_distribution(
+        adjacency.data(), n, rflux::percolab::PercolationKind::site,
+        rflux::percolab::OccupationWeights{}, 0.4, 8, 77);
+    const auto sizes_second = rflux::percolab::cluster_size_distribution(
+        adjacency.data(), n, rflux::percolab::PercolationKind::site,
+        rflux::percolab::OccupationWeights{}, 0.4, 8, 77);
+    ASSERT_EQ(sizes_first.size(), sizes_second.size());
+    for (std::size_t i = 0; i < sizes_first.size(); ++i) {
+        EXPECT_DOUBLE_EQ(sizes_first[i], sizes_second[i]);
+    }
+}
+
+TEST(QfluxBufferGTest, CorrelationMatrixParallelPath) {
+    const std::size_t n_obs = 8000;
+    const std::size_t n_assets = 9;
+    const std::vector<double> panel = synthetic_panel(
+        n_obs, n_assets, [](std::size_t t, std::size_t a) {
+            return std::sin(static_cast<double>(t) * (0.03 + 0.02 * a)) +
+                   0.001 * static_cast<double>(t % (a + 3));
+        });
+    expect_correlation_matrix_matches_pearson(panel, n_obs, n_assets);
+}
+
+TEST(ParallelGTest, StaticPartitionAndExceptionPropagation) {
+    std::vector<int> values(1000, 0);
+    rflux::detail::parallel_for(
+        values.size(),
+        [&](std::size_t i) { values[i] = static_cast<int>(i * 2); }, 4);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        EXPECT_EQ(values[i], static_cast<int>(i * 2));
+    }
+
+    EXPECT_THROW(
+        rflux::detail::parallel_for(
+            200,
+            [](std::size_t i) {
+                if (i == 57) throw std::runtime_error("worker failure");
+            },
+            4),
+        std::runtime_error);
+
+    /* Nested calls run inline but still cover every index exactly once. */
+    std::vector<int> nested(20, 0);
+    rflux::detail::parallel_for(
+        4,
+        [&](std::size_t outer) {
+            rflux::detail::parallel_for(
+                5, [&](std::size_t inner) { nested[outer * 5 + inner] = 1; },
+                4);
+        },
+        4);
+    for (int value : nested) EXPECT_EQ(value, 1);
+}
+
+TEST(QfluxBufferGTest, QuantileMatchesSortedReference) {
+    std::vector<double> values(513);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        values[i] = static_cast<double>((i * 37) % 53) - 26.0;
+    }
+    values[11] = std::nan("");
+    values[400] = std::nan("");
+    std::vector<double> finite;
+    for (double value : values) {
+        if (std::isfinite(value)) finite.push_back(value);
+    }
+    std::sort(finite.begin(), finite.end());
+    for (double q : {0.0, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0}) {
+        const double position = q * static_cast<double>(finite.size() - 1);
+        const std::size_t lower =
+            static_cast<std::size_t>(std::floor(position));
+        const std::size_t upper = std::min(lower + 1, finite.size() - 1);
+        const double expected =
+            finite[lower] + (position - static_cast<double>(lower)) *
+                                (finite[upper] - finite[lower]);
+        EXPECT_NEAR(rflux::qflux::quantile(values.data(), values.size(), q),
+                    expected, 1e-12)
+            << "q=" << q;
+    }
+}

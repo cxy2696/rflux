@@ -31,6 +31,14 @@ class TestNativeBridge(unittest.TestCase):
             else:
                 self.assertIn(".abi3.", module_path.name)
 
+    def test_public_facade_covers_every_native_export(self):
+        from rflux import native
+
+        for name in native.__all__:
+            self.assertTrue(hasattr(native, name), name)
+        self.assertIs(native.series, native_module.series)
+        self.assertIs(native.GaussianHMM, native_module.GaussianHMM)
+
     def test_series_into_is_zero_copy(self):
         values = np.arange(20.0)
         out = np.empty_like(values)
@@ -108,3 +116,102 @@ class TestNativeBridge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(native_module is None, "native extension is not built")
+class TestNativeBufferKernels(unittest.TestCase):
+    def setUp(self):
+        rng = np.random.default_rng(1234)
+        n = 4096
+        values = rng.normal(size=n) * 10.0
+        values[rng.integers(0, n, 15)] = np.nan
+        self.values = values
+        self.other = rng.normal(size=n)
+        self.other[rng.integers(0, n, 9)] = np.nan
+
+    def test_series_into_matches_series_exactly(self):
+        cases = [
+            ("rflux_returns", (1,)),
+            ("rflux_sma", (32,)),
+            ("rflux_rolling_sum", (17,)),
+            ("rflux_rolling_std", (33, 1)),
+            ("rflux_rolling_min", (9,)),
+            ("rflux_rolling_max", (9,)),
+            ("rflux_rolling_zscore", (21, 0)),
+            ("rflux_rolling_quantile", (64, 0.3)),
+            ("rflux_rolling_quantile", (1536, 0.6)),
+            ("rflux_ema", (12,)),
+            ("rflux_rsi", (14,)),
+            ("rflux_drawdown", ()),
+            ("rflux_rolling_slope", (25,)),
+            ("rflux_rolling_r2", (25,)),
+            ("rflux_rank", ()),
+            ("rflux_percentile_rank", ()),
+            ("rflux_zscore", (1,)),
+            ("rflux_winsorize", (0.02, 0.98)),
+        ]
+        for name, args in cases:
+            with self.subTest(name=name, args=args):
+                expected = native_module.series(name, self.values, *args)
+                out = np.empty_like(self.values)
+                returned = native_module.series_into(
+                    name, self.values, out, *args
+                )
+                self.assertIs(returned, out)
+                np.testing.assert_array_equal(out, expected)
+
+    def test_pair_series_matches_python_wrappers(self):
+        for name, window, extra in (
+            ("rflux_rolling_corr", 31, ()),
+            ("rflux_rolling_cov", 31, (1,)),
+            ("rflux_rolling_beta", 31, ()),
+        ):
+            with self.subTest(name=name):
+                expected = native_module.pair_series(
+                    name, self.values, self.other, window, *extra
+                )
+                wrapper = {
+                    "rflux_rolling_corr": qflux.rolling_corr,
+                    "rflux_rolling_cov": qflux.rolling_cov,
+                    "rflux_rolling_beta": qflux.rolling_beta,
+                }[name](self.values, self.other, window, *extra)
+                np.testing.assert_array_equal(wrapper, expected)
+
+    def test_multi_output_kernels_match_wrappers(self):
+        macd = native_module.macd(self.values)
+        reference = qflux.macd(self.values)
+        np.testing.assert_array_equal(macd[0], reference.macd)
+        np.testing.assert_array_equal(macd[1], reference.signal)
+        np.testing.assert_array_equal(macd[2], reference.histogram)
+
+        bands = native_module.bollinger(self.values)
+        expected = qflux.bollinger(self.values)
+        np.testing.assert_array_equal(bands[0], expected.middle)
+        np.testing.assert_array_equal(bands[1], expected.upper)
+        np.testing.assert_array_equal(bands[2], expected.lower)
+
+    def test_correlation_matrix_matches_numpy(self):
+        panel = np.column_stack(
+            [self.values, self.other, np.sin(np.arange(self.values.size))]
+        )
+        complete = panel[np.all(np.isfinite(panel), axis=1)]
+        expected = np.corrcoef(complete, rowvar=False)
+        actual = native_module.correlation_matrix(complete)
+        np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+    def test_native_hmm_fit_is_deterministic(self):
+        rng = np.random.default_rng(77)
+        observations = np.concatenate(
+            [rng.normal(-0.5, 0.4, 400), rng.normal(0.8, 0.6, 400)]
+        ).reshape(-1, 1)
+        first = native_module.GaussianHMM(2, 1)
+        second = native_module.GaussianHMM(2, 1)
+        first.fit(observations, n_init=3, max_iter=50, seed=31)
+        second.fit(observations, n_init=3, max_iter=50, seed=31)
+        np.testing.assert_array_equal(
+            first.parameters[2], second.parameters[2]
+        )
+        np.testing.assert_array_equal(
+            first.parameters[3], second.parameters[3]
+        )
+        self.assertEqual(first.fit_info[2], second.fit_info[2])

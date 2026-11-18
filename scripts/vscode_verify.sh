@@ -121,6 +121,7 @@ run_step "ctest (dev)" ctest --preset dev --output-on-failure
 # ---------------------------------------------------------------------------
 run_step "pytest (native bridge)" "$PYTHON" -m pytest tests/python -q
 run_step "pytest (ctypes fallback)" env RFLUX_DISABLE_NATIVE=1 "$PYTHON" -m pytest tests/python -q
+run_step "algorithm matrix and timings" make algo-check
 
 # ---------------------------------------------------------------------------
 # 3. command line surface

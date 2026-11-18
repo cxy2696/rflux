@@ -2,7 +2,7 @@
 
 [English](RELEASE.md) · **中文**
 
-发布是仓库级契约，不只是改版本号。
+发布需要同时更新代码、构建产物、文档和版本元数据。
 
 1. **版本同步**  
    更新 `CMakeLists.txt`、`include/rflux/rflux.h`、

@@ -16,8 +16,22 @@ make check
 非零。
 
 `make check` 包含 Markdown 检查（`scripts/check_docs.py`，检查相对链接、
-代码围栏和 GitHub 数学分隔符）以及 `scripts/check_version.py`，后者保证
-CMake、C 头和 Python 元数据版本一致。
+代码围栏和 GitHub 数学分隔符）、`scripts/check_version.py`（保证 CMake、C 头
+和 Python 元数据版本一致）以及 `make algo-check`：分别通过原生扩展和
+ctypes C ABI 运行 `scripts/verify_algorithms.py`。算法可追溯矩阵见
+`docs/ALGORITHMS_cn.md`。
+
+发布代码和测试保持 0 个完全克隆。大型重构前运行 `make dup-check`（需要
+Node/`npx`，因此 CI 不执行）；该命令以更严格的 5 行/40 token 阈值检查
+`src/`、`include/`、`python/rflux/` 和 `tests/`。中英双语文档镜像是有意保留的
+唯一重复块。
+
+## 文档风格
+
+文档按工程笔记来写，面向需要复现结果的人。直接写清输入、输出、估计量和测试；
+少用营销形容词、重复免责声明和模板化过渡句，限制说明在影响使用的位置写一次。
+中英文页面保持同步。`scripts/check_docs.py` 会拒绝 `not just`、`deliberately`、
+`Next layer` 等一小串模板化标记。
 
 C/C++ 改动最快的循环是 Make。需要原生 Python 扩展和可复现的 CMake/Ninja
 构建时：

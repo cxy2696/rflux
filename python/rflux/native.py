@@ -17,52 +17,34 @@ from ._native_backend import (
 
 __all__ = ["available", "info"]
 
+_EXPORTS = (
+    "GaussianHMM",
+    "NativeError",
+    "almgren_chriss",
+    "atr",
+    "bollinger",
+    "correlation_matrix",
+    "describe",
+    "factor_amihud",
+    "factor_momentum",
+    "factor_volume_reversal",
+    "factor_vwap_deviation",
+    "hrp_weights",
+    "huber_regression",
+    "macd",
+    "neutralize",
+    "pair_series",
+    "pearson",
+    "quantile",
+    "series",
+    "series_into",
+    "sharpe",
+    "sortino",
+    "var_cvar",
+)
+
 if _native is not None:
-    GaussianHMM = _native.GaussianHMM
-    NativeError = _native.NativeError
-    atr = _native.atr
-    bollinger = _native.bollinger
-    correlation_matrix = _native.correlation_matrix
-    describe = _native.describe
-    factor_amihud = _native.factor_amihud
-    factor_momentum = _native.factor_momentum
-    factor_volume_reversal = _native.factor_volume_reversal
-    factor_vwap_deviation = _native.factor_vwap_deviation
-    hrp_weights = _native.hrp_weights
-    huber_regression = _native.huber_regression
-    almgren_chriss = _native.almgren_chriss
-    macd = _native.macd
-    neutralize = _native.neutralize
-    pair_series = _native.pair_series
-    pearson = _native.pearson
-    quantile = _native.quantile
-    series = _native.series
-    series_into = _native.series_into
-    sharpe = _native.sharpe
-    sortino = _native.sortino
-    var_cvar = _native.var_cvar
-    __all__ += [
-        "GaussianHMM",
-        "NativeError",
-        "atr",
-        "bollinger",
-        "correlation_matrix",
-        "almgren_chriss",
-        "describe",
-        "factor_amihud",
-        "factor_momentum",
-        "factor_volume_reversal",
-        "factor_vwap_deviation",
-        "hrp_weights",
-        "huber_regression",
-        "macd",
-        "neutralize",
-        "pair_series",
-        "pearson",
-        "quantile",
-        "series",
-        "series_into",
-        "sharpe",
-        "sortino",
-        "var_cvar",
-    ]
+    # Bind the public surface in one place so a new native entry point cannot
+    # be exported in one list but forgotten in the other.
+    globals().update({name: getattr(_native, name) for name in _EXPORTS})
+    __all__ += list(_EXPORTS)

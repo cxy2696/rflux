@@ -654,9 +654,10 @@ RFLUX_API rflux_status rflux_pagerank(const double* adjacency, size_t n,
                                       double tol, double* out);
 
 /*
- * Minimum spanning tree of a complete symmetric distance matrix.  Edges are
- * emitted in Kruskal order; their buffers must hold at least n-1 entries and
- * may be NULL when n <= 1.  n_edges receives n-1.
+ * Minimum spanning tree of a complete symmetric distance matrix.  The
+ * implementation uses dense Prim; edges are returned sorted by (weight, u, v).
+ * Buffers must hold at least n-1 entries and may be NULL when n <= 1.
+ * n_edges receives n-1.
  */
 RFLUX_API rflux_status rflux_network_mst(const double* distance, size_t n,
                                          uint32_t* edge_u, uint32_t* edge_v,

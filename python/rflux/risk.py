@@ -16,11 +16,12 @@ def tail_dependence(
 ) -> np.ndarray:
     """Empirical pairwise tail-dependence coefficients.
 
-    For each pair ``(i, j)`` the lower coefficient is
-    ``P(r_i <= Q_i(q) | r_j <= Q_j(q))`` with empirical quantiles.  The upper
-    coefficient uses the corresponding upper tails.  The matrix is symmetric
-    with a unit diagonal; pairs with no observations in the conditioning tail
-    are NaN.
+    For each pair ``(i, j)`` the lower coefficient averages the two empirical
+    conditionals ``P(r_i <= Q_i(q) | r_j <= Q_j(q))`` and
+    ``P(r_j <= Q_j(q) | r_i <= Q_i(q))``; the upper coefficient does the same
+    for the upper tails.  Averaging makes the finite-sample matrix genuinely
+    symmetric.  The diagonal is one; pairs with no observations in either
+    conditioning tail are NaN.
     """
     values = as_f64_2d(returns, "returns")
     if values.shape[0] < 2 or values.shape[1] == 0:
@@ -47,11 +48,17 @@ def tail_dependence(
         )
     for i in range(n_assets):
         for j in range(i + 1, n_assets):
-            denominator = int(events[:, j].sum())
-            if denominator == 0:
+            joint = int((events[:, i] & events[:, j]).sum())
+            count_i = int(events[:, i].sum())
+            count_j = int(events[:, j].sum())
+            if count_i == 0 or count_j == 0:
                 value = np.nan
             else:
-                value = float((events[:, i] & events[:, j]).sum()) / denominator
+                # The population coefficient is symmetric, but the two
+                # finite-sample conditionals P(i | j) and P(j | i) are not.
+                # Average them so the reported matrix is genuinely symmetric
+                # instead of borrowing only one direction.
+                value = 0.5 * (joint / count_i + joint / count_j)
             result[i, j] = value
             result[j, i] = value
     return result

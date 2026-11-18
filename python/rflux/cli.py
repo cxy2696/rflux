@@ -398,6 +398,24 @@ def _format_risk_text(report: dict[str, Any], source: str, parsed: PriceFile) ->
     return "\n".join(lines)
 
 
+def _finish_report(
+    args: argparse.Namespace,
+    parsed: Any,
+    report: dict[str, Any],
+    formatter: Any,
+) -> int:
+    """Attach the common metadata and emit the JSON or text report."""
+    _add_date_metadata(report, parsed)
+    report["input"]["source"] = str(args.path)
+    output = (
+        json.dumps(report, ensure_ascii=False, indent=2)
+        if args.format == "json"
+        else formatter(report, str(args.path), parsed)
+    )
+    _emit_output(output, args.output)
+    return 0
+
+
 def _command_risk(args: argparse.Namespace) -> int:
     parsed = _read_args_prices(args)
     weights = _parse_weights(args.weights)
@@ -415,15 +433,7 @@ def _command_risk(args: argparse.Namespace) -> int:
         risk_free=args.risk_free,
         confidence=args.confidence,
     )
-    _add_date_metadata(report, parsed)
-    report["input"]["source"] = str(args.path)
-    output = (
-        json.dumps(report, ensure_ascii=False, indent=2)
-        if args.format == "json"
-        else _format_risk_text(report, str(args.path), parsed)
-    )
-    _emit_output(output, args.output)
-    return 0
+    return _finish_report(args, parsed, report, _format_risk_text)
 
 
 def _native_info() -> dict[str, Any]:
@@ -645,15 +655,7 @@ def _command_advice(args: argparse.Namespace) -> int:
         hmm_n_init=args.n_init,
         seed=args.seed,
     )
-    _add_date_metadata(report, parsed)
-    report["input"]["source"] = str(args.path)
-    output = (
-        json.dumps(report, ensure_ascii=False, indent=2)
-        if args.format == "json"
-        else _format_advice_text(report, str(args.path), parsed)
-    )
-    _emit_output(output, args.output)
-    return 0
+    return _finish_report(args, parsed, report, _format_advice_text)
 
 
 def _add_csv_arguments(parser: argparse.ArgumentParser) -> None:

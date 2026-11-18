@@ -36,6 +36,14 @@ void validate_uint32_nodes(std::size_t n) {
             "n must fit in uint32_t");
 }
 
+/* Node count must fit the int32 labels and distances used by the kernels. */
+void validate_indexable_nodes(std::size_t n) {
+    validate_uint32_nodes(n);
+    require(n <= static_cast<std::size_t>(
+                     std::numeric_limits<std::int32_t>::max()),
+            "n must fit in int32_t");
+}
+
 using NeighborList = std::vector<std::vector<std::size_t>>;
 
 /* Unweighted neighbours (i != j and weights > 0) for one validation pass. */
@@ -66,10 +74,7 @@ struct ConnectivitySummary {
  */
 ConnectivitySummary analyze_connectivity(const double* weights, std::size_t n) {
     require_adjacency(weights, n, "weights");
-    validate_uint32_nodes(n);
-    require(n <= static_cast<std::size_t>(
-                     std::numeric_limits<std::int32_t>::max()),
-            "n must fit in int32_t");
+    validate_indexable_nodes(n);
 
     const NeighborList neighbors = unweighted_neighbors(weights, n);
     constexpr std::size_t kUnvisited =
@@ -142,41 +147,67 @@ ConnectivitySummary analyze_connectivity(const double* weights, std::size_t n) {
     return summary;
 }
 
-struct WeightedEdge {
-    std::size_t u;
-    std::size_t v;
-    double weight;
-};
-
-/* Kruskal on an already validated complete symmetric distance matrix. */
-std::vector<MstEdge> kruskal_mst(const double* distance, std::size_t n) {
+/*
+ * Dense Prim for a complete symmetric distance matrix.
+ *
+ * The correlation-distance input is always dense, so Kruskal materialised and
+ * sorted n(n-1)/2 edges even though only n-1 are used.  Prim keeps O(n) state
+ * and does O(n^2) comparisons, which is substantially cheaper for large n and
+ * removes the temporary edge array.  Ties select the smallest node first, and
+ * the returned edges are sorted by (weight, u, v) so the public output order
+ * remains deterministic and compatible with the previous Kruskal order.
+ */
+std::vector<MstEdge> prim_mst(const double* distance, std::size_t n) {
     if (n <= 1) return {};
-    std::vector<WeightedEdge> edges;
-    edges.reserve(n * (n - 1) / 2);
-    for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = i + 1; j < n; ++j) {
-            edges.push_back({i, j, distance[i * n + j]});
+    constexpr std::size_t kNone =
+        std::numeric_limits<std::size_t>::max();
+    const double inf = std::numeric_limits<double>::infinity();
+    std::vector<double> best(n, inf);
+    std::vector<std::size_t> parent(n, kNone);
+    std::vector<std::uint8_t> used(n, 0);
+    std::vector<MstEdge> tree;
+    tree.reserve(n - 1);
+    best[0] = 0.0;
+
+    for (std::size_t iteration = 0; iteration < n; ++iteration) {
+        std::size_t node = kNone;
+        double key = inf;
+        for (std::size_t candidate = 0; candidate < n; ++candidate) {
+            if (used[candidate]) continue;
+            if (best[candidate] < key ||
+                (best[candidate] == key &&
+                 (node == kNone || candidate < node))) {
+                node = candidate;
+                key = best[candidate];
+            }
+        }
+        if (node == kNone || !std::isfinite(key)) {
+            throw NumericalError("MST could not connect all nodes");
+        }
+        used[node] = 1;
+        if (parent[node] != kNone) {
+            const std::uint32_t left = static_cast<std::uint32_t>(
+                std::min(node, parent[node]));
+            const std::uint32_t right = static_cast<std::uint32_t>(
+                std::max(node, parent[node]));
+            tree.push_back({left, right, key});
+        }
+        for (std::size_t other = 0; other < n; ++other) {
+            if (used[other]) continue;
+            const double weight = distance[node * n + other];
+            if (weight < best[other]) {
+                best[other] = weight;
+                parent[other] = node;
+            }
         }
     }
-    std::sort(edges.begin(), edges.end(),
-              [](const WeightedEdge& a, const WeightedEdge& b) {
+
+    std::sort(tree.begin(), tree.end(),
+              [](const MstEdge& a, const MstEdge& b) {
                   if (a.weight != b.weight) return a.weight < b.weight;
                   if (a.u != b.u) return a.u < b.u;
                   return a.v < b.v;
               });
-
-    UnionFind uf(n);
-    std::vector<MstEdge> tree;
-    tree.reserve(n - 1);
-    for (const WeightedEdge& edge : edges) {
-        if (!uf.unite(edge.u, edge.v)) continue;
-        tree.push_back({static_cast<std::uint32_t>(edge.u),
-                        static_cast<std::uint32_t>(edge.v), edge.weight});
-        if (tree.size() + 1 == n) break;
-    }
-    if (tree.size() + 1 != n) {
-        throw NumericalError("MST could not connect all nodes");
-    }
     return tree;
 }
 
@@ -344,9 +375,7 @@ double transitivity(const double* weights, std::size_t n) {
 
 PathStats path_statistics(const double* weights, std::size_t n) {
     require_adjacency(weights, n, "weights");
-    require(n <= static_cast<std::size_t>(
-                     std::numeric_limits<std::int32_t>::max()),
-            "n must fit in int32_t");
+    validate_indexable_nodes(n);
     const NeighborList neighbors = unweighted_neighbors(weights, n);
 
     PathStats result;
@@ -406,9 +435,7 @@ PathStats path_statistics(const double* weights, std::size_t n) {
 
 std::vector<std::int32_t> core_numbers(const double* weights, std::size_t n) {
     require_adjacency(weights, n, "weights");
-    require(n <= static_cast<std::size_t>(
-                     std::numeric_limits<std::int32_t>::max()),
-            "n must fit in int32_t");
+    validate_indexable_nodes(n);
 
     std::vector<std::int32_t> degree(n, 0);
     std::int32_t max_degree = 0;
@@ -721,9 +748,7 @@ std::vector<std::int32_t> articulation_points(const double* adjacency,
 std::vector<std::int32_t> truss_numbers(const double* adjacency,
                                         std::size_t n) {
     require_adjacency(adjacency, n, "adjacency");
-    require(n <= static_cast<std::size_t>(
-                     std::numeric_limits<std::int32_t>::max()),
-            "n must fit in int32_t");
+    validate_indexable_nodes(n);
     const std::size_t cells = checked_mul(n, n, "n*n overflows size_t");
     constexpr std::size_t kNoEdge = std::numeric_limits<std::size_t>::max();
 
@@ -830,7 +855,7 @@ std::vector<MstEdge> minimum_spanning_tree(const double* distance,
                                            std::size_t n) {
     require_adjacency(distance, n, "distance");
     validate_uint32_nodes(n);
-    return kruskal_mst(distance, n);
+    return prim_mst(distance, n);
 }
 
 ComponentSummary mst_clusters(const double* distance, std::size_t n,
@@ -838,7 +863,7 @@ ComponentSummary mst_clusters(const double* distance, std::size_t n,
     require_adjacency(distance, n, "distance");
     validate_uint32_nodes(n);
     require(std::isfinite(threshold), "threshold must be finite");
-    const std::vector<MstEdge> tree = kruskal_mst(distance, n);
+    const std::vector<MstEdge> tree = prim_mst(distance, n);
     UnionFind uf(n);
     for (const MstEdge& edge : tree) {
         if (edge.weight <= threshold) uf.unite(edge.u, edge.v);

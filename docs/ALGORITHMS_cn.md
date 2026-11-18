@@ -2,7 +2,7 @@
 
 [English](ALGORITHMS_en.md) · **中文**
 
-rflux 0.7 在数值核心之上增加了 C++ 算法层。目标不是继续堆砌指标，而是让每个算法都有明确接口、输入输出契约、原生快速路径，以及在可行时提供研究层回退。
+rflux 0.7 在数值核心上增加 C++ 算法层。每个算法都有类型化接口、输入输出契约、原生实现，以及需要时的 Python 回退。
 
 ## 扩展契约
 
@@ -40,13 +40,13 @@ C++ 实现位于 [`include/rflux/factorlab/factors.hpp`](../include/rflux/factor
 
 Python 入口 `rflux.factorlab` 提供 `momentum`、`volume_reversal`、`vwap_deviation`、`amihud`、`information_coefficient`（Pearson 或 rank IC）和 `factor_turnover`。
 
-**后续层：** 分析师预期修正、PE/PB/ROE 基本面、LLM 因子假设和进化式公式搜索属于数据/适配问题。接口已经准备好，但数据契约不随核心打包。
+**后续工作：** 分析师预期修正、PE/PB/ROE 基本面、LLM 因子假设和进化式公式搜索需要数据适配。接口已经就绪，数据契约不随核心打包。
 
 ## 模块二：状态识别与尾部风险
 
-- 现有对角高斯 HMM：filtered/smoothed、Viterbi、状态预测、状态对齐、滚动评分。
+- 现有对角高斯 HMM：filtered/smoothed、Viterbi、状态预测、状态对齐、滚动评分；`fit_hmm_snapshot` 统一一次性拟合并关闭有状态模型，返回脱离句柄的最新滤波/预测数组供报告使用。
 - `rflux.regimelab.sticky_regime`：在 HMM filtered 概率上增加滞回和最短驻留时间。挑战状态必须达到 entry 概率，现任状态必须跌破 exit 概率，且已持续 `min_duration` 个 bar 才切换，降低单 bar 抖动带来的换手。
-- `rflux.risk.tail_dependence`：经验下尾/上尾两两尾部相依系数，捕捉 Pearson 相关之外的极端联动。
+- `rflux.risk.tail_dependence`：经验下尾/上尾两两尾部相依系数，捕捉 Pearson 相关之外的极端联动；每个资产对取 `P(i|j)` 与 `P(j|i)` 两个有限样本条件概率的平均，保证矩阵对称。
 - 现有 `percolab` 网络/渗流工具覆盖风险传染路径。
 
 C++ 侧 `HmmRegimeDetector` 将现有 HMM 适配到 `BaseRegimeDetector`。
@@ -56,9 +56,9 @@ C++ 侧 `HmmRegimeDetector` 将现有 HMM 适配到 `BaseRegimeDetector`。
 `rflux.portfoliolab` 提供：
 
 - `hrp_weights`：相关距离、单链接层次树、准对角排序、递归二分；不需求逆协方差，long-only、权重和为 1。
-- `nco_weights`：嵌套聚类风险平价。按相关距离分簇，簇内 HRP，簇间按簇方差的倒数分配预算。这是 NCO 风格的聚类层；完整带约束凸优化的 NCO 是明确的后续步骤。
+- `nco_weights`：嵌套聚类风险平价。按相关距离分簇，簇内 HRP，簇间按簇方差的倒数分配预算。完整带约束凸优化的 NCO 属于后续工作。
 - `risk_parity_weights`：对角逆方差基线。
-- `rebalance_targets`：带漂移阈值的调仓，与 sticky regime 配合可减少不必要的换手。
+- `rebalance_targets`：按每个组合（2D 输入按行）独立门控的漂移阈值调仓，与 sticky regime 配合可减少不必要的换手。
 
 ## 模块四：鲁棒机器学习
 
@@ -69,7 +69,7 @@ C++ 侧 `HmmRegimeDetector` 将现有 HMM 适配到 `BaseRegimeDetector`。
 - `cvar_loss`：历史 CVaR（损失为正），可作为模型选择或组合目标诊断。
 - `graph_smooth`：度归一化图信号扩散，是轻量图正则原语，不是已训练 GNN。
 
-**后续层：** 时序 GNN、图注意力、产业链消息传递、CVaR 正则训练应放在 `BasePredictor` 之后。
+**后续工作：** 时序 GNN、图注意力、产业链消息传递和 CVaR 正则训练应放在 `BasePredictor` 之后。
 
 ## 模块五：执行与微观结构
 
@@ -78,7 +78,28 @@ C++ 侧 `HmmRegimeDetector` 将现有 HMM 适配到 `BaseRegimeDetector`。
 - `almgren_chriss`：线性临时/永久冲击、风险厌恶、指定切片数的确定性最优清算轨迹；返回交易序列、期望成本、成本方差和 `kappa`。
 - `order_book_metrics`：基于调用方提供的一档盘口快照计算 spread、mid、microprice 和 sizes imbalance。
 
-**后续层：** 队列位置、最小变动单位约束、暗池、venue routing 和 QML/量子定价依赖具体交易场所或硬件，本版本不包含。
+**后续工作：** 队列位置、最小变动单位约束、暗池、venue routing 和量子定价依赖交易场所或硬件，本版本不包含。
+
+## 可追溯性与验证
+
+每个公开算法族都有唯一的实现入口、可选的稳定 C ABI、Python 包装和具名回归测试。下表列出公式、代码与测试的对应关系：
+
+| 算法族 | C++ 实现 | C ABI | Python API | 主要测试 |
+| --- | --- | --- | --- | --- |
+| 序列与滚动窗口 | [`src/qflux/window.cpp`](../src/qflux/window.cpp) | `rflux_rolling_*`、`rflux_sma`、`rflux_ema` | `qflux.rolling_*`、`qflux.sma`、`qflux.ema` | [`test_qflux.py`](../tests/python/test_qflux.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 指标 | [`src/qflux/indicators.cpp`](../src/qflux/indicators.cpp) | `rflux_returns`、`rflux_rsi`、`rflux_atr`、`rflux_macd`、`rflux_bollinger`、`rflux_drawdown` | `qflux.returns`、`qflux.rsi`、`qflux.atr`、`qflux.macd`、`qflux.bollinger`、`qflux.drawdown` | [`test_qflux.py`](../tests/python/test_qflux.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 统计与排序 | [`src/qflux/stats.cpp`](../src/qflux/stats.cpp)、[`ranking.cpp`](../src/qflux/ranking.cpp) | `rflux_describe`、`rflux_quantile`、`rflux_pearson`、`rflux_sharpe`、`rflux_sortino`、`rflux_var_cvar`、`rflux_rank`、`rflux_zscore`、`rflux_winsorize`、`rflux_neutralize` | `qflux.describe`、`quantile`、`pearson`、`sharpe`、`sortino`、`var_cvar`、`rank`、`zscore`、`winsorize`、`neutralize` | [`test_qflux.py`](../tests/python/test_qflux.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 高斯 HMM | [`src/regimelab/hmm.cpp`](../src/regimelab/hmm.cpp) | `rflux_hmm_*` | `regimelab.GaussianHMM`、`fit_hmm`、`fit_hmm_snapshot` | [`test_hmm_regime.py`](../tests/python/test_hmm_regime.py)、[`test_native.py`](../tests/python/test_native.py) |
+| 规则状态 | [`src/regimelab/regime.cpp`](../src/regimelab/regime.cpp) | `rflux_volatility_regime`、`rflux_trend_regime`、`rflux_composite_regime` | `regimelab.volatility_regime`、`trend_regime`、`composite_regime`、`sticky_regime` | [`test_hmm_regime.py`](../tests/python/test_hmm_regime.py) |
+| 网络指标 | [`src/percolab/network.cpp`](../src/percolab/network.cpp) | `rflux_network_*`、`rflux_pagerank`、`rflux_corr_to_distance`、`rflux_mst_clusters` | `percolab.centrality`、`pagerank`、`betweenness`、`clustering`、`path_statistics`、`core_numbers`、`truss_numbers`、`mst_*` | [`test_percolab.py`](../tests/python/test_percolab.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 渗流与传染 | [`src/percolab/percolation.cpp`](../src/percolab/percolation.cpp)、[`detector.cpp`](../src/percolab/detector.cpp) | `rflux_*percolation*`、`rflux_targeted_removal`、`rflux_risk_diffusion` | `percolab.site_percolation`、`bond_percolation`、`percolation_scan`、`cluster_size_distribution`、`targeted_removal`、`core_percolation`、`risk_diffusion` | [`test_percolab.py`](../tests/python/test_percolab.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 因子 | [`src/factorlab/factors.cpp`](../src/factorlab/factors.cpp) | `rflux_factor_*` | `factorlab.momentum`、`volume_reversal`、`vwap_deviation`、`amihud`、`information_coefficient`、`factor_turnover` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 组合构建 | [`src/portfoliolab/hrp.cpp`](../src/portfoliolab/hrp.cpp)、Python NCO | `rflux_hrp_weights`、`rflux_hrp_order` | `portfoliolab.hrp_weights`、`nco_weights`、`risk_parity_weights`、`rebalance_targets` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 鲁棒机器学习 | [`src/mllab/huber.cpp`](../src/mllab/huber.cpp)、Python 图助手 | `rflux_huber_regression` | `mllab.huber_regression`、`cvar_loss`、`graph_smooth` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 执行与风险 | [`src/execution/almgren_chriss.cpp`](../src/execution/almgren_chriss.cpp)、[`src/risk/pretrade.cpp`](../src/risk/pretrade.cpp) | `rflux_almgren_chriss_plan`、`rflux_pretrade_check` | `execution.almgren_chriss`、`execution.order_book_metrics`、`risk.tail_dependence` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| 研究报告 | 仅 Python（`analysis.py`、`advice.py`、`apps.py`、`metrics.py`、`backtest.py`） | — | `analyze_prices`、`trade_advice`、`portfolio_risk`、`regime_attribution`、`performance_summary`、`backtest.*` | [`test_advice.py`](../tests/python/test_advice.py)、[`test_tools.py`](../tests/python/test_tools.py)、[`test_apps.py`](../tests/python/test_apps.py) |
+
+`scripts/verify_algorithms.py` 是可执行检查：遍历所有公开算法族，检查命名、形状、预热和范围，在可独立对照处给出参考值，记录热路径耗时，并把带时间戳的 JSON 报告写入 `artifacts/validation/`。`make algo-check` 依次跑原生扩展与 ctypes C ABI 回退两条驱动。新增公开算法族时，表格和测试必须一起更新。
 
 ## 新算法工程规则
 

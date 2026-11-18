@@ -30,6 +30,17 @@ bool approx(double actual, double expected, double tolerance = 1e-10) {
     return std::abs(actual - expected) <= tolerance;
 }
 
+/* Graphs reused across the percolab checks. */
+const std::vector<double> kPath3 = {0, 1, 0, 1, 0, 1, 0, 1, 0};
+const std::vector<double> kPath4 = {0, 1, 0, 0, 1, 0, 1, 0,
+                                    0, 1, 0, 1, 0, 0, 1, 0};
+const std::vector<double> kCycle4 = {0, 1, 0, 1, 1, 0, 1, 0,
+                                     0, 1, 0, 1, 1, 0, 1, 0};
+const std::vector<double> kStar4 = {0, 1, 1, 1, 1, 0, 0, 0,
+                                    1, 0, 0, 0, 1, 0, 0, 0};
+const std::vector<double> kComplete4 = {0, 1, 1, 1, 1, 0, 1, 1,
+                                        1, 1, 0, 1, 1, 1, 1, 0};
+
 int test_qflux() {
     std::vector<double> prices(10);
     std::iota(prices.begin(), prices.end(), 1.0);
@@ -326,21 +337,14 @@ int test_graphs() {
     CHECK(approx(strength[0], 1.2));
 
     {
-        const std::vector<double> p3 = {
-            0, 1, 0,
-            1, 0, 1,
-            0, 1, 0};
+        const std::vector<double>& p3 = kPath3;
         const std::vector<double> p3_centrality =
             rflux::percolab::eigenvector_centrality(p3.data(), 3);
         CHECK(approx(p3_centrality[0], 0.5, 1e-8));
         CHECK(approx(p3_centrality[1], std::sqrt(0.5), 1e-8));
         CHECK(approx(p3_centrality[2], 0.5, 1e-8));
 
-        const std::vector<double> star = {
-            0, 1, 1, 1,
-            1, 0, 0, 0,
-            1, 0, 0, 0,
-            1, 0, 0, 0};
+        const std::vector<double>& star = kStar4;
         const std::vector<double> star_centrality =
             rflux::percolab::eigenvector_centrality(star.data(), 4);
         CHECK(approx(star_centrality[0], std::sqrt(0.5), 1e-8));
@@ -350,10 +354,7 @@ int test_graphs() {
     }
 
     {
-        const std::vector<double> path3 = {
-            0, 1, 0,
-            1, 0, 1,
-            0, 1, 0};
+        const std::vector<double>& path3 = kPath3;
         const std::vector<double> between =
             rflux::percolab::betweenness_centrality(path3.data(), 3, true);
         CHECK(approx(between[0], 0.0, 1e-12));
@@ -398,11 +399,7 @@ int test_graphs() {
     CHECK(std::isnan(coefficients[2]));
 
     {
-        const std::vector<double> path4 = {
-            0, 1, 0, 0,
-            1, 0, 1, 0,
-            0, 1, 0, 1,
-            0, 0, 1, 0};
+        const std::vector<double>& path4 = kPath4;
         const rflux::percolab::PathStats stats =
             rflux::percolab::path_statistics(path4.data(), 4);
         CHECK(approx(stats.efficiency, 13.0 / 18.0));
@@ -437,11 +434,7 @@ int test_graphs() {
             rflux::percolab::core_numbers(path4.data(), 4);
         for (std::int32_t value : path_cores) CHECK(value == 1);
 
-        const std::vector<double> cycle4 = {
-            0, 1, 0, 1,
-            1, 0, 1, 0,
-            0, 1, 0, 1,
-            1, 0, 1, 0};
+        const std::vector<double>& cycle4 = kCycle4;
         const std::vector<std::int32_t> cycle_cores =
             rflux::percolab::core_numbers(cycle4.data(), 4);
         for (std::int32_t value : cycle_cores) CHECK(value == 2);
@@ -463,18 +456,10 @@ int test_graphs() {
 
         CHECK(approx(rflux::percolab::degree_assortativity(path4.data(), 4),
                      -0.5));
-        const std::vector<double> star = {
-            0, 1, 1, 1,
-            1, 0, 0, 0,
-            1, 0, 0, 0,
-            1, 0, 0, 0};
+        const std::vector<double>& star = kStar4;
         CHECK(approx(rflux::percolab::degree_assortativity(star.data(), 4),
                      -1.0));
-        const std::vector<double> complete4 = {
-            0, 1, 1, 1,
-            1, 0, 1, 1,
-            1, 1, 0, 1,
-            1, 1, 1, 0};
+        const std::vector<double>& complete4 = kComplete4;
         CHECK(approx(rflux::percolab::transitivity(complete4.data(), 4), 1.0));
         const std::vector<std::int32_t> complete_cores =
             rflux::percolab::core_numbers(complete4.data(), 4);
@@ -517,11 +502,7 @@ int test_graphs() {
     }
 
     {
-        const std::vector<double> path4 = {
-            0, 1, 0, 0,
-            1, 0, 1, 0,
-            0, 1, 0, 1,
-            0, 0, 1, 0};
+        const std::vector<double>& path4 = kPath4;
         const std::vector<rflux::percolab::BridgeEdge> path_bridges =
             rflux::percolab::bridges(path4.data(), 4);
         CHECK(path_bridges.size() == 3);
@@ -537,11 +518,7 @@ int test_graphs() {
         CHECK(path_truss[1] == 2 && path_truss[3 * 4 + 2] == 2);
         CHECK(path_truss[0] == 0 && path_truss[2] == 0);
 
-        const std::vector<double> cycle4 = {
-            0, 1, 0, 1,
-            1, 0, 1, 0,
-            0, 1, 0, 1,
-            1, 0, 1, 0};
+        const std::vector<double>& cycle4 = kCycle4;
         CHECK(rflux::percolab::bridges(cycle4.data(), 4).empty());
         const std::vector<std::int32_t> cycle_art =
             rflux::percolab::articulation_points(cycle4.data(), 4);
@@ -558,11 +535,7 @@ int test_graphs() {
         CHECK(triangle_truss[3 * 1 + 2] == 3);
         CHECK(rflux::percolab::bridges(triangle.data(), 3).empty());
 
-        const std::vector<double> complete4 = {
-            0, 1, 1, 1,
-            1, 0, 1, 1,
-            1, 1, 0, 1,
-            1, 1, 1, 0};
+        const std::vector<double>& complete4 = kComplete4;
         const std::vector<std::int32_t> complete_truss =
             rflux::percolab::truss_numbers(complete4.data(), 4);
         for (std::size_t i = 0; i < 4; ++i) {
@@ -694,11 +667,7 @@ int test_graphs() {
         CHECK(curve[0].n_components == 1);
         CHECK(curve[4].n_components == 0);
 
-        const std::vector<double> path4 = {
-            0, 1, 0, 0,
-            1, 0, 1, 0,
-            0, 1, 0, 1,
-            0, 0, 1, 0};
+        const std::vector<double>& path4 = kPath4;
         const std::uint32_t path_order[4] = {1, 2, 0, 3};
         const std::vector<rflux::percolab::RemovalPoint> path_curve =
             rflux::percolab::targeted_removal(path4.data(), 4, path_order, 2);

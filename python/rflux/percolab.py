@@ -198,13 +198,31 @@ def correlation_to_distance(correlation: Any) -> np.ndarray:
     return _distance_matrix(as_square(correlation, "correlation"))
 
 
-def _components_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
+def _occupation_args(
+    matrix: np.ndarray,
+    normalized: str,
+    edge_array: Any,
+    node_array: Any,
+) -> tuple[Any, ...]:
+    """Leading arguments shared by the percolation C entry points."""
+    return (
+        double_ptr(matrix),
+        matrix.shape[0],
+        double_ptr(edge_array) if edge_array is not None else None,
+        double_ptr(node_array) if node_array is not None else None,
+        1 if normalized == "site" else 0,
+    )
+
+
+def _component_scan(
+    matrix: np.ndarray, threshold: float, function: Any, name: str
+) -> GraphComponents:
     n = matrix.shape[0]
     labels = np.empty(n, dtype=np.int32)
     n_components = ctypes.c_size_t(0)
     largest = ctypes.c_size_t(0)
     check(
-        get_lib().rflux_graph_components(
+        function(
             double_ptr(matrix),
             n,
             float(threshold),
@@ -212,9 +230,15 @@ def _components_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
             ctypes.byref(n_components),
             ctypes.byref(largest),
         ),
-        "rflux_graph_components",
+        name,
     )
     return _components_from_summary(labels, n_components.value, largest.value)
+
+
+def _components_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
+    return _component_scan(
+        matrix, threshold, get_lib().rflux_graph_components,
+        "rflux_graph_components")
 
 
 def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
@@ -469,22 +493,8 @@ def mst_from_correlation(correlation: Any) -> MSTResult:
 def _mst_clusters_matrix(
     matrix: np.ndarray, threshold: float
 ) -> GraphComponents:
-    n = matrix.shape[0]
-    labels = np.empty(n, dtype=np.int32)
-    n_components = ctypes.c_size_t(0)
-    largest = ctypes.c_size_t(0)
-    check(
-        get_lib().rflux_mst_clusters(
-            double_ptr(matrix),
-            n,
-            float(threshold),
-            int32_ptr(labels),
-            ctypes.byref(n_components),
-            ctypes.byref(largest),
-        ),
-        "rflux_mst_clusters",
-    )
-    return _components_from_summary(labels, n_components.value, largest.value)
+    return _component_scan(
+        matrix, threshold, get_lib().rflux_mst_clusters, "rflux_mst_clusters")
 
 
 def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
@@ -559,11 +569,7 @@ def percolation_scan(
     susceptibility = empty_f64(n_probabilities)
     check(
         get_lib().rflux_percolation_scan(
-            double_ptr(matrix),
-            matrix.shape[0],
-            double_ptr(edge_array) if edge_array is not None else None,
-            double_ptr(node_array) if node_array is not None else None,
-            1 if normalized == "site" else 0,
+            *_occupation_args(matrix, normalized, edge_array, node_array),
             double_ptr(probability_array),
             n_probabilities,
             repetitions,
@@ -661,11 +667,7 @@ def cluster_size_distribution(
     out = empty_f64(matrix.shape[0] + 1)
     check(
         get_lib().rflux_cluster_size_distribution(
-            double_ptr(matrix),
-            matrix.shape[0],
-            double_ptr(edge_array) if edge_array is not None else None,
-            double_ptr(node_array) if node_array is not None else None,
-            1 if normalized == "site" else 0,
+            *_occupation_args(matrix, normalized, edge_array, node_array),
             value,
             repetitions,
             seed,

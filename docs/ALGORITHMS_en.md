@@ -2,10 +2,9 @@
 
 **English** · [中文](ALGORITHMS_cn.md)
 
-rflux 0.7 introduces a C++ algorithm layer on top of the numerical core.  The
-goal is not to add another pile of indicators: every algorithm has an explicit
-interface, a documented input/output contract, a native fast path and a
-research-layer fallback where practical.
+rflux 0.7 adds a C++ algorithm layer on top of the numerical core. Every
+algorithm has a typed interface, a documented input/output contract, a native
+implementation, and a Python fallback where needed.
 
 ## Extension contracts
 
@@ -51,19 +50,23 @@ Python: `rflux.factorlab` exposes `momentum`, `volume_reversal`,
 `vwap_deviation`, `amihud`, `information_coefficient` (Pearson or rank IC per
 date) and `factor_turnover`.
 
-**Next layer:** analyst-estimate revisions, PE/PB/ROE fundamentals, LLM-generated
-factor hypotheses and evolutionary formula search are data/adapter concerns;
-the factor interface is ready for them but the data contracts are not bundled.
+**Future work:** analyst-estimate revisions, PE/PB/ROE fundamentals, LLM-generated
+factor hypotheses and evolutionary formula search need data adapters. The factor
+interface is ready; the data contracts are not bundled.
 
 ## Module 2: regime and tail risk
 
 - Existing diagonal Gaussian HMM: filtering, smoothing, Viterbi, forecasts,
-  state alignment and walk-forward scoring.
+  state alignment and walk-forward scoring.  `fit_hmm_snapshot` centralises
+  one-shot fitting, closes the stateful model, and returns detached latest
+  filtered/forecast arrays for reports.
 - `rflux.regimelab.sticky_regime`: hysteresis plus a minimum dwell time; a
   challenger needs an entry probability and the incumbent must fall below an
   exit probability before the label changes.  This reduces one-bar turnover.
 - `rflux.risk.tail_dependence`: empirical lower/upper pairwise tail dependence,
-  capturing extreme co-movement beyond Pearson correlation.
+  capturing extreme co-movement beyond Pearson correlation.  Each pair averages
+  the two finite-sample conditionals `P(i | j)` and `P(j | i)` so the reported
+  matrix is symmetric.
 - Existing `percolab` network/percolation tools cover risk-contagion paths.
 
 The C++ `HmmRegimeDetector` adapts the existing HMM to `BaseRegimeDetector`.
@@ -77,11 +80,11 @@ The C++ `HmmRegimeDetector` adapts the existing HMM to `BaseRegimeDetector`.
   unit-gross.
 - `nco_weights`: nested clustered risk parity.  Assets are grouped by
   correlation distance, each group is HRP-allocated and groups receive inverse
-  cluster-variance budgets.  This is the NCO-style clustering layer; a full
-  constrained NCO convex stage is a documented next step.
+  cluster-variance budgets. A full constrained NCO convex stage is future work.
 - `risk_parity_weights`: diagonal inverse-variance baseline.
-- `rebalance_targets`: hysteresis on target drift, useful with a sticky regime
-  gate to avoid unnecessary turnover.
+- `rebalance_targets`: drift-threshold rebalancing gated independently per
+  portfolio row, useful with a sticky regime gate to avoid unnecessary
+  turnover.
 
 ## Module 4: robust machine learning
 
@@ -94,11 +97,10 @@ The C++ `HmmRegimeDetector` adapts the existing HMM to `BaseRegimeDetector`.
 - `cvar_loss`: historical CVaR of losses, useful as a model-selection or
   portfolio objective diagnostic.
 - `graph_smooth`: degree-normalised diffusion of a node signal as a
-  lightweight graph regulariser.  It is not a trained GNN.
+  graph smoothing primitive. Model training is outside this module.
 
-**Next layer:** temporal GNNs, graph attention, message passing over supply
-chains and full CVaR-regularised training belong behind the `BasePredictor`
-contract.
+**Future work:** temporal GNNs, graph attention, supply-chain message passing and
+CVaR-regularised training belong behind the `BasePredictor` contract.
 
 ## Module 5: execution and microstructure
 
@@ -113,9 +115,37 @@ contract.
 - `order_book_metrics`: level-1 spread, mid, microprice and size imbalance from
   caller-supplied top-of-book snapshots.
 
-**Next layer:** queue position, tick-size constrained child orders, dark pools,
-venue routing and QML/quantum pricing are venue- or hardware-specific and are
-not included in this release.
+**Future work:** queue position, tick-size constraints, dark pools, venue routing
+and quantum pricing depend on the venue or hardware and are not in this release.
+
+## Traceability and verification
+
+Each public family has one implementation entry point, an optional stable C ABI
+contract, Python wrappers, and named regression tests.  The mapping below is
+the audit trail from formula to code:
+
+| Family | C++ implementation | C ABI | Python API | Primary tests |
+| --- | --- | --- | --- | --- |
+| Series, rolling windows | [`src/qflux/window.cpp`](../src/qflux/window.cpp) | `rflux_rolling_*`, `rflux_sma`, `rflux_ema` | `qflux.rolling_*`, `qflux.sma`, `qflux.ema` | [`test_qflux.py`](../tests/python/test_qflux.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Indicators | [`src/qflux/indicators.cpp`](../src/qflux/indicators.cpp) | `rflux_returns`, `rflux_rsi`, `rflux_atr`, `rflux_macd`, `rflux_bollinger`, `rflux_drawdown` | `qflux.returns`, `qflux.rsi`, `qflux.atr`, `qflux.macd`, `qflux.bollinger`, `qflux.drawdown` | [`test_qflux.py`](../tests/python/test_qflux.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Statistics and ranking | [`src/qflux/stats.cpp`](../src/qflux/stats.cpp), [`ranking.cpp`](../src/qflux/ranking.cpp) | `rflux_describe`, `rflux_quantile`, `rflux_pearson`, `rflux_sharpe`, `rflux_sortino`, `rflux_var_cvar`, `rflux_rank`, `rflux_zscore`, `rflux_winsorize`, `rflux_neutralize` | `qflux.describe`, `qflux.quantile`, `qflux.pearson`, `qflux.sharpe`, `qflux.sortino`, `qflux.var_cvar`, `qflux.rank`, `qflux.zscore`, `qflux.winsorize`, `qflux.neutralize` | [`test_qflux.py`](../tests/python/test_qflux.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Gaussian HMM | [`src/regimelab/hmm.cpp`](../src/regimelab/hmm.cpp) | `rflux_hmm_*` | `regimelab.GaussianHMM`, `fit_hmm`, `fit_hmm_snapshot` | [`test_hmm_regime.py`](../tests/python/test_hmm_regime.py), [`test_native.py`](../tests/python/test_native.py) |
+| Rule regimes | [`src/regimelab/regime.cpp`](../src/regimelab/regime.cpp) | `rflux_volatility_regime`, `rflux_trend_regime`, `rflux_composite_regime` | `regimelab.volatility_regime`, `trend_regime`, `composite_regime`, `sticky_regime` | [`test_hmm_regime.py`](../tests/python/test_hmm_regime.py) |
+| Network metrics | [`src/percolab/network.cpp`](../src/percolab/network.cpp) | `rflux_network_*`, `rflux_pagerank`, `rflux_corr_to_distance`, `rflux_mst_clusters` | `percolab.centrality`, `pagerank`, `betweenness`, `clustering`, `path_statistics`, `core_numbers`, `truss_numbers`, `mst_*` | [`test_percolab.py`](../tests/python/test_percolab.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Percolation and contagion | [`src/percolab/percolation.cpp`](../src/percolab/percolation.cpp), [`detector.cpp`](../src/percolab/detector.cpp) | `rflux_*percolation*`, `rflux_targeted_removal`, `rflux_risk_diffusion` | `percolab.site_percolation`, `bond_percolation`, `percolation_scan`, `cluster_size_distribution`, `targeted_removal`, `core_percolation`, `risk_diffusion` | [`test_percolab.py`](../tests/python/test_percolab.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Factors | [`src/factorlab/factors.cpp`](../src/factorlab/factors.cpp) | `rflux_factor_*` | `factorlab.momentum`, `volume_reversal`, `vwap_deviation`, `amihud`, `information_coefficient`, `factor_turnover` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Portfolio construction | [`src/portfoliolab/hrp.cpp`](../src/portfoliolab/hrp.cpp), Python NCO | `rflux_hrp_weights`, `rflux_hrp_order` | `portfoliolab.hrp_weights`, `nco_weights`, `risk_parity_weights`, `rebalance_targets` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Robust ML | [`src/mllab/huber.cpp`](../src/mllab/huber.cpp), Python graph helpers | `rflux_huber_regression` | `mllab.huber_regression`, `cvar_loss`, `graph_smooth` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Execution and risk | [`src/execution/almgren_chriss.cpp`](../src/execution/almgren_chriss.cpp), [`src/risk/pretrade.cpp`](../src/risk/pretrade.cpp) | `rflux_almgren_chriss_plan`, `rflux_pretrade_check` | `execution.almgren_chriss`, `execution.order_book_metrics`, `risk.tail_dependence` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
+| Research reports | Python only (`analysis.py`, `advice.py`, `apps.py`, `metrics.py`, `backtest.py`) | — | `analyze_prices`, `trade_advice`, `portfolio_risk`, `regime_attribution`, `performance_summary`, `backtest.*` | [`test_advice.py`](../tests/python/test_advice.py), [`test_tools.py`](../tests/python/test_tools.py), [`test_apps.py`](../tests/python/test_apps.py) |
+
+`scripts/verify_algorithms.py` is the executable audit: it exercises all public
+families, checks names/shapes/warm-ups/ranges and independent references where
+practical, records hot-kernel timings, and writes a timestamped JSON report to
+`artifacts/validation/`.  `make algo-check` runs it twice, once through the
+native extension (when installed) and once through the ctypes C ABI fallback.
+The matrix lives next to the algorithms. A new public family needs a row and a
+test before review.
 
 ## Engineering rules for new algorithms
 

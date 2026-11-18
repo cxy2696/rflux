@@ -16,9 +16,26 @@ docs), run `bash scripts/vscode_verify.sh`. It writes logs under
 `artifacts/validation/` and exits non-zero on the first failed area.
 
 `make check` includes a lightweight Markdown check (`scripts/check_docs.py`) for
-relative links, fenced code blocks and GitHub-compatible math delimiters, plus
+relative links, fenced code blocks and GitHub-compatible math delimiters,
 `scripts/check_version.py` to keep CMake, the C header and Python metadata in
-sync.
+sync, and `make algo-check`, which runs `scripts/verify_algorithms.py` once
+through the native extension and once through the ctypes C ABI.  The algorithm
+traceability matrix lives in `docs/ALGORITHMS_en.md`.
+
+The shipping code and tests are kept at zero exact clones. Run `make dup-check`
+before a large refactor (it needs Node/`npx`, so CI does not run it). The
+command checks `src/`, `include/`, `python/rflux/` and `tests/` at the strict
+5-line/40-token threshold; the bilingual documentation mirrors are the only
+expected repeated blocks.
+
+## Documentation style
+
+Write documentation as engineering notes for someone who has to reproduce the
+result. State the input, output, estimator and test in direct sentences. Remove
+marketing adjectives, repeated disclaimers and generated-sounding transitions;
+state a limitation once, where it affects use. Keep the English and Chinese
+pages in sync. `scripts/check_docs.py` rejects a short list of generated-sounding
+markers such as `not just`, `deliberately` and `Next layer`.
 
 The Make build is the quickest loop for the C/C++ surface. For the native
 Python extension and the reproducible CMake/Ninja loop:

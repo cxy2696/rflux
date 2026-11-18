@@ -67,9 +67,9 @@ rflux risk examples/data/sample_prices.csv --weights 0.2,0.2,0.2,0.2,0.2
 rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
-`rflux advice` 生成透明、只做多的研究再平衡提案：HRP 基础权重、20/60 日动量、
-趋势与 RSI 调整、波动率目标、可选 HMM 风险状态、2 倍日标准差参考止损和
-仓位计算。它不是个性化投资建议，也不承诺收益。
+`rflux advice` 根据 HRP 基础权重、20/60 日动量、趋势与 RSI 调整、波动率目标、
+可选 HMM 风险状态、2 倍日标准差参考止损和仓位计算，生成只做多的研究再平衡
+提案。输出是研究结果，不预测收益，也不构成个性化投资建议。
 
 ## 功能
 
@@ -107,7 +107,9 @@ cmake --build --preset dev
 ctest --preset dev --output-on-failure
 ```
 
-设置 `RFLUX_DISABLE_NATIVE=1` 可强制使用 ctypes C ABI。
+CMake 在 Release 和 RelWithDebInfo 构建中自动启用 IPO/LTO（工具链支持时）。
+加 `-DRFLUX_ENABLE_IPO=OFF` 可关闭。设置 `RFLUX_DISABLE_NATIVE=1` 可强制使用
+ctypes C ABI。
 
 ## 文档
 

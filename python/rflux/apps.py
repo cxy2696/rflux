@@ -18,12 +18,10 @@ from . import metrics, qflux
 from ._common import (
     as_f64_1d,
     as_f64_panel,
-    as_finite_float,
     as_i32_1d,
-    as_open_unit_float,
-    as_positive_float,
     as_size,
     asset_names as _asset_names,
+    complete_case_covariance,
 )
 from ._json import jsonable
 from ._version import __version__
@@ -61,20 +59,19 @@ def portfolio_risk(
     gross = float(np.sum(np.abs(weight_array)))
     if not (gross > 0.0):
         raise ValueError("weights must have positive gross exposure")
-    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
-    risk_free = as_finite_float(risk_free, "risk_free")
-    confidence = as_open_unit_float(confidence, "confidence")
+    periods_per_year, risk_free, confidence = metrics._validated_options(
+        periods_per_year, risk_free, confidence
+    )
+    assert confidence is not None
     ddof = as_size(ddof, "ddof", minimum=1)
 
-    complete = panel[np.all(np.isfinite(panel), axis=1)]
+    covariance, complete = complete_case_covariance(panel, ddof=ddof)
     complete_n = int(complete.shape[0])
     if complete_n <= ddof:
         raise ValueError(
             "not enough complete return rows for the requested covariance"
         )
     asset_names = _asset_names(names, n_assets)
-    centered = complete - complete.mean(axis=0)
-    covariance = centered.T @ centered / float(complete_n - ddof)
     portfolio_returns = complete @ weight_array
     portfolio_variance = float(weight_array @ covariance @ weight_array)
     if portfolio_variance < 0.0 and portfolio_variance > -1e-18:
@@ -180,9 +177,10 @@ def regime_attribution(
         state_count = int(state_labels.max()) + 1
     else:
         raise ValueError("labels must contain at least one valid state")
-    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
-    risk_free = as_finite_float(risk_free, "risk_free")
-    confidence = as_open_unit_float(confidence, "confidence")
+    periods_per_year, risk_free, confidence = metrics._validated_options(
+        periods_per_year, risk_free, confidence
+    )
+    assert confidence is not None
 
     total_sum = float(np.sum(values[np.isfinite(values)]))
     states: dict[str, Any] = {}

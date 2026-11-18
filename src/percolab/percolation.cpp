@@ -11,6 +11,7 @@
 
 #include "internal/common.hpp"
 #include "internal/graph.hpp"
+#include "internal/parallel.hpp"
 
 namespace rflux::percolab {
 namespace {
@@ -19,6 +20,7 @@ using rflux::detail::component_labels;
 using rflux::detail::mix_seed;
 using rflux::detail::require;
 using rflux::detail::require_adjacency;
+using rflux::detail::RunningStats;
 using rflux::detail::require_pointer;
 using rflux::detail::Rng;
 using rflux::detail::UnionFind;
@@ -95,33 +97,21 @@ struct ClusterMoments {
     std::size_t n_components = 0;
 };
 
-/* Population mean/variance with Welford's recurrence, keeping round-off away
- * from the E[x^2] - E[x]^2 cancellation for nearly constant replicates. */
-struct RunningStats {
-    std::size_t count = 0;
-    long double mean = 0.0L;
-    long double m2 = 0.0L;
-
-    void add(long double value) {
-        ++count;
-        const long double delta = value - mean;
-        mean += delta / static_cast<long double>(count);
-        m2 += delta * (value - mean);
-    }
-
-    long double variance() const {
-        if (count == 0) return 0.0L;
-        const long double value = m2 / static_cast<long double>(count);
-        return value > 0.0L ? value : 0.0L;
-    }
-};
-
 void sample_bond(const std::vector<Edge>& edges, std::size_t n, double p,
                  const double* edge_weights, Rng& rng, UnionFind& uf) {
     for (const Edge& edge : edges) {
         const double weight =
             edge_weights == nullptr ? 1.0 : edge_weights[edge.u * n + edge.v];
         if (rng.uniform() < std::min(1.0, p * weight)) {
+            uf.unite(edge.u, edge.v);
+        }
+    }
+}
+
+void unite_alive_edges(const std::vector<Edge>& edges,
+                       const std::uint8_t* alive, UnionFind& uf) {
+    for (const Edge& edge : edges) {
+        if (alive[edge.u] != 0 && alive[edge.v] != 0) {
             uf.unite(edge.u, edge.v);
         }
     }
@@ -135,11 +125,7 @@ void sample_site(const std::vector<Edge>& edges, std::size_t n, double p,
             node_weights == nullptr ? 1.0 : node_weights[i];
         alive[i] = rng.uniform() < std::min(1.0, p * weight) ? 1 : 0;
     }
-    for (const Edge& edge : edges) {
-        if (alive[edge.u] != 0 && alive[edge.v] != 0) {
-            uf.unite(edge.u, edge.v);
-        }
-    }
+    unite_alive_edges(edges, alive.data(), uf);
 }
 
 ClusterMoments summarize_components(UnionFind& uf, const std::uint8_t* alive,
@@ -195,20 +181,35 @@ template <typename Replicate>
 std::vector<PercolationPoint> run_scan(const double* probabilities,
                                        std::size_t n_probabilities,
                                        std::size_t repetitions,
+                                       std::size_t node_count,
                                        std::uint64_t seed,
                                        Replicate replicate) {
     std::vector<RunningStats> giant(n_probabilities);
     std::vector<RunningStats> susceptibility(n_probabilities);
-    for (std::size_t p = 0; p < n_probabilities; ++p) {
-        for (std::size_t repetition = 0; repetition < repetitions;
-             ++repetition) {
-            Rng rng(mix_seed(seed, repetition));
-            const ClusterMoments moments = replicate(probabilities[p], rng);
-            giant[p].add(static_cast<long double>(moments.giant_fraction));
-            susceptibility[p].add(
-                static_cast<long double>(moments.finite_susceptibility));
-        }
-    }
+    /*
+     * Probability points are independent, and every point keeps its
+     * repetitions (and therefore its random stream and accumulation order) in
+     * increasing order.  Parallelising over points is thus bit-for-bit
+     * deterministic while using every core.  Tiny graphs skip the fork-join
+     * because thread setup would cost more than the trials themselves.
+     */
+    const bool use_parallel =
+        node_count >= 128 && n_probabilities >= 2 && repetitions >= 4;
+    detail::parallel_for(
+        n_probabilities,
+        [&](std::size_t p) {
+            for (std::size_t repetition = 0; repetition < repetitions;
+                 ++repetition) {
+                Rng rng(mix_seed(seed, repetition));
+                const ClusterMoments moments =
+                    replicate(probabilities[p], rng);
+                giant[p].add(
+                    static_cast<long double>(moments.giant_fraction));
+                susceptibility[p].add(
+                    static_cast<long double>(moments.finite_susceptibility));
+            }
+        },
+        use_parallel ? 0 : 1);
 
     std::vector<PercolationPoint> out(n_probabilities);
     for (std::size_t p = 0; p < n_probabilities; ++p) {
@@ -250,7 +251,7 @@ std::vector<PercolationPoint> percolation_scan(
 
     const std::vector<Edge> edges = positive_edges(adjacency, n);
     const bool site = kind == PercolationKind::site;
-    return run_scan(probabilities, n_probabilities, repetitions, seed,
+    return run_scan(probabilities, n_probabilities, repetitions, n, seed,
                     [&](double p, Rng& rng) {
                         UnionFind uf(n);
                         std::vector<std::uint8_t> alive;
@@ -312,18 +313,47 @@ std::vector<double> cluster_size_distribution(
 
     const std::vector<Edge> edges = positive_edges(adjacency, n);
     const bool site = kind == PercolationKind::site;
+    /*
+     * Replicates are independent, so each worker accumulates a private count
+     * vector and the reduction happens in worker order.  Counts are exact
+     * integers, which keeps the result deterministic regardless of scheduling.
+     */
+    const std::size_t workers =
+        (n >= 128 && repetitions >= 8) ? detail::worker_count(repetitions) : 1;
+    std::vector<std::vector<long double>> partial(
+        workers, std::vector<long double>(n + 1, 0.0L));
+    const std::size_t chunk =
+        repetitions / workers + (repetitions % workers != 0);
+    detail::parallel_for(
+        workers,
+        [&](std::size_t worker) {
+            const std::size_t begin = worker * chunk;
+            const std::size_t end = std::min(repetitions, begin + chunk);
+            if (begin >= end) return;
+            std::vector<long double>& counts = partial[worker];
+            std::vector<std::uint8_t> alive;
+            for (std::size_t repetition = begin; repetition < end;
+                 ++repetition) {
+                Rng rng(mix_seed(seed, repetition));
+                UnionFind uf(n);
+                if (site) {
+                    alive.assign(n, 0);
+                    sample_site(edges, n, probability, weights.node, rng, uf,
+                                alive);
+                    accumulate_cluster_sizes(uf, alive.data(), n, counts);
+                } else {
+                    sample_bond(edges, n, probability, weights.edge, rng, uf);
+                    accumulate_cluster_sizes(uf, nullptr, n, counts);
+                }
+            }
+        },
+        workers);
+
     std::vector<long double> counts(n + 1, 0.0L);
-    std::vector<std::uint8_t> alive;
-    for (std::size_t repetition = 0; repetition < repetitions; ++repetition) {
-        Rng rng(mix_seed(seed, repetition));
-        UnionFind uf(n);
-        if (site) {
-            alive.assign(n, 0);
-            sample_site(edges, n, probability, weights.node, rng, uf, alive);
-        } else {
-            sample_bond(edges, n, probability, weights.edge, rng, uf);
+    for (const std::vector<long double>& worker_counts : partial) {
+        for (std::size_t size = 1; size <= n; ++size) {
+            counts[size] += worker_counts[size];
         }
-        accumulate_cluster_sizes(uf, site ? alive.data() : nullptr, n, counts);
     }
 
     std::vector<double> out(n + 1, 0.0);
@@ -368,11 +398,7 @@ std::vector<RemovalPoint> targeted_removal(const double* adjacency,
         }
 
         UnionFind uf(n);
-        for (const Edge& edge : edges) {
-            if (alive[edge.u] != 0 && alive[edge.v] != 0) {
-                uf.unite(edge.u, edge.v);
-            }
-        }
+        unite_alive_edges(edges, alive.data(), uf);
         const ClusterMoments moments =
             summarize_components(uf, alive.data(), n);
         out[k].removed = removed;

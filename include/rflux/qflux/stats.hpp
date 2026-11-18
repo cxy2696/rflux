@@ -34,6 +34,8 @@ double quantile(const double* values, std::size_t n, double q);
 double pearson(const double* x, const double* y, std::size_t n);
 
 /* Pairwise-complete correlation matrix of a row-major n_obs x n_assets panel. */
+void correlation_matrix_into(const double* panel, std::size_t n_obs,
+                             std::size_t n_assets, double* out);
 std::vector<double> correlation_matrix(const double* panel, std::size_t n_obs,
                                        std::size_t n_assets);
 

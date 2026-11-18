@@ -2,7 +2,6 @@
 
 **English** · [中文](METHODS_cn.md)
 
-
 This page records what the code actually computes. Libraries often use the same indicator names with different defaults for warm-up, missing values, degrees of freedom, quantiles and annualisation. Where those details matter, this document and the implementation are the reference.
 
 ## 1. qflux time series
@@ -41,7 +40,7 @@ $$
 
 A zero denominator produces NaN because the z-score is undefined.
 
-Rolling quantiles use the Type-7 definition: sort the finite values in the window, compute the position $h=(w-1)q$ , and interpolate between adjacent order statistics. The implementation compresses coordinates and maintains window counts in a Fenwick tree, so each slide and query is $O(\log n)$; `rolling_median` is $q=0.5$. A window containing a missing value still returns NaN.
+Rolling quantiles use the Type-7 definition: sort the finite values in the window, compute the position $h=(w-1)q$ , and interpolate between adjacent order statistics. The implementation chooses between two order-statistic structures: windows up to 1024 values keep a sorted buffer (binary search plus a contiguous shift, no global coordinate compression), and longer windows use a Fenwick tree over compressed coordinates. Both give the same Type-7 statistic; the sorted path is several times faster for the short windows used by most factors. `rolling_median` is $q=0.5$, and a window containing a missing value still returns NaN.
 
 The implementation does not use the sliding “sum of squares minus square of sum” formula. It keeps mergeable Welford moments in a two-stack queue, so a price level around $10^9$ with a window range of 0.1 does not wipe out the significant digits. Push and pop are amortised O(1), with O(window) memory. Rolling correlation, beta, slope and R² use the same idea with a second cross-moment.
 
@@ -184,11 +183,11 @@ When the sample is too short for a moment, that moment is NaN rather than a fabr
 
 ### 2.2 Quantiles
 
-Type-7 linear interpolation. The position is $h=(m-1)q$ and the result is interpolated between adjacent order statistics.
+Type-7 linear interpolation. The position is $h=(m-1)q$ and the result is interpolated between adjacent order statistics. `quantile`, `var_cvar` and `winsorize` select the needed order statistics with `std::nth_element` instead of sorting the whole sample; large samples are about three times faster and the returned values are unchanged.
 
 ### 2.3 Correlation matrix
 
-Each asset pair uses only observations where both assets are finite. The means and covariance are recomputed on that pairwise-complete sample.
+Each asset pair uses only observations where both assets are finite. The means and covariance are recomputed on that pairwise-complete sample. When the whole panel is finite, each asset's mean and variance are computed once and every pair needs only a single covariance pass; asset rows are processed in parallel.
 
 This matters: using full-sample means for each asset and then applying the usual formula produces incorrect correlations when the missing patterns differ. The result is symmetric. Pairs with fewer than two observations or a zero variance are NaN, including a degenerate diagonal.
 
@@ -430,7 +429,7 @@ $$
 d_{ij}=\sqrt{2(1-\rho_{ij})}
 $$
 
-The MST uses Kruskal's algorithm and returns n-1 edges. The distance matrix must be finite, symmetric and non-negative.
+The MST uses dense Prim on the complete distance matrix and returns n-1 edges. It needs O(n) auxiliary memory and O(n^2) comparisons. Edges are sorted by (weight, u, v) for a deterministic output order. The distance matrix must be finite, symmetric and non-negative.
 
 ### 6.2 Threshold graphs and centrality
 
@@ -584,7 +583,8 @@ $$
 
 The `periods` argument to `performance_summary()` sets the number of elapsed periods used for geometric annualisation. It defaults to the input length, so internal NaN gaps do not shorten the clock. `n_periods` is the count of finite returns and `elapsed_periods` is the annualisation horizon. A levered long-short book can lose more than its initial capital; total loss, volatility, Sharpe/Sortino and tail risk are still reported, while geometric annual return and Calmar become NaN.
 
-The backtest does not include borrow fees, short availability, limit moves, market impact, capacity or taxes. It is a transparent research baseline, not an execution engine.
+The backtest omits borrow fees, short availability, limit moves, market impact,
+capacity and taxes. It is a research baseline, not an execution engine.
 
 ## 8. Derivations for the algorithm layer
 
@@ -744,9 +744,8 @@ w_i=
 $$
 
 It stops when the largest absolute coefficient change is at most `tol`.
-The scale is recomputed from the final residuals. The robust scale is
-deliberately based on the median absolute deviation, so one outlier does not
-set the cutoff for the whole sample.
+The scale is recomputed from the final residuals. It uses the median absolute
+deviation, so one outlier does not set the cutoff for the whole sample.
 
 ### 8.6 Site percolation
 
@@ -776,8 +775,9 @@ $$
 \sqrt{\frac{1}{R}\sum_{a=1}^{R}\left(G_a-\bar G_R\right)^2}.
 $$
 
-The threshold is the first grid point satisfying
-$\bar G_R(p)\ge c$, where $c$ is `crisis_fraction`. These are Monte Carlo
+The threshold is the first crossing of $\bar G_R(p)\ge c$, where
+$c$ is `crisis_fraction`, interpolated linearly between the two bracketing grid
+points so the result is not quantised to the grid. These are Monte Carlo
 estimates, not exact graph probabilities. `largest_component` is
 $\operatorname{round}(\frac{1}{R}\sum_a \max_k |C_{k,a}|)$.
 
@@ -806,18 +806,24 @@ where `cap` projects onto the capped simplex $0\le \tilde b_i\le w_{\max}$,
 $\sum_i\tilde b_i=1$. The exposure is
 
 $$
-e=\min\left(1,\frac{\sigma^\star}{\hat\sigma}\right)e_r,
+e=\min\left(1,\frac{\sigma^\star}{\sigma_P}\right)e_r,
 \qquad
 w_i=e\tilde b_i,
 \qquad
 \text{cash}=1-\sum_i w_i,
 $$
 
-with target volatility $\sigma^\star$, realised market volatility
-$\hat\sigma$ and HMM regime multiplier $e_r\in\{0.5,0.7,1\}$. Turnover is
+with target volatility $\sigma^\star$, the proposed portfolio's ex-ante
+volatility $\sigma_P=\sqrt{\tilde b^{\top}\Sigma\tilde b}$ and HMM regime
+multiplier $e_r\in\{0.5,0.7,1\}$. The equal-weight market volatility is used
+only as a fallback when the covariance is unusable. Turnover includes the cash
+leg:
 
 $$
-\tau_{\mathrm{turn}}=\frac{1}{2}\sum_i|w_i-w_i^{0}|.
+\tau_{\mathrm{turn}}=\frac{1}{2}\left(
+\sum_i|w_i-w_i^{0}|+
+\left|\text{cash}-\text{cash}^{0}\right|
+\right).
 $$
 
 The stop reference is $p_i(1-2\hat\sigma_i)$, where $\hat\sigma_i$ is the

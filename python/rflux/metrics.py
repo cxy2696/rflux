@@ -34,6 +34,22 @@ class PerformanceMetrics:
     hit_rate: float
 
 
+def _validated_options(
+    periods_per_year: Any = 252.0,
+    risk_free: Any = 0.0,
+    confidence: Any | None = 0.95,
+) -> tuple[float, float, float | None]:
+    """Validate the annualisation/risk-free/confidence triple once."""
+    annual = as_positive_float(periods_per_year, "periods_per_year")
+    free = as_finite_float(risk_free, "risk_free")
+    level = (
+        as_open_unit_float(confidence, "confidence")
+        if confidence is not None
+        else None
+    )
+    return annual, free, level
+
+
 def equity_curve(returns_: Any, initial: float = 1.0) -> np.ndarray:
     """Compounded equity curve; finite returns are compounded, NaN gaps are flat.
 
@@ -73,9 +89,10 @@ def performance_summary(
     finite = data[np.isfinite(data)]
     if finite.size < 2:
         raise ValueError("at least two finite returns are required")
-    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
-    risk_free = as_finite_float(risk_free, "risk_free")
-    confidence = as_open_unit_float(confidence, "confidence")
+    periods_per_year, risk_free, confidence = _validated_options(
+        periods_per_year, risk_free, confidence
+    )
+    assert confidence is not None
     elapsed = (
         int(data.size)
         if periods is None

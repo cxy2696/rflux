@@ -2,8 +2,7 @@
 
 **English** · [中文](APPLICATIONS_cn.md)
 
-
-These application-level functions sit on top of the tested `qflux`, `percolab` and `metrics` kernels. They add no hidden numerical layer; they make the input, estimator, annualisation and graph conventions explicit so a result can be checked later.
+The functions below build on the tested `qflux`, `percolab` and `metrics` kernels. Each report records its input, estimator, annualisation and graph conventions so the result can be reproduced.
 
 ## 1. Portfolio risk
 
@@ -17,7 +16,7 @@ $$
 \hat\Sigma = \frac{1}{N-d} R_c^\top R_c
 $$
 
-where $d$ is `ddof` (default 1). Using one complete-case sample, rather than pairwise-complete samples, keeps the covariance positive semidefinite and makes the portfolio variance well defined.
+where $d$ is `ddof` (default 1). A single complete-case sample keeps the covariance positive semidefinite and the portfolio variance well defined; pairwise-complete correlation uses a different sample.
 
 Portfolio return and variance:
 
@@ -169,10 +168,9 @@ The top-level `method` and `input` fields record the estimator, `ddof`, annualis
 
 These applications do not model borrow fees, transaction costs, taxes, capacity, limit moves or liquidity. The portfolio return is an arithmetic combination under supplied weights, not a tradable net asset value.
 
-
 ## Research advice
 
-`rflux advice` produces an auditable rebalance proposal, not personalised
+`rflux advice` produces a documented rebalance proposal, not personalised
 investment advice:
 
 ```bash
@@ -181,14 +179,16 @@ rflux advice prices.csv --weights 0.2,0.2,0.2,0.2,0.2 --max-weight 0.35 \
 ```
 
 It starts from HRP weights, adjusts them with 20/60-day momentum, trend and
-RSI, then scales gross exposure by realised volatility and an optional HMM
-stress state.  The report contains:
+RSI, then scales gross exposure by the proposed portfolio's ex-ante volatility
+(falling back to equal-weight market volatility only when the covariance is
+unusable) and an optional HMM stress state.  The report contains:
 
 - current/target weights, change, signal score and reason per asset;
 - a 2-daily-sigma stop reference, target notional, weight-based shares and
   risk-budget-limited shares;
-- cash weight, gross exposure and turnover;
-- target historical volatility, max drawdown and VaR/CVaR;
+- cash weight, gross exposure and turnover (including the cash leg);
+- the proposed portfolio's ex-ante annualized volatility, target historical
+  volatility, max drawdown and VaR/CVaR;
 - data/model errors and an explicit non-personalised-advice disclaimer.
 
 It is long-only and unlevered.  Transaction costs, taxes, liquidity and lot

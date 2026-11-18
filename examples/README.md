@@ -37,14 +37,13 @@ risk-aware rebalance proposal. After installation the prefix becomes
 python examples/python_factor_screen.py
 ```
 
-Synthetic multi-asset prices → 20-day momentum, low volatility and short-term
-reversal → winsorisation, cross-sectional z-scores, industry neutralisation,
-combined factor, rank IC, quantile portfolios and a cost-aware long-short
-backtest.
+Synthetic multi-asset prices drive a 20-day momentum, low-volatility and
+short-term reversal screen. The pipeline applies winsorisation, cross-sectional
+z-scores and industry neutralisation, then combines the factors and runs rank IC,
+quantile portfolios and a cost-aware long-short backtest.
 
 Factors at close `t` are aligned only with returns from `t` to `t+1`; future
-prices are never read. The output is a code-path check, not an investment
-result. Replace `simulate_prices()` with a real wide price panel to reuse the
+prices are never read. The output checks the code path; it is not an investment result. Replace `simulate_prices()` with a real wide price panel to reuse the
 pipeline:
 
 ```python

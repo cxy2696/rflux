@@ -61,8 +61,9 @@ public:
 
     /*
      * Estimate the critical occupation probability p_c by scanning a
-     * configurable grid and returning the first p where the mean giant
-     * component reaches the configured crisis fraction.
+     * configurable grid and interpolating the first crossing where the mean
+     * giant component reaches the configured crisis fraction.  The result is
+     * continuous within the bracketing grid interval, not snapped to the grid.
      */
     [[nodiscard]] virtual double estimate_threshold(
         const FinancialNetwork& network) = 0;

@@ -142,32 +142,26 @@ PercolationResult SitePercolationDetector::simulate(
     require(std::isfinite(probability) && probability >= 0.0 &&
                 probability <= 1.0,
             "shock_probability must be in [0, 1]");
-    long double giant_sum = 0.0L;
-    long double giant_square_sum = 0.0L;
+    rflux::detail::RunningStats giant;
     long double susceptibility_sum = 0.0L;
     std::size_t largest_sum = 0;
     for (std::size_t trial = 0; trial < options_.repetitions; ++trial) {
         const std::uint64_t seed =
             mix_seed(options_.seed, static_cast<std::uint64_t>(trial));
         const Trial result = run_trial(network, probability, seed);
-        giant_sum += result.giant;
-        giant_square_sum += static_cast<long double>(result.giant) *
-                            static_cast<long double>(result.giant);
+        giant.add(result.giant);
         susceptibility_sum += result.susceptibility;
         largest_sum += result.largest;
     }
-    const long double count = static_cast<long double>(options_.repetitions);
-    const double mean_giant = static_cast<double>(giant_sum / count);
-    const double variance = std::max(
-        0.0, static_cast<double>(giant_square_sum / count) -
-                 mean_giant * mean_giant);
+    const double mean_giant = static_cast<double>(giant.mean);
+    const double variance = static_cast<double>(giant.variance());
     PercolationResult result;
     result.shock_probability = probability;
     result.percolation_threshold = threshold_.value_or(kNaN);
     result.giant_component_fraction = mean_giant;
     result.giant_component_std = std::sqrt(variance);
-    result.susceptibility =
-        static_cast<double>(susceptibility_sum / count);
+    result.susceptibility = static_cast<double>(
+        susceptibility_sum / static_cast<long double>(options_.repetitions));
     result.largest_component = static_cast<std::size_t>(std::llround(
         static_cast<double>(largest_sum) /
         static_cast<double>(options_.repetitions)));
@@ -188,14 +182,33 @@ double SitePercolationDetector::estimate_threshold(
     const FinancialNetwork& network) {
     validate_network(network);
     double threshold = 1.0;
+    double previous_p = 0.0;
+    double previous_giant = 0.0;
+    bool have_previous = false;
     for (std::size_t point = 0; point < options_.threshold_points; ++point) {
         const double p = static_cast<double>(point) /
                          static_cast<double>(options_.threshold_points - 1);
         const PercolationResult result = simulate(network, p);
-        if (result.giant_component_fraction >= options_.crisis_fraction) {
-            threshold = p;
+        const double giant = result.giant_component_fraction;
+        if (giant >= options_.crisis_fraction) {
+            if (have_previous && previous_giant < options_.crisis_fraction) {
+                // Interpolate the first crossing instead of snapping to the
+                // grid.  The giant-fraction curve is monotone in expectation,
+                // so this uses the two simulated points exactly.
+                const double span = giant - previous_giant;
+                const double fraction =
+                    span > 0.0
+                        ? (options_.crisis_fraction - previous_giant) / span
+                        : 1.0;
+                threshold = previous_p + fraction * (p - previous_p);
+            } else {
+                threshold = p;
+            }
             break;
         }
+        previous_p = p;
+        previous_giant = giant;
+        have_previous = true;
     }
     threshold_ = threshold;
     return threshold;

@@ -16,7 +16,7 @@ import numpy as np
 
 from ._common import as_f64_1d, as_f64_2d, as_size, double_ptr, empty_f64
 from ._ffi import check, get_lib
-from ._native_backend import native_module, raise_as_rflux
+from ._native_backend import native_module, native_or
 
 __all__ = [
     "HuberFit",
@@ -111,20 +111,11 @@ def huber_regression(
     if not np.isfinite(tol) or tol <= 0.0:
         raise ValueError("tol must be finite and positive")
 
-    if native_module is not None:
-        try:
-            coefficients, intercept, scale, iterations, converged = (
-                native_module.huber_regression(
-                    matrix,
-                    labels,
-                    epsilon,
-                    max_iter,
-                    tol,
-                    bool(fit_intercept),
-                )
-            )
-        except native_module.NativeError as exc:
-            raise_as_rflux("rflux_huber_regression", exc)
+    def native() -> HuberFit:
+        coefficients, intercept, scale, iterations, converged = (
+            native_module.huber_regression(
+                matrix, labels, epsilon, max_iter, tol, bool(fit_intercept))
+        )
         return HuberFit(
             np.asarray(coefficients, dtype=np.float64),
             float(intercept),
@@ -132,7 +123,13 @@ def huber_regression(
             int(iterations),
             bool(converged),
         )
-    return _c_huber(matrix, labels, epsilon, max_iter, tol, fit_intercept)
+
+    return native_or(
+        native_module,
+        "rflux_huber_regression",
+        native,
+        lambda: _c_huber(matrix, labels, epsilon, max_iter, tol, fit_intercept),
+    )
 
 
 def cvar_loss(returns: Any, *, alpha: float = 0.95) -> float:

@@ -13,24 +13,35 @@
 
 namespace rflux {
 
-/* Internal exception hierarchy.  The C ABI translates these to rflux_status. */
-class InvalidArgument : public std::invalid_argument {
+/* Internal exception hierarchy.  The C ABI translates these to rflux_status.
+ * The explicit default visibility keeps RTTI usable when the core is compiled
+ * with LTO and linked into the pybind11 module: both sides must agree on one
+ * std::type_info for the translator to catch the concrete type. */
+#if defined(_WIN32)
+#define RFLUX_EXCEPTION_VISIBILITY
+#elif defined(__GNUC__) || defined(__clang__)
+#define RFLUX_EXCEPTION_VISIBILITY __attribute__((visibility("default")))
+#else
+#define RFLUX_EXCEPTION_VISIBILITY
+#endif
+
+class RFLUX_EXCEPTION_VISIBILITY InvalidArgument : public std::invalid_argument {
 public:
     explicit InvalidArgument(const std::string& what)
         : std::invalid_argument(what) {}
 };
 
-class NonFinite : public InvalidArgument {
+class RFLUX_EXCEPTION_VISIBILITY NonFinite : public InvalidArgument {
 public:
     explicit NonFinite(const std::string& what) : InvalidArgument(what) {}
 };
 
-class NotReady : public std::runtime_error {
+class RFLUX_EXCEPTION_VISIBILITY NotReady : public std::runtime_error {
 public:
     explicit NotReady(const std::string& what) : std::runtime_error(what) {}
 };
 
-class NumericalError : public std::runtime_error {
+class RFLUX_EXCEPTION_VISIBILITY NumericalError : public std::runtime_error {
 public:
     explicit NumericalError(const std::string& what) : std::runtime_error(what) {}
 };
@@ -103,6 +114,34 @@ inline double log_sum_exp(const double* values, std::size_t n) {
     return high + std::log(sum);
 }
 
+/*
+ * Type-7 quantile over an unsorted buffer.  Reorders `values` in place with
+ * two order-statistic passes instead of a full sort, which is roughly three
+ * times faster for large samples.  Only the two adjacent order statistics
+ * (and, for q in {0, 1}, one extreme) are needed.
+ */
+inline double quantile_select(double* values, std::size_t n, double q) {
+    if (n == 0) return kNaN;
+    if (q <= 0.0) return *std::min_element(values, values + n);
+    if (q >= 1.0) return *std::max_element(values, values + n);
+    const double position = q * static_cast<double>(n - 1);
+    const std::size_t lower = static_cast<std::size_t>(std::floor(position));
+    const std::size_t upper = std::min(lower + 1, n - 1);
+    if (lower == upper) {
+        std::nth_element(values, values + lower, values + n);
+        return values[lower];
+    }
+    /* Partition at the upper order statistic; its prefix then holds exactly
+     * the `upper` smallest values, so the lower statistic can be selected
+     * inside that prefix without touching the right partition again. */
+    std::nth_element(values, values + upper, values + n);
+    const double high = values[upper];
+    std::nth_element(values, values + lower, values + upper);
+    const double low = values[lower];
+    const double fraction = position - static_cast<double>(lower);
+    return low + fraction * (high - low);
+}
+
 /* Type-7 linear interpolation over an already sorted vector. */
 inline double quantile_sorted(const std::vector<double>& sorted, double q) {
     if (sorted.empty()) return kNaN;
@@ -131,6 +170,27 @@ inline double mean_of(const std::vector<double>& values) {
     for (double value : values) sum += static_cast<long double>(value);
     return static_cast<double>(sum / static_cast<long double>(values.size()));
 }
+
+/* Population mean/variance with Welford's recurrence.  Keeping the update in
+ * one place avoids the E[x^2] - E[x]^2 cancellation in replicated kernels. */
+struct RunningStats {
+    std::size_t count = 0;
+    long double mean = 0.0L;
+    long double m2 = 0.0L;
+
+    void add(long double value) {
+        ++count;
+        const long double delta = value - mean;
+        mean += delta / static_cast<long double>(count);
+        m2 += delta * (value - mean);
+    }
+
+    long double variance() const {
+        if (count == 0) return 0.0L;
+        const long double value = m2 / static_cast<long double>(count);
+        return value > 0.0L ? value : 0.0L;
+    }
+};
 
 /* xoshiro256** seeded through SplitMix64.  Deterministic across platforms. */
 class Rng {

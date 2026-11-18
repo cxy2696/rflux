@@ -2,7 +2,7 @@
 
 **English** · [中文](RELEASE_cn.md)
 
-A release is a repository-wide contract, not just a version bump.
+A release updates code, artifacts, documentation and version metadata together.
 
 1. **Version sync**  
    Update `CMakeLists.txt`, `include/rflux/rflux.h`,

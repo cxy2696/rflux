@@ -21,10 +21,10 @@ from ._common import (
     as_positive_float,
     as_size,
     asset_names as _asset_names,
+    complete_case_covariance,
+    equal_weight_market_returns,
 )
-from ._json import jsonable
-from ._ffi import abi_version, native_version
-from ._version import __version__
+from ._json import jsonable, package_metadata
 
 __all__ = ["trade_advice"]
 
@@ -99,12 +99,14 @@ def _signal_row(
         }
     last = float(finite[-1])
     def trailing(window: int) -> float:
-        if finite.size <= window:
+        """Return over exactly ``window`` calendar positions."""
+        if close.size <= window:
             return float("nan")
-        base = float(finite[-window - 1])
-        if base == 0.0:
+        current = close[-1]
+        base = close[-window - 1]
+        if not (np.isfinite(current) and np.isfinite(base)) or base == 0.0:
             return float("nan")
-        return last / base - 1.0
+        return float(current / base - 1.0)
     momentum_20 = trailing(20)
     momentum_60 = trailing(60)
     sma20 = qflux.sma(close, min(20, close.size))[-1]
@@ -119,10 +121,12 @@ def _signal_row(
         rsi_value = float(qflux.rsi(close, 14)[-1])
     except Exception:
         rsi_value = float("nan")
-    column_returns = returns[:, column]
-    usable = column_returns[np.isfinite(column_returns)]
+    # Use the last 20 calendar rows, not the last 20 non-missing values, so a
+    # long gap cannot silently stretch the volatility window.
+    recent_returns = returns[-20:, column]
+    usable = recent_returns[np.isfinite(recent_returns)]
     daily_sigma = (
-        float(np.std(usable[-20:], ddof=1))
+        float(np.std(usable, ddof=1))
         if usable.size >= 2 else float("nan")
     )
     return {
@@ -162,7 +166,8 @@ def trade_advice(
     Steps:
       1. HRP gives a covariance-based base allocation.
       2. Cross-sectional momentum/trend and RSI adjust the base weights.
-      3. Realised volatility and an optional HMM stress state scale exposure.
+      3. The proposed portfolio's ex-ante volatility and an optional HMM
+         stress state scale exposure.
       4. The result is capped, converted to actions and reported with risk.
 
     The function never shorts, never uses leverage and never claims a
@@ -172,17 +177,16 @@ def trade_advice(
     panel = as_f64_panel(prices, "prices", min_rows=3)
     n_obs, n_assets = panel.shape
     asset_names = _asset_names(names, n_assets)
-    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
-    risk_free = as_finite_float(risk_free, "risk_free")
+    periods_per_year, risk_free, confidence = metrics._validated_options(
+        periods_per_year, risk_free, confidence
+    )
+    assert confidence is not None
     max_weight = as_finite_float(max_weight, "max_weight")
     if not 0.0 < max_weight <= 1.0:
         raise ValueError("max_weight must be in (0, 1]")
     if max_weight * n_assets < 1.0 - 1e-8:
         raise ValueError("max_weight is too small for the number of assets")
     target_volatility = as_positive_float(target_volatility, "target_volatility")
-    confidence = as_finite_float(confidence, "confidence")
-    if not 0.0 < confidence < 1.0:
-        raise ValueError("confidence must be in (0, 1)")
     if portfolio_value is not None:
         portfolio_value = as_positive_float(portfolio_value, "portfolio_value")
     risk_per_trade = as_finite_float(risk_per_trade, "risk_per_trade")
@@ -191,12 +195,7 @@ def trade_advice(
     current = _current_weights(current_weights, n_assets)
 
     returns = qflux.returns_panel(panel)
-    finite_counts = np.sum(np.isfinite(returns), axis=1)
-    market_returns = np.full(n_obs, np.nan, dtype=np.float64)
-    valid = finite_counts > 0
-    market_returns[valid] = (
-        np.nansum(returns[valid], axis=1) / finite_counts[valid]
-    )
+    market_returns = equal_weight_market_returns(returns)
 
     signals = {
         name: _signal_row(panel, returns, column)
@@ -233,13 +232,7 @@ def trade_advice(
     # ``returns_panel`` leaves a NaN warm-up row; drop incomplete rows before
     # estimating the covariance, otherwise every HRP weight would fall back to
     # equal weight on real data.
-    complete = returns[np.all(np.isfinite(returns), axis=1)]
-    covariance = (
-        np.cov(complete, rowvar=False)
-        if complete.shape[0] >= 2
-        else np.full((n_assets, n_assets), np.nan)
-    )
-    covariance = np.atleast_2d(covariance)
+    covariance, _ = complete_case_covariance(returns)
     base = None
     if n_assets == 1:
         base = np.array([1.0], dtype=np.float64)
@@ -273,9 +266,25 @@ def trade_advice(
         if np.isfinite(market_returns).sum() > 1
         else float("nan")
     )
+    # Scale the proposed risk-asset mix by its own ex-ante volatility.  Using
+    # the equal-weight market volatility would over- or under-de-risk a
+    # portfolio whose weights differ materially from equal weight.
+    portfolio_vol = float("nan")
+    if (np.all(np.isfinite(covariance)) and np.all(np.isfinite(tilted))
+            and float(tilted.sum()) > 0.0):
+        annual_covariance = covariance * periods_per_year
+        portfolio_variance = float(
+            tilted @ annual_covariance @ tilted
+        )
+        if np.isfinite(portfolio_variance) and portfolio_variance > 0.0:
+            portfolio_vol = float(np.sqrt(portfolio_variance))
     vol_scale = 1.0
-    if np.isfinite(market_vol) and market_vol > target_volatility:
-        vol_scale = target_volatility / market_vol
+    if np.isfinite(portfolio_vol) and portfolio_vol > target_volatility:
+        vol_scale = target_volatility / portfolio_vol
+    elif not np.isfinite(portfolio_vol):
+        # Fall back to the market proxy only when the covariance is unusable.
+        if np.isfinite(market_vol) and market_vol > target_volatility:
+            vol_scale = target_volatility / market_vol
 
     regime: dict[str, Any] | None = None
     regime_scale = 1.0
@@ -283,19 +292,18 @@ def trade_advice(
     if include_hmm:
         values = market_returns[np.isfinite(market_returns)]
         if values.size >= max(2, hmm_states):
-            model = None
             try:
-                model = regimelab.fit_hmm(
-                    values.reshape(-1, 1),
+                snapshot = regimelab.fit_hmm_snapshot(
+                    values,
                     n_states=hmm_states,
                     max_iter=hmm_max_iter,
                     n_init=hmm_n_init,
                     seed=seed,
+                    horizon=1,
                 )
-                filtered = model.filtered(values.reshape(-1, 1))[-1]
-                forecast = model.forecast(filtered, horizon=1)
-                means = model.parameters.means[:, 0]
-                expected_next = float(np.dot(forecast, means))
+                filtered = snapshot.latest_filtered
+                means = snapshot.means[:, 0]
+                expected_next = float(np.dot(snapshot.forecast, means))
                 stress_probability = float(
                     filtered[means < 0.0].sum()
                 ) if np.any(means < 0.0) else 0.0
@@ -304,7 +312,7 @@ def trade_advice(
                 elif stress_probability >= 0.65:
                     regime_scale = 0.7
                 regime = {
-                    "states": int(model.n_states),
+                    "states": snapshot.n_states,
                     "latest_state": int(np.argmax(filtered)),
                     "latest_filtered": filtered.tolist(),
                     "state_means": means.tolist(),
@@ -315,9 +323,6 @@ def trade_advice(
                 }
             except Exception as exc:
                 errors.append(f"HMM skipped: {exc}")
-            finally:
-                if model is not None:
-                    model.close()
         else:
             errors.append("HMM skipped: not enough finite market returns")
 
@@ -423,13 +428,14 @@ def trade_advice(
         if target_series.size >= 2
         else None
     )
-    turnover = float(0.5 * np.abs(delta).sum())
+    # Cash is part of the portfolio: moving from a fully invested book to a
+    # partly invested one is turnover too.
+    current_cash = max(0.0, 1.0 - float(current.sum()))
+    turnover = float(
+        0.5 * (np.abs(delta).sum() + abs(cash - current_cash))
+    )
     report = {
-        "package": {
-            "version": __version__,
-            "native_version": native_version(),
-            "abi_version": abi_version(),
-        },
+        "package": package_metadata(),
         "input": {
             "observations": int(n_obs),
             "assets": int(n_assets),
@@ -451,6 +457,7 @@ def trade_advice(
         "regime": regime,
         "risk": {
             "market_annualized_volatility": market_vol,
+            "portfolio_annualized_volatility": portfolio_vol,
             "target_annualized_volatility": (
                 target_metrics.annualized_volatility
                 if target_metrics is not None else None

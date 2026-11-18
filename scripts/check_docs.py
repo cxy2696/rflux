@@ -14,6 +14,20 @@ LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
 FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 INLINE_MATH_RE = re.compile(r"(?<!\$)\$(?!\$)([^$\n]+?)(?<!\$)\$(?!\$)")
+STYLE_MARKERS = {
+    "deliberately": "state the reason directly",
+    "intentionally": "state the reason directly",
+    "genuinely": "remove the intensifier",
+    "transparent": "describe the mechanism instead",
+    "auditable": "use documented/reproducible instead",
+    "not just": "state the scope directly",
+    "Next layer": "use Future work",
+    "后续层": "改用“后续工作”",
+    "真正的": "删除强调词",
+    "可审计": "改为“文档化”或“可复现”",
+    "透明": "直接描述机制",
+    "目标不是继续": "直接说明该层提供什么",
+}
 
 
 def markdown_files() -> list[Path]:
@@ -48,6 +62,11 @@ def check_file(path: Path) -> list[str]:
             continue
 
         plain = INLINE_CODE_RE.sub("", line)
+        for marker, hint in STYLE_MARKERS.items():
+            if marker in plain:
+                errors.append(
+                    f"{path.relative_to(ROOT)}:{number}: avoid {marker!r}; {hint}"
+                )
         if re.search(r"\\[\(\[]", plain):
             errors.append(
                 f"{path.relative_to(ROOT)}:{number}: use $...$ / $$...$$, "

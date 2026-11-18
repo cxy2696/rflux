@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -30,7 +30,7 @@ from ._common import (
     int32_ptr,
 )
 from ._ffi import HMMOptions, RFluxError, check, get_lib
-from ._native_backend import native_module, raise_as_rflux
+from ._native_backend import native_call, native_module
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +48,29 @@ class HMMFitInfo:
     log_likelihood: float
     aic: float
     bic: float
+
+
+@dataclass(frozen=True, slots=True)
+class HMMSnapshot:
+    """Fitted HMM state and latest filtered/forecast information.
+
+    This is a detached snapshot: the underlying native model is closed before
+    the object is returned, so callers cannot accidentally keep a stateful
+    handle alive after a one-shot report.
+    """
+
+    n_states: int
+    n_features: int
+    iterations: int
+    converged: bool
+    log_likelihood: float
+    aic: float
+    bic: float
+    latest_filtered: np.ndarray
+    forecast: np.ndarray
+    transition: np.ndarray
+    means: np.ndarray
+    variances: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,12 +148,12 @@ class GaussianHMM:
         self._backend = "ctypes"
         self._handle: ctypes.c_void_p | None = ctypes.c_void_p()
         if native_module is not None:
-            try:
-                self._native_model = native_module.GaussianHMM(
-                    self._n_states, self._n_features
-                )
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_create", exc)
+            self._native_model = native_call(
+                native_module,
+                "rflux_hmm_create",
+                lambda: native_module.GaussianHMM(
+                    self._n_states, self._n_features),
+            )
             self._backend = "native"
             self._handle = None
             return
@@ -163,6 +186,25 @@ class GaussianHMM:
         if probabilities.size != self._n_states:
             raise ValueError(f"state_probs must have length {self._n_states}")
         return probabilities
+
+    def _native_or_abi(
+        self,
+        function: str,
+        native: Callable[[Any], Any],
+        fallback: Callable[[], Any],
+    ) -> Any:
+        """Run one model operation on the active backend.
+
+        Callers pass the native projection and the C ABI fallback; this helper
+        owns the backend choice and the NativeError translation so each method
+        contains only its own arithmetic and argument marshalling.
+        """
+        if self._native_model is None:
+            return fallback()
+        return native_call(
+            native_module, function,
+            lambda: native(self._native_model),
+        )
 
     def close(self) -> None:
         if self._native_model is not None:
@@ -236,58 +278,50 @@ class GaussianHMM:
             raise ValueError("max_iter must fit in uint32")
         if n_init > 2**32 - 1:
             raise ValueError("n_init must fit in uint32")
-        if self._native_model is not None:
-            try:
-                self._native_model.fit(
-                    data,
-                    max_iter=max_iter,
-                    n_init=n_init,
-                    tol=float(tol),
-                    variance_floor=float(variance_floor),
-                    seed=as_u64(seed, "seed"),
-                    sort_states=bool(sort_states),
-                )
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_fit", exc)
+        def native(model: Any) -> "GaussianHMM":
+            model.fit(
+                data,
+                max_iter=max_iter,
+                n_init=n_init,
+                tol=float(tol),
+                variance_floor=float(variance_floor),
+                seed=as_u64(seed, "seed"),
+                sort_states=bool(sort_states),
+            )
             return self
-        options = HMMOptions()
-        options_pointer = ctypes.byref(options)
-        check(
-            get_lib().rflux_hmm_options_init(
-                options_pointer, ctypes.sizeof(options)
-            ),
-            "rflux_hmm_options_init",
-        )
-        options.max_iter = max_iter
-        options.n_init = n_init
-        options.tol = float(tol)
-        options.variance_floor = float(variance_floor)
-        options.seed = as_u64(seed, "seed")
-        options.sort_states = 1 if sort_states else 0
-        check(
-            get_lib().rflux_hmm_fit(
-                self._require_handle(),
-                double_ptr(data),
-                data.shape[0],
-                options_pointer,
-            ),
-            "rflux_hmm_fit",
-        )
-        return self
+
+        def fallback() -> "GaussianHMM":
+            options = HMMOptions()
+            options_pointer = ctypes.byref(options)
+            check(
+                get_lib().rflux_hmm_options_init(
+                    options_pointer, ctypes.sizeof(options)
+                ),
+                "rflux_hmm_options_init",
+            )
+            options.max_iter = max_iter
+            options.n_init = n_init
+            options.tol = float(tol)
+            options.variance_floor = float(variance_floor)
+            options.seed = as_u64(seed, "seed")
+            options.sort_states = 1 if sort_states else 0
+            check(
+                get_lib().rflux_hmm_fit(
+                    self._require_handle(),
+                    double_ptr(data),
+                    data.shape[0],
+                    options_pointer,
+                ),
+                "rflux_hmm_fit",
+            )
+            return self
+
+        return self._native_or_abi("rflux_hmm_fit", native, fallback)
 
     @property
     def fit_info(self) -> HMMFitInfo:
-        if self._native_model is not None:
-            try:
-                (
-                    iterations,
-                    converged,
-                    log_likelihood,
-                    aic,
-                    bic,
-                ) = self._native_model.fit_info
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_fit_summary", exc)
+        def native(model: Any) -> HMMFitInfo:
+            iterations, converged, log_likelihood, aic, bic = model.fit_info
             return HMMFitInfo(
                 int(iterations),
                 bool(converged),
@@ -295,29 +329,33 @@ class GaussianHMM:
                 float(aic),
                 float(bic),
             )
-        iterations = ctypes.c_size_t(0)
-        converged = ctypes.c_int32(0)
-        log_likelihood = np.empty(1, dtype=np.float64)
-        aic = np.empty(1, dtype=np.float64)
-        bic = np.empty(1, dtype=np.float64)
-        check(
-            get_lib().rflux_hmm_fit_summary(
-                self._require_handle(),
-                ctypes.byref(iterations),
-                ctypes.byref(converged),
-                double_ptr(log_likelihood),
-                double_ptr(aic),
-                double_ptr(bic),
-            ),
-            "rflux_hmm_fit_summary",
-        )
-        return HMMFitInfo(
-            int(iterations.value),
-            bool(converged.value),
-            float(log_likelihood[0]),
-            float(aic[0]),
-            float(bic[0]),
-        )
+
+        def fallback() -> HMMFitInfo:
+            iterations = ctypes.c_size_t(0)
+            converged = ctypes.c_int32(0)
+            log_likelihood = np.empty(1, dtype=np.float64)
+            aic = np.empty(1, dtype=np.float64)
+            bic = np.empty(1, dtype=np.float64)
+            check(
+                get_lib().rflux_hmm_fit_summary(
+                    self._require_handle(),
+                    ctypes.byref(iterations),
+                    ctypes.byref(converged),
+                    double_ptr(log_likelihood),
+                    double_ptr(aic),
+                    double_ptr(bic),
+                ),
+                "rflux_hmm_fit_summary",
+            )
+            return HMMFitInfo(
+                int(iterations.value),
+                bool(converged.value),
+                float(log_likelihood[0]),
+                float(aic[0]),
+                float(bic[0]),
+            )
+
+        return self._native_or_abi("rflux_hmm_fit_summary", native, fallback)
 
     def score(self, observations: Any) -> float:
         """Log-likelihood of observations under the current parameters.
@@ -326,14 +364,13 @@ class GaussianHMM:
         walk-forward or holdout model selection.
         """
         data = _as_observations(observations, self._n_features)
-        if self._native_model is not None:
-            try:
-                return float(self._native_model.score(data))
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_score", exc)
-        return call_scalar(
-            "rflux_hmm_score", get_lib().rflux_hmm_score,
-            self._require_handle(), double_ptr(data), data.shape[0])
+        return self._native_or_abi(
+            "rflux_hmm_score",
+            lambda model: float(model.score(data)),
+            lambda: call_scalar(
+                "rflux_hmm_score", get_lib().rflux_hmm_score,
+                self._require_handle(), double_ptr(data), data.shape[0]),
+        )
 
     def filtered_states(self, observations: Any) -> np.ndarray:
         """Causal state labels from the filtered distribution (argmax)."""
@@ -360,38 +397,34 @@ class GaussianHMM:
 
     @property
     def parameters(self) -> HMMParameters:
-        if self._native_model is not None:
-            try:
-                (
-                    start,
-                    transition,
-                    means,
-                    variances,
-                ) = self._native_model.parameters
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_get_parameters", exc)
-            return HMMParameters(start, transition, means, variances)
-        k = self._n_states
-        d = self._n_features
-        start = empty_f64(k)
-        transition = empty_f64(k * k)
-        means = empty_f64(k * d)
-        variances = empty_f64(k * d)
-        check(
-            get_lib().rflux_hmm_get_parameters(
-                self._require_handle(),
-                double_ptr(start),
-                double_ptr(transition),
-                double_ptr(means),
-                double_ptr(variances),
-            ),
+        def fallback() -> HMMParameters:
+            k = self._n_states
+            d = self._n_features
+            start = empty_f64(k)
+            transition = empty_f64(k * k)
+            means = empty_f64(k * d)
+            variances = empty_f64(k * d)
+            check(
+                get_lib().rflux_hmm_get_parameters(
+                    self._require_handle(),
+                    double_ptr(start),
+                    double_ptr(transition),
+                    double_ptr(means),
+                    double_ptr(variances),
+                ),
+                "rflux_hmm_get_parameters",
+            )
+            return HMMParameters(
+                start.copy(),
+                transition.reshape(k, k).copy(),
+                means.reshape(k, d).copy(),
+                variances.reshape(k, d).copy(),
+            )
+
+        return self._native_or_abi(
             "rflux_hmm_get_parameters",
-        )
-        return HMMParameters(
-            start.copy(),
-            transition.reshape(k, k).copy(),
-            means.reshape(k, d).copy(),
-            variances.reshape(k, d).copy(),
+            lambda model: HMMParameters(*model.parameters),
+            fallback,
         )
 
     def set_parameters(self, parameters: HMMParameters) -> "GaussianHMM":
@@ -411,78 +444,74 @@ class GaussianHMM:
             raise ValueError(f"means must have shape ({k}, {d})")
         if variances.shape != (k, d):
             raise ValueError(f"variances must have shape ({k}, {d})")
-        if self._native_model is not None:
-            try:
-                self._native_model.set_parameters(
-                    start, transition, means, variances
-                )
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_set_parameters", exc)
+        def native(model: Any) -> "GaussianHMM":
+            model.set_parameters(start, transition, means, variances)
             return self
-        check(
-            get_lib().rflux_hmm_set_parameters(
-                self._require_handle(),
-                double_ptr(start),
-                double_ptr(transition.reshape(-1)),
-                double_ptr(means.reshape(-1)),
-                double_ptr(variances.reshape(-1)),
-            ),
-            "rflux_hmm_set_parameters",
-        )
-        return self
+
+        def fallback() -> "GaussianHMM":
+            check(
+                get_lib().rflux_hmm_set_parameters(
+                    self._require_handle(),
+                    double_ptr(start),
+                    double_ptr(transition.reshape(-1)),
+                    double_ptr(means.reshape(-1)),
+                    double_ptr(variances.reshape(-1)),
+                ),
+                "rflux_hmm_set_parameters",
+            )
+            return self
+
+        return self._native_or_abi(
+            "rflux_hmm_set_parameters", native, fallback)
 
     def viterbi(self, observations: Any) -> np.ndarray:
         """Full-sample Viterbi path (non-causal)."""
         data = _as_observations(observations, self._n_features)
-        if self._native_model is not None:
-            try:
-                return self._native_model.viterbi(data)
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_viterbi", exc)
-        return call_i32(
-            "rflux_hmm_viterbi", data.shape[0], get_lib().rflux_hmm_viterbi,
-            self._require_handle(), double_ptr(data), data.shape[0])
+        return self._native_or_abi(
+            "rflux_hmm_viterbi",
+            lambda model: model.viterbi(data),
+            lambda: call_i32(
+                "rflux_hmm_viterbi", data.shape[0],
+                get_lib().rflux_hmm_viterbi, self._require_handle(),
+                double_ptr(data), data.shape[0]),
+        )
+
+    def _probability_matrix(
+        self, name: str, observations: Any, method: str
+    ) -> np.ndarray:
+        data = _as_observations(observations, self._n_features)
+
+        def fallback() -> np.ndarray:
+            out = call_vector(
+                name, data.shape[0] * self._n_states, getattr(get_lib(), name),
+                self._require_handle(), double_ptr(data), data.shape[0])
+            return out.reshape(data.shape[0], self._n_states)
+
+        return self._native_or_abi(
+            name, lambda model: getattr(model, method)(data), fallback)
 
     def filtered(self, observations: Any) -> np.ndarray:
         """Causal filtered probabilities, shape (n_obs, n_states)."""
-        data = _as_observations(observations, self._n_features)
-        if self._native_model is not None:
-            try:
-                return self._native_model.filtered(data)
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_filtered", exc)
-        out = call_vector(
-            "rflux_hmm_filtered", data.shape[0] * self._n_states,
-            get_lib().rflux_hmm_filtered,
-            self._require_handle(), double_ptr(data), data.shape[0])
-        return out.reshape(data.shape[0], self._n_states)
+        return self._probability_matrix(
+            "rflux_hmm_filtered", observations, "filtered")
 
     def smoothed(self, observations: Any) -> np.ndarray:
         """Full-sample smoothed probabilities, shape (n_obs, n_states)."""
-        data = _as_observations(observations, self._n_features)
-        if self._native_model is not None:
-            try:
-                return self._native_model.smoothed(data)
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_smoothed", exc)
-        out = call_vector(
-            "rflux_hmm_smoothed", data.shape[0] * self._n_states,
-            get_lib().rflux_hmm_smoothed,
-            self._require_handle(), double_ptr(data), data.shape[0])
-        return out.reshape(data.shape[0], self._n_states)
+        return self._probability_matrix(
+            "rflux_hmm_smoothed", observations, "smoothed")
 
     def forecast(self, state_probs: Any, horizon: int = 1) -> np.ndarray:
         """Prior hidden-state distribution ``state_probs @ transition**horizon``."""
         probabilities = self._state_probabilities(state_probs)
         horizon = as_size(horizon, "horizon", minimum=0)
-        if self._native_model is not None:
-            try:
-                return self._native_model.forecast(probabilities, horizon)
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_forecast", exc)
-        return call_vector(
-            "rflux_hmm_forecast", self._n_states, get_lib().rflux_hmm_forecast,
-            self._require_handle(), double_ptr(probabilities), horizon)
+        return self._native_or_abi(
+            "rflux_hmm_forecast",
+            lambda model: model.forecast(probabilities, horizon),
+            lambda: call_vector(
+                "rflux_hmm_forecast", self._n_states,
+                get_lib().rflux_hmm_forecast, self._require_handle(),
+                double_ptr(probabilities), horizon),
+        )
 
     def filter_step(self, state_probs: Any, observation: Any) -> np.ndarray:
         """Causal one-step update from a prior state distribution."""
@@ -505,37 +534,35 @@ class GaussianHMM:
                 f"observation must have shape (1, {self._n_features})"
             )
         single = np.ascontiguousarray(single)
-        if self._native_model is not None:
-            try:
-                return self._native_model.filter_step(probabilities, single)
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_filter_step", exc)
-        return call_vector(
-            "rflux_hmm_filter_step", self._n_states,
-            get_lib().rflux_hmm_filter_step, self._require_handle(),
-            double_ptr(probabilities), double_ptr(single))
+        return self._native_or_abi(
+            "rflux_hmm_filter_step",
+            lambda model: model.filter_step(probabilities, single),
+            lambda: call_vector(
+                "rflux_hmm_filter_step", self._n_states,
+                get_lib().rflux_hmm_filter_step, self._require_handle(),
+                double_ptr(probabilities), double_ptr(single)),
+        )
 
     def stationary_distribution(self) -> np.ndarray:
         """Long-run distribution implied by the current transition matrix."""
-        if self._native_model is not None:
-            try:
-                return self._native_model.stationary_distribution()
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_stationary", exc)
-        return call_vector(
-            "rflux_hmm_stationary", self._n_states,
-            get_lib().rflux_hmm_stationary, self._require_handle())
+        return self._native_or_abi(
+            "rflux_hmm_stationary",
+            lambda model: model.stationary_distribution(),
+            lambda: call_vector(
+                "rflux_hmm_stationary", self._n_states,
+                get_lib().rflux_hmm_stationary, self._require_handle()),
+        )
 
     def expected_durations(self) -> np.ndarray:
         """Expected sojourn length of each state from the transition diagonal."""
-        if self._native_model is not None:
-            try:
-                return self._native_model.expected_durations()
-            except native_module.NativeError as exc:
-                raise_as_rflux("rflux_hmm_expected_durations", exc)
-        return call_vector(
-            "rflux_hmm_expected_durations", self._n_states,
-            get_lib().rflux_hmm_expected_durations, self._require_handle())
+        return self._native_or_abi(
+            "rflux_hmm_expected_durations",
+            lambda model: model.expected_durations(),
+            lambda: call_vector(
+                "rflux_hmm_expected_durations", self._n_states,
+                get_lib().rflux_hmm_expected_durations,
+                self._require_handle()),
+        )
 
     def save(self, path: Any) -> None:
         """Save parameters to a compressed NumPy ``.npz`` file."""
@@ -644,6 +671,50 @@ def fit_hmm(observations: Any, n_states: int = 2, **kwargs: Any) -> GaussianHMM:
     except Exception:
         model.close()
         raise
+
+
+def fit_hmm_snapshot(
+    observations: Any,
+    n_states: int = 2,
+    *,
+    horizon: int = 1,
+    **kwargs: Any,
+) -> HMMSnapshot:
+    """Fit an HMM and return a detached latest-filtered snapshot.
+
+    The model handle is always closed, including on failure.  ``kwargs`` are
+    forwarded to :meth:`GaussianHMM.fit`.
+    """
+    array = np.asarray(observations, dtype=np.float64)
+    if array.ndim == 1:
+        array = array.reshape(-1, 1)
+    elif array.ndim != 2:
+        raise ValueError("observations must be 1D or 2D")
+    model = fit_hmm(array, n_states=n_states, **kwargs)
+    try:
+        probabilities = np.asarray(model.filtered(array), dtype=np.float64)
+        if probabilities.shape[0] == 0:
+            raise ValueError("observations must not be empty")
+        latest = probabilities[-1].copy()
+        forecast = np.asarray(model.forecast(latest, horizon), dtype=np.float64)
+        fit = model.fit_info
+        parameters = model.parameters
+        return HMMSnapshot(
+            n_states=int(model.n_states),
+            n_features=int(model.n_features),
+            iterations=int(fit.iterations),
+            converged=bool(fit.converged),
+            log_likelihood=float(fit.log_likelihood),
+            aic=float(fit.aic),
+            bic=float(fit.bic),
+            latest_filtered=latest,
+            forecast=forecast.copy(),
+            transition=np.array(parameters.transition, copy=True),
+            means=np.array(parameters.means, copy=True),
+            variances=np.array(parameters.variances, copy=True),
+        )
+    finally:
+        model.close()
 
 
 def volatility_regime(
@@ -956,6 +1027,7 @@ __all__ = [
     "GaussianHMM",
     "HMMFitInfo",
     "HMMParameters",
+    "HMMSnapshot",
     "RFluxError",
     "StateAlignment",
     "StickyRegimeResult",
@@ -966,6 +1038,7 @@ __all__ = [
     "align_probabilities",
     "composite_regime",
     "fit_hmm",
+    "fit_hmm_snapshot",
     "match_states",
     "sticky_regime",
     "trend_regime",

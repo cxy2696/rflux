@@ -252,6 +252,43 @@ class TestGaussianHMM(unittest.TestCase):
             model.close()
 
 
+    def test_fit_hmm_snapshot_matches_model_and_is_detached(self):
+        observations = make_observations(seed=6)
+        snapshot = regimelab.fit_hmm_snapshot(
+            observations, 2, horizon=4, n_init=2, seed=11
+        )
+        with regimelab.GaussianHMM(2, 1) as model:
+            model.fit(observations, n_init=2, seed=11)
+            filtered = model.filtered(observations)
+            forecast = model.forecast(filtered[-1], horizon=4)
+            parameters = model.parameters
+            np.testing.assert_allclose(
+                snapshot.latest_filtered, filtered[-1], atol=1e-12
+            )
+            np.testing.assert_allclose(
+                snapshot.forecast, forecast, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                snapshot.transition, parameters.transition, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                snapshot.means, parameters.means, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                snapshot.variances, parameters.variances, atol=1e-12
+            )
+            self.assertEqual(snapshot.n_states, 2)
+            self.assertEqual(snapshot.n_features, 1)
+            self.assertGreater(snapshot.iterations, 0)
+            self.assertEqual(snapshot.latest_filtered.shape, (2,))
+            self.assertEqual(snapshot.forecast.shape, (2,))
+            np.testing.assert_allclose(snapshot.latest_filtered.sum(), 1.0)
+            np.testing.assert_allclose(snapshot.forecast.sum(), 1.0)
+        # The snapshot owns its arrays; clearing them cannot touch a live model.
+        snapshot.latest_filtered[:] = 0.0
+        np.testing.assert_allclose(snapshot.latest_filtered, 0.0)
+
+
 class TestStateAlignment(unittest.TestCase):
     def test_permuted_states_are_recovered(self):
         reference = regimelab.HMMParameters(

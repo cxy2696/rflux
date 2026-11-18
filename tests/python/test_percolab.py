@@ -25,6 +25,26 @@ PATH4 = np.array(
     ]
 )
 
+CYCLE4 = np.array(
+    [
+        [0.0, 1.0, 0.0, 1.0],
+        [1.0, 0.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [1.0, 0.0, 1.0, 0.0],
+    ]
+)
+
+
+def random_graph(rng: np.random.Generator, n: int = 6,
+                 probability: float = 0.4) -> np.ndarray:
+    """Undirected unweighted graph with the given edge probability."""
+    matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if rng.random() < probability:
+                matrix[i, j] = matrix[j, i] = 1.0
+    return matrix
+
 
 class TestGraphs(unittest.TestCase):
     def test_distance_components_mst(self):
@@ -43,6 +63,21 @@ class TestGraphs(unittest.TestCase):
         self.assertTrue(np.all(tree.weight >= 0.0))
         matrix = tree.as_array()
         self.assertEqual(matrix.shape, (3, 3))
+
+    def test_mst_dense_prim_weight_and_order(self):
+        distance = np.array(
+            [
+                [0.0, 1.0, 4.0, 3.0],
+                [1.0, 0.0, 2.0, 5.0],
+                [4.0, 2.0, 0.0, 6.0],
+                [3.0, 5.0, 6.0, 0.0],
+            ]
+        )
+        tree = percolab.mst_from_distance(distance)
+        np.testing.assert_array_equal(tree.u, [0, 1, 0])
+        np.testing.assert_array_equal(tree.v, [1, 2, 3])
+        np.testing.assert_allclose(tree.weight, [1.0, 2.0, 3.0])
+        self.assertAlmostEqual(float(tree.weight.sum()), 6.0)
 
     def test_centrality_clustering_and_network(self):
         strength = percolab.network_strength(CORR)
@@ -253,14 +288,7 @@ class TestGraphs(unittest.TestCase):
         np.testing.assert_array_equal(
             percolab.core_numbers(path4), [1, 1, 1, 1]
         )
-        cycle4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 1.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [1.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        cycle4 = CYCLE4
         np.testing.assert_array_equal(
             percolab.core_numbers(cycle4), [2, 2, 2, 2]
         )
@@ -290,11 +318,7 @@ class TestGraphs(unittest.TestCase):
         rng = np.random.default_rng(7)
         for _ in range(25):
             n = 6
-            matrix = np.zeros((n, n))
-            for i in range(n):
-                for j in range(i + 1, n):
-                    if rng.random() < 0.4:
-                        matrix[i, j] = matrix[j, i] = 1.0
+            matrix = random_graph(rng, n)
             expected = np.zeros(n, dtype=np.int32)
             for k in range(1, n + 1):
                 alive = set(range(n))
@@ -571,14 +595,7 @@ class TestGraphs(unittest.TestCase):
         self.assertTrue(np.all(np.diag(truss) == 0))
         self.assertEqual(truss[0, 2], 0)
 
-        cycle4 = np.array(
-            [
-                [0.0, 1.0, 0.0, 1.0],
-                [1.0, 0.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0, 1.0],
-                [1.0, 0.0, 1.0, 0.0],
-            ]
-        )
+        cycle4 = CYCLE4
         self.assertEqual(percolab.bridges(cycle4).shape, (0, 2))
         self.assertFalse(np.any(percolab.articulation_points(cycle4)))
 
@@ -624,11 +641,7 @@ class TestGraphs(unittest.TestCase):
         rng = np.random.default_rng(19)
         for _ in range(8):
             n = 6
-            matrix = np.zeros((n, n))
-            for i in range(n):
-                for j in range(i + 1, n):
-                    if rng.random() < 0.4:
-                        matrix[i, j] = matrix[j, i] = 1.0
+            matrix = random_graph(rng, n)
 
             def components(skip_edge=None, skip_node=None):
                 seen: set[int] = set()
@@ -745,6 +758,36 @@ class TestGraphs(unittest.TestCase):
         self.assertEqual(network.path_stats.n_reachable_pairs, 2)
         np.testing.assert_array_equal(network.core_numbers, [1, 1, 1, 1])
         self.assertEqual(network.max_core, 1)
+
+
+    def test_monte_carlo_repeats_are_deterministic(self):
+        rng = np.random.default_rng(5)
+        matrix = rng.normal(size=(60, 60))
+        matrix = (matrix + matrix.T) / 2.0
+        np.fill_diagonal(matrix, 1.0)
+        adjacency = np.maximum(matrix, 0.0)
+        np.fill_diagonal(adjacency, 0.0)
+        probabilities = np.linspace(0.1, 0.9, 7)
+
+        first = percolab.site_percolation(
+            adjacency, probabilities=probabilities, repetitions=11, seed=17
+        )
+        second = percolab.site_percolation(
+            adjacency, probabilities=probabilities, repetitions=11, seed=17
+        )
+        np.testing.assert_array_equal(first.giant_mean, second.giant_mean)
+        np.testing.assert_array_equal(first.giant_std, second.giant_std)
+        np.testing.assert_array_equal(
+            first.susceptibility, second.susceptibility
+        )
+
+        first_sizes = percolab.cluster_size_distribution(
+            adjacency, 0.4, repetitions=9, seed=23
+        )
+        second_sizes = percolab.cluster_size_distribution(
+            adjacency, 0.4, repetitions=9, seed=23
+        )
+        np.testing.assert_array_equal(first_sizes, second_sizes)
 
 
 if __name__ == "__main__":

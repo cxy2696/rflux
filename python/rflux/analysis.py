@@ -10,14 +10,11 @@ import numpy as np
 from . import metrics, percolab, qflux, regimelab
 from ._common import (
     as_f64_panel,
-    as_finite_float,
-    as_positive_float,
     as_size,
     asset_names as _asset_names,
+    equal_weight_market_returns,
 )
-from ._ffi import abi_version, native_version
-from ._json import jsonable
-from ._version import __version__
+from ._json import jsonable, package_metadata
 
 
 _SUMMARY_FIELDS = tuple(field.name for field in fields(metrics.PerformanceMetrics))
@@ -70,8 +67,9 @@ def analyze_prices(
     panel = as_f64_panel(prices, "prices", min_rows=2)
     n_obs, n_assets = panel.shape
     asset_names = _asset_names(names, n_assets)
-    periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
-    risk_free = as_finite_float(risk_free, "risk_free")
+    periods_per_year, risk_free, _ = metrics._validated_options(
+        periods_per_year, risk_free, None
+    )
     if include_hmm:
         hmm_states = as_size(hmm_states, "hmm_states")
         hmm_max_iter = as_size(hmm_max_iter, "hmm_max_iter")
@@ -81,11 +79,7 @@ def analyze_prices(
 
     returns = qflux.returns_panel(panel)
 
-    counts = np.sum(np.isfinite(returns), axis=1)
-    sums = np.nansum(returns, axis=1)
-    market_returns = np.full(n_obs, np.nan)
-    valid_rows = counts > 0
-    market_returns[valid_rows] = sums[valid_rows] / counts[valid_rows]
+    market_returns = equal_weight_market_returns(returns)
 
     asset_stats: dict[str, Any] = {}
     for column, name in enumerate(asset_names):
@@ -104,11 +98,7 @@ def analyze_prices(
     errors: list[str] = []
     market = _summary(market_returns, periods_per_year, risk_free)
     report: dict[str, Any] = {
-        "package": {
-            "version": __version__,
-            "native_version": native_version(),
-            "abi_version": abi_version(),
-        },
+        "package": package_metadata(),
         "input": {
             "observations": int(n_obs),
             "assets": int(n_assets),
@@ -176,39 +166,30 @@ def analyze_prices(
         if hmm_values.size < max(2, hmm_states):
             errors.append("HMM skipped: not enough finite market returns")
         else:
-            model = None
-            observations = hmm_values.reshape(-1, 1)
             try:
-                model = regimelab.fit_hmm(
-                    observations,
+                snapshot = regimelab.fit_hmm_snapshot(
+                    hmm_values,
                     n_states=hmm_states,
                     max_iter=hmm_max_iter,
                     n_init=hmm_n_init,
                     seed=seed,
+                    horizon=5,
                 )
-                fit = model.fit_info
-                filtered = model.filtered(observations)
-                latest = filtered[-1]
-                forecast = model.forecast(latest, horizon=5)
-                parameters = model.parameters
                 report["hmm"] = {
-                    "states": int(model.n_states),
-                    "iterations": int(fit.iterations),
-                    "converged": bool(fit.converged),
-                    "log_likelihood": float(fit.log_likelihood),
-                    "aic": float(fit.aic),
-                    "bic": float(fit.bic),
-                    "latest_state": int(np.argmax(latest)),
-                    "latest_filtered": latest.tolist(),
-                    "forecast_5": forecast.tolist(),
-                    "transition": parameters.transition.tolist(),
-                    "state_means": parameters.means[:, 0].tolist(),
+                    "states": snapshot.n_states,
+                    "iterations": snapshot.iterations,
+                    "converged": snapshot.converged,
+                    "log_likelihood": snapshot.log_likelihood,
+                    "aic": snapshot.aic,
+                    "bic": snapshot.bic,
+                    "latest_state": int(np.argmax(snapshot.latest_filtered)),
+                    "latest_filtered": snapshot.latest_filtered.tolist(),
+                    "forecast_5": snapshot.forecast.tolist(),
+                    "transition": snapshot.transition.tolist(),
+                    "state_means": snapshot.means[:, 0].tolist(),
                 }
             except Exception as exc:
                 errors.append(f"HMM skipped: {exc}")
-            finally:
-                if model is not None:
-                    model.close()
 
     return jsonable(report)
 

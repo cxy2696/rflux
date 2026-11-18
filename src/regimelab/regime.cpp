@@ -41,24 +41,38 @@ VolatilityRegimeResult volatility_regime(const double* returns, std::size_t n,
         rflux::qflux::rolling_std(returns, n, vol_window, 1);
     result.labels.assign(n, -1);
 
+    // Keep the reference history sorted instead of re-sorting it at every
+    // observation.  The labels are identical to a full sort, but each step
+    // costs one insertion/erase rather than a window sort.
     std::deque<double> history;
+    std::vector<double> sorted_history;
+    sorted_history.reserve(lookback + 1);
     for (std::size_t t = 0; t < n; ++t) {
-        if (!std::isfinite(result.volatility[t])) continue;
+        const double value = result.volatility[t];
+        if (!std::isfinite(value)) continue;
         if (history.size() >= kMinReferenceObservations) {
-            std::vector<double> reference(history.begin(), history.end());
-            std::sort(reference.begin(), reference.end());
-            const double lower = quantile_sorted(reference, low_q);
-            const double upper = quantile_sorted(reference, high_q);
-            if (result.volatility[t] > upper) {
+            const double lower = quantile_sorted(sorted_history, low_q);
+            const double upper = quantile_sorted(sorted_history, high_q);
+            if (value > upper) {
                 result.labels[t] = 2;
-            } else if (result.volatility[t] < lower) {
+            } else if (value < lower) {
                 result.labels[t] = 0;
             } else {
                 result.labels[t] = 1;
             }
         }
-        history.push_back(result.volatility[t]);
-        if (history.size() > lookback) history.pop_front();
+        sorted_history.insert(
+            std::lower_bound(sorted_history.begin(), sorted_history.end(),
+                             value),
+            value);
+        history.push_back(value);
+        if (history.size() > lookback) {
+            const double expired = history.front();
+            history.pop_front();
+            const auto position = std::lower_bound(
+                sorted_history.begin(), sorted_history.end(), expired);
+            sorted_history.erase(position);
+        }
     }
     return result;
 }
