@@ -41,6 +41,9 @@
 - 测试共用图 fixture、HMM 拟合 helper 和合成面板。`jscpd` 在 `src/`、
   `include/`、`python/rflux/`、`tests/` 上以 5 行/40 token 阈值报告 0 个完全
   克隆，仅中英双语文档镜像保留重复；新增可选的 `make dup-check` 目标。
+- 文件清理：删除独立的 `tests/cpp/test_cpp.cpp` smoke 套件，其独有的
+  describe/ranking/尾部风险断言并入 GoogleTest。CTest 现在有两个 target，
+  GoogleTest 共 30 个用例。
 - 文档：README、算法、核心、方法、应用、发布和示例页改为直接说明输入、输出、
   估计量和限制的工程笔记；`scripts/check_docs.py` 会拒绝 `not just`、
   `deliberately`、`Next layer` 等模板化标记。

@@ -193,13 +193,6 @@ if(RFLUX_BUILD_TESTS)
     rflux_enable_ipo(rflux_test_c)
     add_test(NAME rflux_c_abi COMMAND rflux_test_c)
 
-    add_executable(rflux_test_cpp tests/cpp/test_cpp.cpp)
-    target_link_libraries(rflux_test_cpp PRIVATE rflux_core)
-    target_include_directories(rflux_test_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    set_target_properties(rflux_test_cpp PROPERTIES OUTPUT_NAME test_cpp)
-    rflux_enable_ipo(rflux_test_cpp)
-    add_test(NAME rflux_cpp_core COMMAND rflux_test_cpp)
-
     if(RFLUX_BUILD_GTEST)
         find_package(GTest QUIET)
         if(NOT GTest_FOUND AND RFLUX_FETCH_GTEST)

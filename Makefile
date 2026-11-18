@@ -44,9 +44,9 @@ SHARED_LIB_ABS := $(abspath $(SHARED_LIB))
 RPATH := -Wl,-rpath,$(abspath $(BUILD))
 
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
-TESTS    := $(BUILD)/test_capi $(BUILD)/test_cpp
+TESTS    := $(BUILD)/test_capi
 
-.PHONY: all libs shared examples check c-test cpp-test python-test python-lib algo-check version-check docs-check dup-check native wheel clean
+.PHONY: all libs shared examples check c-test python-test python-lib algo-check version-check docs-check dup-check native wheel clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -72,9 +72,6 @@ $(SHARED_LIB): $(CORE_OBJS) $(CAPI_OBJ)
 $(BUILD)/test_capi: tests/c/test_capi.c $(SHARED_LIB) $(PUBLIC_HEADERS)
 	$(CC) $(OPT) $(CSTD) $(WARN) $(CPPFLAGS) -o $@ $< -L$(BUILD) -lrflux $(RPATH) $(LDLIBS)
 
-$(BUILD)/test_cpp: tests/cpp/test_cpp.cpp $(CORE_LIB) $(PUBLIC_HEADERS)
-	$(CXX) $(OPT) $(CPPFLAGS) $(CXXFLAGS) -o $@ $< $(CORE_LIB) $(LDLIBS)
-
 $(BUILD)/example_c_basic: examples/c_basic.c $(SHARED_LIB) $(PUBLIC_HEADERS)
 	$(CC) $(OPT) $(CSTD) $(WARN) $(CPPFLAGS) -o $@ $< -L$(BUILD) -lrflux $(RPATH) $(LDLIBS)
 
@@ -85,9 +82,6 @@ examples: $(EXAMPLES)
 
 c-test: $(BUILD)/test_capi
 	$(BUILD)/test_capi
-
-cpp-test: $(BUILD)/test_cpp
-	$(BUILD)/test_cpp
 
 python-test: $(SHARED_LIB)
 	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) -m unittest discover -s tests/python -p 'test_*.py' -v
@@ -118,11 +112,10 @@ dup-check:
 	npx --yes jscpd@4 src include python/rflux tests \
 		--min-lines 5 --min-tokens 40 --threshold 0 --reporters console
 
-check: c-test cpp-test python-test algo-check version-check docs-check
+check: c-test python-test algo-check version-check docs-check
 
 clean:
 	rm -rf $(BUILD)
 
 -include $(CORE_OBJS:.o=.d) $(CAPI_OBJ:.o=.d) \
          $(BUILD)/obj/tests/c/test_capi.d \
-         $(BUILD)/obj/tests/cpp/test_cpp.d

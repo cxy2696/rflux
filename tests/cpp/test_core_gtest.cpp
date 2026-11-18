@@ -75,6 +75,48 @@ void expect_correlation_matrix_matches_pearson(
     }
 }
 
+TEST(QfluxStatsGTest, DescribeRankingAndTailRisk) {
+    std::vector<double> values(10);
+    std::iota(values.begin(), values.end(), 1.0);
+    const rflux::qflux::Moments moments =
+        rflux::qflux::describe(values.data(), values.size());
+    EXPECT_EQ(moments.n_valid, 10u);
+    EXPECT_NEAR(moments.mean, 5.5, 1e-12);
+    EXPECT_NEAR(moments.variance, 55.0 / 6.0, 1e-12);
+    EXPECT_NEAR(moments.skewness, 0.0, 1e-12);
+    EXPECT_NEAR(moments.excess_kurtosis, -1.2, 1e-12);
+
+    EXPECT_NEAR(rflux::qflux::quantile(values.data(), values.size(), 0.25),
+                3.25, 1e-12);
+    EXPECT_NEAR(rflux::qflux::pearson(values.data(), values.data(),
+                                      values.size()), 1.0, 1e-12);
+    const std::vector<double> ranking =
+        rflux::qflux::rank(values.data(), values.size());
+    EXPECT_NEAR(ranking.front(), 1.0, 1e-12);
+    const std::vector<double> z =
+        rflux::qflux::zscore(values.data(), values.size(), 0);
+    EXPECT_NEAR(z.front(), -1.5666989036, 1e-9);
+    const std::vector<double> winsorized =
+        rflux::qflux::winsorize(values.data(), values.size(), 0.1, 0.9);
+    EXPECT_NEAR(winsorized.front(), 1.9, 1e-12);
+    EXPECT_NEAR(winsorized.back(), 9.1, 1e-12);
+
+    std::vector<double> grouped = {1.0, 2.0, 10.0, 12.0};
+    std::vector<std::int32_t> groups = {0, 0, 1, 1};
+    const std::vector<double> neutral =
+        rflux::qflux::neutralize(grouped.data(), grouped.size(), groups.data(),
+                                 2);
+    EXPECT_NEAR(neutral[0], -0.5, 1e-12);
+    EXPECT_NEAR(neutral[2], -1.0, 1e-12);
+
+    const std::vector<double> tail_returns = {-0.1, -0.05, 0.0, 0.05, 0.1};
+    const rflux::qflux::TailRisk tail =
+        rflux::qflux::historical_var_cvar(tail_returns.data(),
+                                          tail_returns.size(), 0.8);
+    EXPECT_NEAR(tail.var, 0.06, 1e-12);
+    EXPECT_NEAR(tail.cvar, 0.1, 1e-12);
+}
+
 TEST(QfluxGTest, RollingQuantileAndWarmup) {
     const std::vector<double> values = increasing(10);
     const auto median =

@@ -55,6 +55,9 @@ existing signatures, layouts and result semantics are unchanged.
   reports zero exact clones for `src/`, `include/`, `python/rflux/` and
   `tests/` at 5 lines/40 tokens; only the bilingual documentation mirrors
   repeat. Added an optional `make dup-check` target.
+- File cleanup: removed the standalone `tests/cpp/test_cpp.cpp` smoke suite;
+  its unique describe/ranking/tail-risk assertions moved into the GoogleTest
+  suite. CTest now has two targets, and the GoogleTest suite has 30 cases.
 - Documentation: replaced generated-sounding prose with direct engineering notes
   in the README, algorithm, core, methods, application, release and example
   pages. `scripts/check_docs.py` now rejects a short list of template markers
