@@ -37,8 +37,9 @@ Version rules:
   recompile.
 - `0.7.1` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
   native bridge are additive.
-- Factors, HRP, Almgren-Chriss, Huber, site-percolation detection and the
-  pre-trade gate have C entry points; all new symbols are additive.
+- Factors, HRP/NCO, tail dependence, Almgren-Chriss, Huber, site-percolation
+  detection and the pre-trade gate have C entry points; all new symbols are
+  additive.
 
 ## 2. Status codes and exceptions
 
@@ -146,6 +147,10 @@ void rflux_clear_error(void);
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`, row-major |
 | `rflux_hrp_weights` | n_assets, long-only and summing to one |
 | `rflux_hrp_order` | n_assets `size_t` leaf order |
+| `rflux_risk_parity_weights` | n_assets inverse-variance weights |
+| `rflux_nco_weights` | n_assets clustered risk-parity weights |
+| `rflux_rebalance_targets` | n_rows * n_assets gated weights |
+| `rflux_tail_dependence` | n_assets x n_assets symmetric matrix |
 | `rflux_almgren_chriss_plan` | trades of length `slices`; cost/variance/kappa are either all provided or all omitted |
 | `rflux_huber_regression` | coefficients length `n_features`; intercept, scale, iterations, converged |
 | `rflux_site_percolation_analyze` | giant, std, susceptibility, largest_component, systemic |

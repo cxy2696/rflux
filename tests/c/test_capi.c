@@ -791,6 +791,21 @@ static int test_algorithms(void) {
         CHECK(rflux_hrp_order(covariance, 2, order) == RFLUX_OK);
         CHECK((order[0] == 0 && order[1] == 1) ||
               (order[0] == 1 && order[1] == 0));
+        CHECK(rflux_risk_parity_weights(covariance, 2, weights) == RFLUX_OK);
+        CHECK(approx(weights[0], 0.6923076923076923, 1e-12));
+        CHECK(approx(weights[1], 0.3076923076923077, 1e-12));
+        CHECK(rflux_nco_weights(covariance, 2, 0.5, weights) == RFLUX_OK);
+        CHECK(approx(weights[0] + weights[1], 1.0, 1e-12));
+        CHECK(weights[0] >= 0.0 && weights[1] >= 0.0);
+        const double current[4] = {0.5, 0.5, 0.5, 0.5};
+        const double target[4] = {0.51, 0.49, 0.7, 0.3};
+        double gated[4];
+        CHECK(rflux_rebalance_targets(current, target, 2, 2, 0.05, gated) ==
+              RFLUX_OK);
+        CHECK(approx(gated[0], 0.5, 1e-12));
+        CHECK(approx(gated[1], 0.5, 1e-12));
+        CHECK(approx(gated[2], 0.7, 1e-12));
+        CHECK(approx(gated[3], 0.3, 1e-12));
     }
     {
         double trades[10], cost, variance, kappa;
@@ -813,6 +828,18 @@ static int test_algorithms(void) {
                                      &scale, &iter, &converged) == RFLUX_OK);
         CHECK(approx(coefficients[0], 2.0, 1e-9));
         CHECK(approx(intercept, 1.0, 1e-9));
+    }
+    {
+        const double returns[8] = {-2, -1, -1, 0, 0, 1, 1, 2};
+        double dependence[4];
+        CHECK(rflux_tail_dependence(returns, 4, 2, 0.25, 0, dependence) ==
+              RFLUX_OK);
+        CHECK(approx(dependence[0], 1.0, 1e-12));
+        CHECK(approx(dependence[3], 1.0, 1e-12));
+        CHECK(approx(dependence[1], dependence[2], 1e-12));
+        CHECK(dependence[1] >= 0.0 && dependence[1] <= 1.0);
+        CHECK(rflux_tail_dependence(returns, 4, 2, 1.0, 0, dependence) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
     }
     {
         const double adjacency[4] = {0.0, 1.0, 1.0, 0.0};

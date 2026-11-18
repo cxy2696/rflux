@@ -819,6 +819,19 @@ RFLUX_API rflux_status rflux_hrp_weights(const double* covariance,
 /* Quasi-diagonal leaf order used by HRP. */
 RFLUX_API rflux_status rflux_hrp_order(const double* covariance,
                                        size_t n_assets, size_t* order);
+/* Diagonal inverse-variance weights. */
+RFLUX_API rflux_status rflux_risk_parity_weights(const double* covariance,
+                                                 size_t n_assets,
+                                                 double* weights);
+/* Nested clustered risk parity with a correlation-distance threshold. */
+RFLUX_API rflux_status rflux_nco_weights(const double* covariance,
+                                         size_t n_assets,
+                                         double distance_threshold,
+                                         double* weights);
+/* Per-row rebalance gate; out has n_rows*n_assets entries. */
+RFLUX_API rflux_status rflux_rebalance_targets(
+    const double* current, const double* target, size_t n_rows,
+    size_t n_assets, double threshold, double* out);
 
 /* Almgren-Chriss liquidation.  trades has `slices` entries and sums to
  * quantity.  The three scalar outputs are optional only as a group; pass all
@@ -828,6 +841,13 @@ RFLUX_API rflux_status rflux_almgren_chriss_plan(
     double permanent_impact, double volatility, double risk_aversion,
     double* trades, double* expected_cost, double* expected_variance,
     double* kappa);
+
+/* Empirical pairwise tail dependence.  returns is (n_obs, n_assets);
+ * out has n_assets*n_assets entries and is symmetric with a unit diagonal.
+ * upper selects the upper tail; empty conditioning tails are NaN. */
+RFLUX_API rflux_status rflux_tail_dependence(
+    const double* returns, size_t n_obs, size_t n_assets, double q,
+    int32_t upper, double* out);
 
 /* Huber regression by IRLS.  coefficients has n_features entries. */
 RFLUX_API rflux_status rflux_huber_regression(

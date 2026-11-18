@@ -136,6 +136,9 @@ class TestPortfolioLab(unittest.TestCase):
         nco = portfoliolab.nco_weights(self.covariance)
         self.assertAlmostEqual(float(nco.sum()), 1.0, places=10)
         self.assertTrue(np.all(nco >= 0.0))
+        parity = portfoliolab.risk_parity_weights(self.covariance)
+        inverse = 1.0 / np.diag(self.covariance)
+        np.testing.assert_allclose(parity, inverse / inverse.sum(), atol=1e-12)
 
     def test_rebalance_threshold(self):
         current = np.array([0.5, 0.5])

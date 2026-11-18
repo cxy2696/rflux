@@ -25,6 +25,7 @@
 #include "rflux/mllab/huber.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
 #include "rflux/risk/pretrade.hpp"
+#include "rflux/risk/tail_dependence.hpp"
 
 struct rflux_hmm {
     rflux_hmm(std::size_t n_states, std::size_t n_features)
@@ -1117,6 +1118,33 @@ rflux_status rflux_hrp_order(const double* covariance, size_t n_assets,
     });
 }
 
+rflux_status rflux_risk_parity_weights(const double* covariance,
+                                       size_t n_assets, double* weights) {
+    return guarded_vector("rflux_risk_parity_weights", weights, "weights",
+                          [&] {
+                              return rflux::portfoliolab::risk_parity_weights(
+                                  covariance, n_assets);
+                          });
+}
+
+rflux_status rflux_nco_weights(const double* covariance, size_t n_assets,
+                               double distance_threshold, double* weights) {
+    return guarded_vector("rflux_nco_weights", weights, "weights", [&] {
+        return rflux::portfoliolab::nco_weights(
+            covariance, n_assets, distance_threshold);
+    });
+}
+
+rflux_status rflux_rebalance_targets(const double* current,
+                                     const double* target, size_t n_rows,
+                                     size_t n_assets, double threshold,
+                                     double* out) {
+    return guarded_vector("rflux_rebalance_targets", out, "out", [&] {
+        return rflux::portfoliolab::rebalance_targets(
+            current, target, n_rows, n_assets, threshold);
+    });
+}
+
 rflux_status rflux_almgren_chriss_plan(
     double quantity, size_t slices, double horizon, double temporary_impact,
     double permanent_impact, double volatility, double risk_aversion,
@@ -1142,6 +1170,15 @@ rflux_status rflux_almgren_chriss_plan(
             *expected_variance = plan.expected_variance;
             *kappa = plan.kappa;
         }
+    });
+}
+
+rflux_status rflux_tail_dependence(const double* returns, size_t n_obs,
+                                   size_t n_assets, double q, int32_t upper,
+                                   double* out) {
+    return guarded_vector("rflux_tail_dependence", out, "out", [&] {
+        return rflux::risk::tail_dependence(returns, n_obs, n_assets, q,
+                                            upper != 0);
     });
 }
 

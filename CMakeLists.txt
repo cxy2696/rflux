@@ -58,6 +58,7 @@ set(RFLUX_CORE_SOURCES
     src/percolab/detector.cpp
     src/percolab/factory.cpp
     src/risk/pretrade.cpp
+    src/risk/tail_dependence.cpp
     src/factorlab/factors.cpp
     src/factorlab/factory.cpp
     src/portfoliolab/hrp.cpp

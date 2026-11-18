@@ -41,6 +41,9 @@
 - 测试共用图 fixture、HMM 拟合 helper 和合成面板。`jscpd` 在 `src/`、
   `include/`、`python/rflux/`、`tests/` 上以 5 行/40 token 阈值报告 0 个完全
   克隆，仅中英双语文档镜像保留重复；新增可选的 `make dup-check` 目标。
+- Python 层：NCO 权重、风险平价、调仓门控和尾部相依改由 C++ 实现
+  （`portfoliolab/hrp.cpp`、`risk/tail_dependence.cpp`），新增 C ABI 函数和
+  pybind11 入口；Python 包装保留 ctypes 回退并通过 `native_or` 调度。
 - 文件清理：删除独立的 `tests/cpp/test_cpp.cpp` smoke 套件，其独有的
   describe/ranking/尾部风险断言并入 GoogleTest。CTest 现在有两个 target，
   GoogleTest 共 30 个用例。

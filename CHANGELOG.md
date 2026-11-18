@@ -55,6 +55,11 @@ existing signatures, layouts and result semantics are unchanged.
   reports zero exact clones for `src/`, `include/`, `python/rflux/` and
   `tests/` at 5 lines/40 tokens; only the bilingual documentation mirrors
   repeat. Added an optional `make dup-check` target.
+- Python layer: NCO weights, risk parity, rebalance gating and tail dependence
+  now run in C++
+  (`portfoliolab/hrp.cpp`, `risk/tail_dependence.cpp`) with additive C ABI
+  functions and pybind11 entry points. The Python wrappers keep the ctypes
+  fallback and dispatch through `native_or`.
 - File cleanup: removed the standalone `tests/cpp/test_cpp.cpp` smoke suite;
   its unique describe/ranking/tail-risk assertions moved into the GoogleTest
   suite. CTest now has two targets, and the GoogleTest suite has 30 cases.

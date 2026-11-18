@@ -1,8 +1,7 @@
 """Portfolio construction and rebalancing.
 
-``hrp`` is implemented in C++ and uses a correlation-distance single-linkage
-tree plus recursive bisection.  The C ABI is used when the native extension is
-not available.
+HRP, NCO, risk parity and rebalance gating are implemented in C++.  Python
+wrappers use the native extension when available and the C ABI otherwise.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from ._common import as_f64_2d, as_finite_float, as_size, double_ptr, empty_f64
+from ._common import as_f64_2d, as_finite_float, double_ptr, empty_f64
 from ._ffi import c_size_p, check, get_lib
 from ._native_backend import native_module, native_or
 
@@ -76,85 +75,63 @@ def quasi_diagonal_order(covariance: Any) -> np.ndarray:
 def nco_weights(
     covariance: Any, *, distance_threshold: float = 0.5
 ) -> np.ndarray:
-    """Nested clustered risk parity (NCO-style, long-only).
+    """Nested clustered risk parity, implemented in C++.
 
-    Assets are grouped by single-linkage correlation distance, each cluster is
-    allocated with HRP, and clusters are risk-budgeted by inverse cluster
-    variance.  This is a deterministic nested-risk-parity approximation; a full
-    NCO implementation replaces the cluster stage with a constrained convex
-    optimiser.
+    Assets are grouped by single-linkage correlation distance, each group is
+    HRP-allocated, and groups receive inverse cluster-variance budgets.
     """
     matrix = _covariance(covariance)
     threshold = as_finite_float(distance_threshold, "distance_threshold")
     if threshold < 0.0:
         raise ValueError("distance_threshold must be non-negative")
     n = matrix.shape[0]
-    diagonal = np.sqrt(np.diag(matrix))
-    correlation = matrix / np.outer(diagonal, diagonal)
-    correlation = np.clip(correlation, -1.0, 1.0)
-    distance = np.sqrt(np.maximum(0.0, 0.5 * (1.0 - correlation)))
+    def fallback() -> np.ndarray:
+        out = empty_f64(n)
+        check(
+            get_lib().rflux_nco_weights(
+                double_ptr(matrix), n, float(threshold), double_ptr(out)
+            ),
+            "rflux_nco_weights",
+        )
+        return out
 
-    parent = list(range(n))
-
-    def find(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
-
-    def union(a: int, b: int) -> None:
-        root_a, root_b = find(a), find(b)
-        if root_a != root_b:
-            parent[max(root_a, root_b)] = min(root_a, root_b)
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            if distance[i, j] <= threshold:
-                union(i, j)
-    groups: dict[int, list[int]] = {}
-    for index in range(n):
-        groups.setdefault(find(index), []).append(index)
-    result = np.zeros(n, dtype=np.float64)
-    cluster_variances: list[float] = []
-    cluster_members = list(groups.values())
-    for members in cluster_members:
-        if len(members) == 1:
-            intra = np.ones(1, dtype=np.float64)
-        else:
-            intra = hrp_weights(matrix[np.ix_(members, members)])
-        sub = matrix[np.ix_(members, members)]
-        cluster_variances.append(float(intra @ sub @ intra))
-    inverse = np.asarray(
-        [1.0 / value if np.isfinite(value) and value > 0.0 else 0.0
-         for value in cluster_variances],
-        dtype=np.float64,
+    return native_or(
+        native_module,
+        "rflux_nco_weights",
+        lambda: native_module.nco_weights(matrix, float(threshold)),
+        fallback,
     )
-    if float(inverse.sum()) <= 0.0:
-        inverse = np.ones_like(inverse)
-    cluster_budgets = inverse / float(inverse.sum())
-    for members, budget in zip(cluster_members, cluster_budgets):
-        if len(members) == 1:
-            result[members[0]] = budget
-            continue
-        sub = matrix[np.ix_(members, members)]
-        intra = hrp_weights(sub)
-        result[members] = budget * intra
-    return result
 
 
 def risk_parity_weights(covariance: Any) -> np.ndarray:
-    """Diagonal inverse-variance allocation, a simple risk-parity baseline."""
+    """Diagonal inverse-variance allocation, implemented in C++."""
     matrix = _covariance(covariance)
-    inverse = 1.0 / np.diag(matrix)
-    return inverse / float(inverse.sum())
+    n = matrix.shape[0]
+    def fallback() -> np.ndarray:
+        out = empty_f64(n)
+        check(
+            get_lib().rflux_risk_parity_weights(
+                double_ptr(matrix), n, double_ptr(out)
+            ),
+            "rflux_risk_parity_weights",
+        )
+        return out
+
+    return native_or(
+        native_module,
+        "rflux_risk_parity_weights",
+        lambda: native_module.risk_parity_weights(matrix),
+        fallback,
+    )
 
 
 def rebalance_targets(
     current: Any, target: Any, *, threshold: float = 0.05
 ) -> np.ndarray:
-    """Return target weights only when their row's maximum drift clears ``threshold``.
+    """Gate each portfolio row independently, implemented in C++.
 
-    For a 2D path, each portfolio row is gated independently.
+    A row switches from current to target when its maximum absolute drift
+    reaches ``threshold``.
     """
     current_array = np.asarray(current, dtype=np.float64)
     target_array = np.asarray(target, dtype=np.float64)
@@ -171,9 +148,30 @@ def rebalance_targets(
     threshold = as_finite_float(threshold, "threshold")
     if threshold < 0.0:
         raise ValueError("threshold must be non-negative")
-    # A 2D input is a path of portfolios: gate every row on its own maximum
-    # drift.  Using one global maximum would force all periods to trade when a
-    # single period breaches the threshold.
-    drift = np.max(np.abs(target_array - current_array), axis=1, keepdims=True)
-    result = np.where(drift >= threshold, target_array, current_array)
+    current_array = np.ascontiguousarray(current_array)
+    target_array = np.ascontiguousarray(target_array)
+    n_rows, n_assets = current_array.shape
+    def fallback() -> np.ndarray:
+        out = empty_f64(n_rows * n_assets)
+        check(
+            get_lib().rflux_rebalance_targets(
+                double_ptr(current_array),
+                double_ptr(target_array),
+                n_rows,
+                n_assets,
+                float(threshold),
+                double_ptr(out),
+            ),
+            "rflux_rebalance_targets",
+        )
+        return out.reshape(n_rows, n_assets)
+
+    result = native_or(
+        native_module,
+        "rflux_rebalance_targets",
+        lambda: native_module.rebalance_targets(
+            current_array, target_array, float(threshold)
+        ),
+        fallback,
+    )
     return result[0] if vector_output else result
