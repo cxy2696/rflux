@@ -782,6 +782,22 @@ static int test_algorithms(void) {
               RFLUX_ERR_INVALID_ARGUMENT);
     }
     {
+        const double factor[6] = {1, 2, 3, 4, 5, 6};
+        const double forward[6] = {2, 4, 6, 8, 10, 12};
+        double ic[2];
+        CHECK(rflux_factor_ic(factor, forward, 2, 3, 0, ic) == RFLUX_OK);
+        CHECK(approx(ic[0], 1.0, 1e-12));
+        CHECK(approx(ic[1], 1.0, 1e-12));
+        CHECK(rflux_factor_ic(factor, forward, 2, 3, 1, ic) == RFLUX_OK);
+        CHECK(approx(ic[0], 1.0, 1e-12));
+        const double weights[6] = {0.5, 0.5, 0.6, 0.4, 0.6, 0.4};
+        double turnover[3];
+        CHECK(rflux_factor_turnover(weights, 3, 2, turnover) == RFLUX_OK);
+        CHECK(approx(turnover[0], 0.0, 1e-12));
+        CHECK(approx(turnover[1], 0.1, 1e-12));
+        CHECK(approx(turnover[2], 0.0, 1e-12));
+    }
+    {
         const double covariance[4] = {0.04, 0.006, 0.006, 0.09};
         double weights[2];
         size_t order[2];

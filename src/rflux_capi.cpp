@@ -21,6 +21,7 @@
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
+#include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
@@ -1086,6 +1087,22 @@ rflux_status rflux_factor_vwap_deviation(const double* close,
         context.close = {close, n_obs, n_assets};
         context.volume = {volume, n_obs, n_assets};
         return rflux::factorlab::VwapDeviationFactor(window).compute(context);
+    });
+}
+
+rflux_status rflux_factor_ic(const double* factor,
+                              const double* forward_returns, size_t n_obs,
+                              size_t n_assets, int32_t spearman, double* out) {
+    return guarded_vector("rflux_factor_ic", out, "out", [&] {
+        return rflux::factorlab::information_coefficient(
+            factor, forward_returns, n_obs, n_assets, spearman != 0);
+    });
+}
+
+rflux_status rflux_factor_turnover(const double* weights, size_t n_obs,
+                                   size_t n_assets, double* out) {
+    return guarded_vector("rflux_factor_turnover", out, "out", [&] {
+        return rflux::factorlab::factor_turnover(weights, n_obs, n_assets);
     });
 }
 

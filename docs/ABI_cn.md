@@ -127,6 +127,8 @@ void rflux_clear_error(void);
 | 函数 | 输出 |
 | --- | --- |
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`，行主序 |
+| `rflux_factor_ic` | `n_obs` 个 Pearson/Spearman IC |
+| `rflux_factor_turnover` | `n_obs` 个单边换手率 |
 | `rflux_hrp_weights` | n_assets，long-only，和为 1 |
 | `rflux_hrp_order` | n_assets 个 `size_t` 叶序 |
 | `rflux_risk_parity_weights` | n_assets 逆方差权重 |

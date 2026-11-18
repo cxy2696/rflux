@@ -132,7 +132,8 @@ Pass `-DRFLUX_ENABLE_IPO=OFF` to compare builds or to avoid long link times.
 
 ## C ABI coverage
 
-The 0.7 kernels are reachable from C: factors, HRP/NCO and risk-parity weights,
+The 0.7 kernels are reachable from C: factor panels/IC/turnover, HRP/NCO and
+risk-parity weights,
 rebalance gating, tail dependence, Almgren-Chriss plans, Huber regression,
 site-percolation analysis and threshold, and the pre-trade gate.  Python uses those C functions when the
 pybind11 extension is unavailable instead of keeping a second NumPy

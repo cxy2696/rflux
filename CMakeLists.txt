@@ -60,6 +60,7 @@ set(RFLUX_CORE_SOURCES
     src/risk/pretrade.cpp
     src/risk/tail_dependence.cpp
     src/factorlab/factors.cpp
+    src/factorlab/evaluation.cpp
     src/factorlab/factory.cpp
     src/portfoliolab/hrp.cpp
     src/portfoliolab/factory.cpp

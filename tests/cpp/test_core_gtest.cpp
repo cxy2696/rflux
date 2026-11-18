@@ -13,6 +13,7 @@
 #include "rflux/execution/factory.hpp"
 #include "rflux/core/market.hpp"
 #include "rflux/risk/pretrade.hpp"
+#include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
 #include "rflux/mllab/factory.hpp"
@@ -200,6 +201,23 @@ TEST(RegimelabGTest, RegimeLabelsAreCausal) {
     ASSERT_EQ(trend.labels.size(), values.size());
     EXPECT_EQ(trend.labels[0], -1);
     EXPECT_EQ(trend.labels.back(), 2);
+}
+
+TEST(FactorLabGTest, InformationCoefficientAndTurnover) {
+    const double factor[6] = {1, 2, 3, 4, 5, 6};
+    const double forward[6] = {2, 4, 6, 8, 10, 12};
+    const auto pearson =
+        rflux::factorlab::information_coefficient(factor, forward, 2, 3, false);
+    EXPECT_NEAR(pearson[0], 1.0, 1e-12);
+    EXPECT_NEAR(pearson[1], 1.0, 1e-12);
+    const auto spearman =
+        rflux::factorlab::information_coefficient(factor, forward, 2, 3, true);
+    EXPECT_NEAR(spearman[0], 1.0, 1e-12);
+    const double weights[6] = {0.5, 0.5, 0.6, 0.4, 0.6, 0.4};
+    const auto turnover = rflux::factorlab::factor_turnover(weights, 3, 2);
+    EXPECT_NEAR(turnover[0], 0.0, 1e-12);
+    EXPECT_NEAR(turnover[1], 0.1, 1e-12);
+    EXPECT_NEAR(turnover[2], 0.0, 1e-12);
 }
 
 TEST(FactorLabGTest, MomentumAndVwapWarmup) {

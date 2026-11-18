@@ -145,6 +145,8 @@ void rflux_clear_error(void);
 | Function | Output |
 | --- | --- |
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`, row-major |
+| `rflux_factor_ic` | `n_obs` Pearson or Spearman ICs |
+| `rflux_factor_turnover` | `n_obs` one-way turnover values |
 | `rflux_hrp_weights` | n_assets, long-only and summing to one |
 | `rflux_hrp_order` | n_assets `size_t` leaf order |
 | `rflux_risk_parity_weights` | n_assets inverse-variance weights |

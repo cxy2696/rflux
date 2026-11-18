@@ -306,6 +306,10 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, c_double_p, size_t, size_t, size_t, c_double_p])
     bind("rflux_factor_amihud", ctypes.c_int,
          [c_double_p, c_double_p, size_t, size_t, size_t, double, c_double_p])
+    bind("rflux_factor_ic", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, ctypes.c_int32, c_double_p])
+    bind("rflux_factor_turnover", ctypes.c_int,
+         [c_double_p, size_t, size_t, c_double_p])
 
     # portfolio construction
     bind("rflux_hrp_weights", ctypes.c_int,

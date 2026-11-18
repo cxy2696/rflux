@@ -809,6 +809,14 @@ RFLUX_API rflux_status rflux_factor_volume_reversal(
 RFLUX_API rflux_status rflux_factor_vwap_deviation(
     const double* close, const double* volume, size_t n_obs, size_t n_assets,
     size_t window, double* out);
+/* Cross-sectional IC per row; spearman selects rank correlation. */
+RFLUX_API rflux_status rflux_factor_ic(
+    const double* factor, const double* forward_returns, size_t n_obs,
+    size_t n_assets, int32_t spearman, double* out);
+/* One-way turnover per row; out has n_obs entries. */
+RFLUX_API rflux_status rflux_factor_turnover(
+    const double* weights, size_t n_obs, size_t n_assets, double* out);
+
 RFLUX_API rflux_status rflux_factor_amihud(
     const double* close, const double* volume, size_t n_obs, size_t n_assets,
     size_t window, double scale, double* out);

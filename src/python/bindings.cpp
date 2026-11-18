@@ -31,6 +31,7 @@
 
 #include "internal/common.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
+#include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
@@ -569,6 +570,35 @@ py::array_t<double> factor_vwap_deviation(const DoubleArray& close,
     });
 }
 
+py::array_t<double> factor_ic(const DoubleArray& factor,
+                              const DoubleArray& forward_returns,
+                              bool spearman) {
+    require_2d(factor, "factor");
+    require_2d(forward_returns, "forward_returns");
+    if (factor.shape(0) != forward_returns.shape(0) ||
+        factor.shape(1) != forward_returns.shape(1)) {
+        throw rflux::InvalidArgument(
+            "factor and forward_returns must have equal shape");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::factorlab::information_coefficient(
+            factor.data(), forward_returns.data(),
+            static_cast<std::size_t>(factor.shape(0)),
+            static_cast<std::size_t>(factor.shape(1)), spearman);
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> factor_turnover(const DoubleArray& weights) {
+    require_2d(weights, "weights");
+    std::vector<double> result = run_released([&] {
+        return rflux::factorlab::factor_turnover(
+            weights.data(), static_cast<std::size_t>(weights.shape(0)),
+            static_cast<std::size_t>(weights.shape(1)));
+    });
+    return vector_to_array(result);
+}
+
 py::array_t<double> factor_amihud(const DoubleArray& close,
                                   const DoubleArray& volume,
                                   std::size_t window, double scale) {
@@ -903,6 +933,9 @@ PYBIND11_MODULE(_native, module) {
                py::arg("close"), py::arg("volume"), py::arg("window"));
     module.def("factor_vwap_deviation", &factor_vwap_deviation,
                py::arg("close"), py::arg("volume"), py::arg("window"));
+    module.def("factor_ic", &factor_ic, py::arg("factor"),
+               py::arg("forward_returns"), py::arg("spearman") = false);
+    module.def("factor_turnover", &factor_turnover, py::arg("weights"));
     module.def("factor_amihud", &factor_amihud, py::arg("close"),
                py::arg("volume"), py::arg("window"), py::arg("scale") = 1e6);
     module.def("tail_dependence", &tail_dependence, py::arg("returns"),

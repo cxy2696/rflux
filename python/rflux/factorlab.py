@@ -15,7 +15,6 @@ import numpy as np
 from ._common import as_f64_2d, as_size, double_ptr, empty_f64
 from ._ffi import check, get_lib
 from ._native_backend import native_module, native_or
-from . import qflux
 
 __all__ = [
     "amihud",
@@ -160,7 +159,7 @@ def information_coefficient(
     *,
     method: Literal["pearson", "spearman"] = "pearson",
 ) -> np.ndarray:
-    """Cross-sectional IC for each observation row.
+    """Cross-sectional IC for each observation row, implemented in C++.
 
     Rows with fewer than two valid assets or a zero-dispersion side yield NaN.
     ``spearman`` computes Pearson correlation of average ranks.
@@ -172,24 +171,31 @@ def information_coefficient(
     normalized = str(method).lower()
     if normalized not in {"pearson", "spearman"}:
         raise ValueError("method must be 'pearson' or 'spearman'")
-    result = np.full(values.shape[0], np.nan, dtype=np.float64)
-    for row in range(values.shape[0]):
-        x = values[row]
-        y = returns[row]
-        valid = np.isfinite(x) & np.isfinite(y)
-        if int(valid.sum()) < 2:
-            continue
-        a = x[valid]
-        b = y[valid]
-        if normalized == "spearman":
-            a = qflux.rank(a)
-            b = qflux.rank(b)
-        a64 = np.asarray(a, dtype=np.float64)
-        b64 = np.asarray(b, dtype=np.float64)
-        if np.all(a64 == a64[0]) or np.all(b64 == b64[0]):
-            continue
-        result[row] = float(np.corrcoef(a64, b64)[0, 1])
-    return result
+    n_obs = values.shape[0]
+    n_assets = values.shape[1]
+    def fallback() -> np.ndarray:
+        out = empty_f64(n_obs)
+        check(
+            get_lib().rflux_factor_ic(
+                double_ptr(values),
+                double_ptr(returns),
+                n_obs,
+                n_assets,
+                1 if normalized == "spearman" else 0,
+                double_ptr(out),
+            ),
+            "rflux_factor_ic",
+        )
+        return out
+
+    return native_or(
+        native_module,
+        "rflux_factor_ic",
+        lambda: native_module.factor_ic(
+            values, returns, normalized == "spearman"
+        ),
+        fallback,
+    )
 
 
 def factor_turnover(weights: Any) -> np.ndarray:
@@ -197,7 +203,20 @@ def factor_turnover(weights: Any) -> np.ndarray:
     panel = _panel(weights, "weights")
     if np.any(~np.isfinite(panel)):
         raise ValueError("weights must be finite")
-    result = np.zeros(panel.shape[0], dtype=np.float64)
-    for t in range(1, panel.shape[0]):
-        result[t] = 0.5 * float(np.abs(panel[t] - panel[t - 1]).sum())
-    return result
+    n_obs, n_assets = panel.shape
+    def fallback() -> np.ndarray:
+        out = empty_f64(n_obs)
+        check(
+            get_lib().rflux_factor_turnover(
+                double_ptr(panel), n_obs, n_assets, double_ptr(out)
+            ),
+            "rflux_factor_turnover",
+        )
+        return out
+
+    return native_or(
+        native_module,
+        "rflux_factor_turnover",
+        lambda: native_module.factor_turnover(panel),
+        fallback,
+    )
