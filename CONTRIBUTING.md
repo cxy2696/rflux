@@ -23,8 +23,9 @@ through the native extension and once through the ctypes C ABI.  The algorithm
 traceability matrix lives in `docs/ALGORITHMS_en.md`.
 
 The shipping code and tests are kept at zero exact clones. Run `make dup-check`
-before a large refactor (it needs Node/`npx`, so CI does not run it). The
-command checks `src/`, `include/`, `python/rflux/` and `tests/` at the strict
+before a large refactor (it needs Node/`npx`, so CI does not run it). GitHub
+Actions runs on `ubuntu-latest` only; build and test locally on other platforms
+when changing the C ABI or bindings. The command checks `src/`, `include/`, `python/rflux/` and `tests/` at the strict
 5-line/40-token threshold; the bilingual documentation mirrors are the only
 expected repeated blocks.
 
@@ -48,7 +49,7 @@ cmake --preset dev
 cmake --build --preset dev
 ctest --preset dev --output-on-failure
 
-# ASan + UBSan (Linux CI runs leak detection; macOS cannot)
+# ASan + UBSan (CI enables leak detection on ubuntu-latest)
 cmake --preset sanitize
 cmake --build --preset sanitize
 ctest --preset sanitize --output-on-failure

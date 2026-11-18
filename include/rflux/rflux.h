@@ -47,8 +47,8 @@ extern "C" {
 
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 1
+#define RFLUX_VERSION_MINOR 8
+#define RFLUX_VERSION_PATCH 0
 
 typedef enum rflux_status {
     RFLUX_OK = 0,
@@ -66,7 +66,7 @@ typedef enum rflux_status {
 
 RFLUX_API uint32_t rflux_abi_version(void);
 
-/* Returns a static string such as "0.7.1". */
+/* Returns a static string such as "0.8.0". */
 RFLUX_API const char* rflux_version_string(void);
 
 /*
@@ -519,6 +519,16 @@ RFLUX_API rflux_status rflux_composite_regime(const int32_t* vol_labels,
                                               const int32_t* trend_labels,
                                               size_t n, int32_t* out);
 
+/* Match target HMM states to reference states by minimising standardised
+ * mean and log-variance differences.  means/variances are row-major
+ * n_states x n_features panels; order receives n_states entries where
+ * reference state k maps to target state order[k]. */
+RFLUX_API rflux_status rflux_regime_match_states(
+    const double* reference_means, const double* reference_variances,
+    const double* target_means, const double* target_variances,
+    size_t n_states, size_t n_features, double variance_weight,
+    int32_t* order);
+
 /* ------------------------------------------------------------------------- */
 /* percolab: graph and percolation primitives                                */
 /* ------------------------------------------------------------------------- */
@@ -831,6 +841,34 @@ RFLUX_API rflux_status rflux_factor_turnover(
 RFLUX_API rflux_status rflux_factor_amihud(
     const double* close, const double* volume, size_t n_obs, size_t n_assets,
     size_t window, double scale, double* out);
+
+/* Forward simple or log returns over `periods` bars.  The trailing
+ * `periods` rows are NaN because their future price is unknown. */
+RFLUX_API rflux_status rflux_factor_forward_returns(
+    const double* prices, size_t n_obs, size_t n_assets, size_t periods,
+    int32_t log_returns, double* out);
+
+/* Equal-weight forward returns split into factor quantiles, shape
+ * (n_quantiles, n_obs) row-major.  Empty buckets are NaN. */
+RFLUX_API rflux_status rflux_factor_quantile_returns(
+    const double* factor, const double* forward_returns, size_t n_obs,
+    size_t n_assets, size_t n_quantiles, double* out);
+
+/* Equal-weight top-minus-bottom portfolio with one-way turnover cost.
+ * gross_returns, costs, turnover and net_returns have n_obs entries; equity
+ * has n_obs + 1 entries and starts at 1; quantile_returns has
+ * n_quantiles*n_obs entries.  Every output buffer is required. */
+RFLUX_API rflux_status rflux_factor_long_short(
+    const double* factor, const double* forward_returns, size_t n_obs,
+    size_t n_assets, size_t n_quantiles, double cost_bps,
+    double* gross_returns, double* costs, double* turnover,
+    double* net_returns, double* equity, double* quantile_returns);
+
+/* Summarize per-period IC values.  out[0] = mean, out[1] = sample standard
+ * deviation, out[2] = mean/std, out[3] = share of positive periods; periods
+ * receives the number of finite inputs. */
+RFLUX_API rflux_status rflux_factor_ic_summary(const double* ic, size_t n,
+                                               double* out, size_t* periods);
 
 /* Long-only HRP weights for a symmetric n x n covariance matrix. */
 RFLUX_API rflux_status rflux_hrp_weights(const double* covariance,

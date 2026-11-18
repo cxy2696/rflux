@@ -97,6 +97,11 @@ C 端直接写入调用方数组，pybind11 直接写入 NumPy 输出（`series_
 有序缓冲区（二分查找加分块搬移，不需要全局坐标压缩）；更长的窗口仍使用压缩
 坐标上的 Fenwick 树。两条路径给出相同的 Type-7 分位数。
 
+研究类内核遵循相同的所有权规则。`factorlab/backtest.cpp` 接收行主序的因子和
+前瞻收益面板，按 `np.array_split` 的尺寸切分横截面并写出结果向量，C ABI 再
+拷贝到调用方缓冲区。`regimelab/alignment.cpp` 用 Hungarian 分配返回状态排列，
+不持有模型状态，因此既可用于在线模型，也可用于保存的参数快照。
+
 ## 确定性并行
 
 `detail::parallel_for(count, fn, max_threads)` 是核心中唯一的线程原语。它按

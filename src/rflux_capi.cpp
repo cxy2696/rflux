@@ -21,7 +21,9 @@
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
+#include "rflux/regimelab/alignment.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
+#include "rflux/factorlab/backtest.hpp"
 #include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
@@ -767,6 +769,18 @@ rflux_status rflux_composite_regime(const int32_t* vol_labels,
     });
 }
 
+rflux_status rflux_regime_match_states(
+    const double* reference_means, const double* reference_variances,
+    const double* target_means, const double* target_variances,
+    size_t n_states, size_t n_features, double variance_weight,
+    int32_t* order) {
+    return guarded_i32("rflux_regime_match_states", order, "order", [&] {
+        return rflux::regimelab::match_states(
+            reference_means, reference_variances, target_means,
+            target_variances, n_states, n_features, variance_weight);
+    });
+}
+
 /* ---------------------------------------------------------------------- */
 /* percolab graphs                                                        */
 /* ---------------------------------------------------------------------- */
@@ -1145,6 +1159,61 @@ rflux_status rflux_factor_amihud(const double* close, const double* volume,
         context.close = {close, n_obs, n_assets};
         context.volume = {volume, n_obs, n_assets};
         return rflux::factorlab::AmihudFactor(window, scale).compute(context);
+    });
+}
+
+rflux_status rflux_factor_forward_returns(const double* prices, size_t n_obs,
+                                          size_t n_assets, size_t periods,
+                                          int32_t log_returns, double* out) {
+    return guarded_vector("rflux_factor_forward_returns", out, "out", [&] {
+        return rflux::factorlab::forward_returns(
+            prices, n_obs, n_assets, periods, log_returns != 0);
+    });
+}
+
+rflux_status rflux_factor_quantile_returns(
+    const double* factor, const double* forward_returns, size_t n_obs,
+    size_t n_assets, size_t n_quantiles, double* out) {
+    return guarded_vector("rflux_factor_quantile_returns", out, "out", [&] {
+        return rflux::factorlab::quantile_portfolio_returns(
+            factor, forward_returns, n_obs, n_assets, n_quantiles);
+    });
+}
+
+rflux_status rflux_factor_long_short(
+    const double* factor, const double* forward_returns, size_t n_obs,
+    size_t n_assets, size_t n_quantiles, double cost_bps,
+    double* gross_returns, double* costs, double* turnover,
+    double* net_returns, double* equity, double* quantile_returns) {
+    return api_guard("rflux_factor_long_short", [&] {
+        require_output(gross_returns, "gross_returns");
+        require_output(costs, "costs");
+        require_output(turnover, "turnover");
+        require_output(net_returns, "net_returns");
+        require_output(equity, "equity");
+        require_output(quantile_returns, "quantile_returns");
+        const auto values = rflux::factorlab::long_short_backtest(
+            factor, forward_returns, n_obs, n_assets, n_quantiles, cost_bps);
+        copy_out(values.gross_returns, gross_returns);
+        copy_out(values.costs, costs);
+        copy_out(values.turnover, turnover);
+        copy_out(values.net_returns, net_returns);
+        copy_out(values.equity, equity);
+        copy_out(values.quantile_returns, quantile_returns);
+    });
+}
+
+rflux_status rflux_factor_ic_summary(const double* ic, size_t n, double* out,
+                                     size_t* periods) {
+    return api_guard("rflux_factor_ic_summary", [&] {
+        require_output(out, "out");
+        require_output(periods, "periods");
+        const auto summary = rflux::factorlab::summarize_ic(ic, n);
+        out[0] = summary.mean;
+        out[1] = summary.std;
+        out[2] = summary.information_ratio;
+        out[3] = summary.positive_ratio;
+        *periods = summary.periods;
     });
 }
 

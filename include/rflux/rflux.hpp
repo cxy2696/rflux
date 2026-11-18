@@ -19,6 +19,7 @@
 #include "rflux/core/algorithm.hpp"
 #include "rflux/core/market.hpp"
 #include "rflux/core/registry.hpp"
+#include "rflux/factorlab/backtest.hpp"
 #include "rflux/factorlab/factory.hpp"
 #include "rflux/portfoliolab/factory.hpp"
 #include "rflux/mllab/factory.hpp"
@@ -31,4 +32,5 @@
 #include "rflux/portfoliolab/hrp.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
 #include "rflux/mllab/huber.hpp"
+#include "rflux/regimelab/alignment.hpp"
 #include "rflux/regimelab/detector.hpp"

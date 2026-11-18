@@ -44,7 +44,7 @@ cmake --preset dev
 cmake --build --preset dev
 ctest --preset dev --output-on-failure
 
-# ASan + UBSan；Linux CI 开启 leak detection，macOS 不支持
+# ASan + UBSan；CI 在 ubuntu-latest 上开启 leak detection
 cmake --preset sanitize
 cmake --build --preset sanitize
 ctest --preset sanitize --output-on-failure

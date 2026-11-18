@@ -64,6 +64,10 @@ class TestMetricsAndBacktest(unittest.TestCase):
         self.assertTrue(np.isnan(inf_forward[1, 0]))
         self.assertAlmostEqual(inf_forward[2, 0], 1.0 / 3.0)
         self.assertTrue(np.isnan(inf_forward[3, 0]))
+        for empty in (np.empty((0, 3)), np.empty((3, 0)), np.empty((0,))):
+            result = backtest.forward_returns(empty, periods=1)
+            self.assertEqual(result.shape, empty.shape)
+            self.assertTrue(np.isnan(result).all())
 
     def test_factor_ic_and_quantiles(self):
         factor = np.array(
@@ -82,6 +86,14 @@ class TestMetricsAndBacktest(unittest.TestCase):
         self.assertEqual(quantiles.shape, (2, 2))
         np.testing.assert_allclose(quantiles[0], [0.015, 0.015])
         np.testing.assert_allclose(quantiles[1], [0.035, 0.035])
+
+        # More buckets than eligible assets leaves the trailing buckets empty.
+        sparse = backtest.quantile_portfolio_returns(
+            np.array([[1.0, 2.0]]), np.array([[0.1, 0.2]]), 4
+        )
+        self.assertEqual(sparse.shape, (4, 1))
+        np.testing.assert_allclose(sparse[:2, 0], [0.1, 0.2])
+        self.assertTrue(np.isnan(sparse[2:, 0]).all())
 
     def test_long_short_backtest(self):
         factor = np.array(

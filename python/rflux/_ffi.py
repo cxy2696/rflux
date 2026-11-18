@@ -240,6 +240,9 @@ def _configure(lib: ctypes.CDLL) -> None:
           c_double_p])
     bind("rflux_composite_regime", ctypes.c_int,
          [c_int32_p, c_int32_p, size_t, c_int32_p])
+    bind("rflux_regime_match_states", ctypes.c_int,
+         [c_double_p, c_double_p, c_double_p, c_double_p, size_t, size_t,
+          double, c_int32_p])
 
     # percolab
     bind("rflux_corr_to_distance", ctypes.c_int,
@@ -315,6 +318,16 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, c_double_p, size_t, size_t, ctypes.c_int32, c_double_p])
     bind("rflux_factor_turnover", ctypes.c_int,
          [c_double_p, size_t, size_t, c_double_p])
+    bind("rflux_factor_forward_returns", ctypes.c_int,
+         [c_double_p, size_t, size_t, size_t, ctypes.c_int32, c_double_p])
+    bind("rflux_factor_quantile_returns", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, c_double_p])
+    bind("rflux_factor_long_short", ctypes.c_int,
+         [c_double_p, c_double_p, size_t, size_t, size_t, double,
+          c_double_p, c_double_p, c_double_p, c_double_p, c_double_p,
+          c_double_p])
+    bind("rflux_factor_ic_summary", ctypes.c_int,
+         [c_double_p, size_t, c_double_p, c_size_p])
 
     # portfolio construction
     bind("rflux_hrp_weights", ctypes.c_int,

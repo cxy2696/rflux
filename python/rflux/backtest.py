@@ -3,17 +3,31 @@
 These are transparent building blocks for research, not a live trading
 engine.  Alignment is explicit: ``factor[t]`` must be known before the return
 realized over ``forward_returns[t]``.  No future information is read.
+
+The return, bucket, IC-summary and long-short kernels live in the C++ core
+(``src/factorlab/backtest.cpp``); this module validates inputs and wraps the
+native result in research objects.
 """
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from . import factorlab
-from ._common import as_f64_1d, as_f64_2d, as_positive_float, as_size
+from ._common import (
+    as_f64_1d,
+    as_f64_2d,
+    as_finite_float,
+    as_positive_float,
+    as_size,
+    double_ptr,
+)
+from ._ffi import check, get_lib
+from ._native_backend import native_module, native_or
 from .metrics import PerformanceMetrics, performance_summary
 
 
@@ -39,6 +53,21 @@ class ICSummary:
     n_periods: int
 
 
+def _ctypes_forward(
+    prices: np.ndarray, periods: int, log: bool
+) -> np.ndarray:
+    n_obs, n_assets = prices.shape
+    out = np.empty((n_obs, n_assets), dtype=np.float64)
+    check(
+        get_lib().rflux_factor_forward_returns(
+            double_ptr(prices), n_obs, n_assets, periods, 1 if log else 0,
+            double_ptr(out),
+        ),
+        "rflux_factor_forward_returns",
+    )
+    return out
+
+
 def forward_returns(
     prices: Any, periods: int = 1, *, log: bool = False
 ) -> np.ndarray:
@@ -47,21 +76,18 @@ def forward_returns(
     if array.ndim not in (1, 2):
         raise ValueError("prices must be 1D or 2D")
     periods = as_size(periods, "periods")
-    out = np.full_like(array, np.nan, dtype=np.float64)
-    if array.shape[0] <= periods:
-        return out
-    future = array[periods:]
-    past = array[:-periods]
-    base_valid = np.isfinite(future) & np.isfinite(past)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = future / past
-        if log:
-            valid = base_valid & (future > 0) & (past > 0)
-            out[:-periods] = np.where(valid, np.log(ratio), np.nan)
-        else:
-            valid = base_valid & (past != 0)
-            out[:-periods] = np.where(valid, ratio - 1.0, np.nan)
-    return out
+    if array.size == 0:
+        return np.full(array.shape, np.nan, dtype=np.float64)
+    rows = array.shape[0]
+    columns = 1 if array.ndim == 1 else array.shape[1]
+    panel = np.ascontiguousarray(array.reshape(rows, columns))
+    values = native_or(
+        native_module,
+        "rflux_factor_forward_returns",
+        lambda: native_module.factor_forward_returns(panel, periods, log),
+        lambda: _ctypes_forward(panel, periods, log),
+    )
+    return np.asarray(values, dtype=np.float64).reshape(array.shape)
 
 
 def _validate_panels(factor: Any, forward: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -77,29 +103,19 @@ def _validate_panels(factor: Any, forward: Any) -> tuple[np.ndarray, np.ndarray]
     return factor_array, forward_array
 
 
-def _buckets(
-    factor_row: np.ndarray, forward_row: np.ndarray, n_quantiles: int
-) -> list[np.ndarray]:
-    valid = np.isfinite(factor_row) & np.isfinite(forward_row)
-    indices = np.flatnonzero(valid)
-    if indices.size == 0:
-        return [np.empty(0, dtype=np.int64) for _ in range(n_quantiles)]
-    order = np.argsort(factor_row[indices], kind="mergesort")
-    sorted_indices = indices[order]
-    return [
-        part.astype(np.int64)
-        for part in np.array_split(sorted_indices, n_quantiles)
-    ]
-
-
-def _bucket_means(
-    forward_row: np.ndarray, buckets: list[np.ndarray]
+def _ctypes_quantile_returns(
+    factor: np.ndarray, forward: np.ndarray, n_quantiles: int
 ) -> np.ndarray:
-    means = np.full(len(buckets), np.nan, dtype=np.float64)
-    for index, members in enumerate(buckets):
-        if members.size:
-            means[index] = float(np.mean(forward_row[members]))
-    return means
+    periods = factor.shape[0]
+    out = np.empty((n_quantiles, periods), dtype=np.float64)
+    check(
+        get_lib().rflux_factor_quantile_returns(
+            double_ptr(factor), double_ptr(forward), periods, factor.shape[1],
+            n_quantiles, double_ptr(out),
+        ),
+        "rflux_factor_quantile_returns",
+    )
+    return out
 
 
 def quantile_portfolio_returns(
@@ -112,11 +128,17 @@ def quantile_portfolio_returns(
     """
     q = as_size(n_quantiles, "n_quantiles", minimum=2)
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
-    out = np.full((q, factor_array.shape[0]), np.nan)
-    for t in range(factor_array.shape[0]):
-        buckets = _buckets(factor_array[t], forward_array[t], q)
-        out[:, t] = _bucket_means(forward_array[t], buckets)
-    return out
+    values = native_or(
+        native_module,
+        "rflux_factor_quantile_returns",
+        lambda: native_module.factor_quantile_returns(
+            factor_array, forward_array, q
+        ),
+        lambda: _ctypes_quantile_returns(factor_array, forward_array, q),
+    )
+    return np.asarray(values, dtype=np.float64).reshape(
+        q, factor_array.shape[0]
+    )
 
 
 def factor_ic(
@@ -138,24 +160,58 @@ def factor_ic(
     return values
 
 
+def _ctypes_ic_summary(values: np.ndarray) -> tuple[Any, ...]:
+    out = np.empty(4, dtype=np.float64)
+    periods = ctypes.c_size_t(0)
+    check(
+        get_lib().rflux_factor_ic_summary(
+            double_ptr(values), values.size, double_ptr(out),
+            ctypes.byref(periods),
+        ),
+        "rflux_factor_ic_summary",
+    )
+    return out[0], out[1], out[2], out[3], periods.value
+
+
 def summarize_ic(ic: Any) -> ICSummary:
     """Summarize IC values without annualising the mean/std ratio."""
     values = as_f64_1d(ic, "ic")
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return ICSummary(float("nan"), float("nan"), float("nan"), float("nan"), 0)
-    std = float(np.std(finite, ddof=1)) if finite.size >= 2 else float("nan")
-    mean = float(np.mean(finite))
-    information_ratio = (
-        mean / std if std and std > 0 and np.isfinite(std) else float("nan")
+    summary = native_or(
+        native_module,
+        "rflux_ic_summary",
+        lambda: native_module.ic_summary(values),
+        lambda: _ctypes_ic_summary(values),
     )
+    mean, std, information_ratio, positive_ratio, periods = summary
     return ICSummary(
-        mean=mean,
-        std=std,
+        mean=float(mean),
+        std=float(std),
         information_ratio=float(information_ratio),
-        positive_ratio=float(np.mean(finite > 0.0)),
-        n_periods=int(finite.size),
+        positive_ratio=float(positive_ratio),
+        n_periods=int(periods),
     )
+
+
+def _ctypes_long_short(
+    factor: np.ndarray, forward: np.ndarray, n_quantiles: int, cost_bps: float
+) -> tuple[Any, ...]:
+    periods, assets = factor.shape
+    gross = np.empty(periods, dtype=np.float64)
+    costs = np.empty(periods, dtype=np.float64)
+    turnover = np.empty(periods, dtype=np.float64)
+    net = np.empty(periods, dtype=np.float64)
+    equity = np.empty(periods + 1, dtype=np.float64)
+    quantiles = np.empty((n_quantiles, periods), dtype=np.float64)
+    check(
+        get_lib().rflux_factor_long_short(
+            double_ptr(factor), double_ptr(forward), periods, assets,
+            n_quantiles, float(cost_bps), double_ptr(gross), double_ptr(costs),
+            double_ptr(turnover), double_ptr(net), double_ptr(equity),
+            double_ptr(quantiles),
+        ),
+        "rflux_factor_long_short",
+    )
+    return gross, costs, turnover, net, equity, quantiles
 
 
 def long_short_backtest(
@@ -184,53 +240,36 @@ def long_short_backtest(
     geometric return/Calmar become NaN once equity is non-positive.
     """
     q = as_size(n_quantiles, "n_quantiles", minimum=2)
-    if not np.isfinite(cost_bps) or cost_bps < 0.0:
+    cost_bps = as_finite_float(cost_bps, "cost_bps")
+    if cost_bps < 0.0:
         raise ValueError("cost_bps must be finite and non-negative")
     periods_per_year = as_positive_float(periods_per_year, "periods_per_year")
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
-    periods, assets = factor_array.shape
+    periods = factor_array.shape[0]
 
-    gross = np.zeros(periods, dtype=np.float64)
-    costs = np.zeros(periods, dtype=np.float64)
-    turnover = np.zeros(periods, dtype=np.float64)
-    quantile_returns = np.full((q, periods), np.nan, dtype=np.float64)
-    previous_weights = np.zeros(assets, dtype=np.float64)
-
-    for t in range(periods):
-        buckets = _buckets(factor_array[t], forward_array[t], q)
-        non_empty = [bucket for bucket in buckets if bucket.size]
-        quantile_returns[:, t] = _bucket_means(forward_array[t], buckets)
-
-        weights = np.zeros(assets, dtype=np.float64)
-        if len(non_empty) >= 2:
-            low = non_empty[0]
-            high = non_empty[-1]
-            weights[high] = 1.0 / high.size
-            weights[low] = -1.0 / low.size
-            gross[t] = float(
-                np.mean(forward_array[t, high])
-                - np.mean(forward_array[t, low])
-            )
-        turnover[t] = 0.5 * float(np.sum(np.abs(weights - previous_weights)))
-        costs[t] = turnover[t] * float(cost_bps) / 10000.0
-        previous_weights = weights
-
-    net = gross - costs
-    equity = np.empty(periods + 1, dtype=np.float64)
-    equity[0] = 1.0
-    equity[1:] = np.cumprod(1.0 + net)
+    gross, costs, turnover, net, equity, quantiles = native_or(
+        native_module,
+        "rflux_factor_long_short",
+        lambda: native_module.factor_long_short(
+            factor_array, forward_array, q, cost_bps
+        ),
+        lambda: _ctypes_long_short(factor_array, forward_array, q, cost_bps),
+    )
+    net = np.asarray(net, dtype=np.float64)
     metrics = (
         performance_summary(net, periods_per_year=periods_per_year)
         if periods >= 2
         else None
     )
     return BacktestResult(
-        gross_returns=gross,
-        costs=costs,
+        gross_returns=np.asarray(gross, dtype=np.float64),
+        costs=np.asarray(costs, dtype=np.float64),
         net_returns=net,
-        turnover=turnover,
-        equity=equity,
-        quantile_returns=quantile_returns,
+        turnover=np.asarray(turnover, dtype=np.float64),
+        equity=np.asarray(equity, dtype=np.float64),
+        quantile_returns=np.asarray(quantiles, dtype=np.float64).reshape(
+            q, periods
+        ),
         metrics=metrics,
     )
 

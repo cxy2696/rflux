@@ -23,8 +23,9 @@ from ._common import (
     asset_names as _asset_names,
     complete_case_covariance,
     equal_weight_market_returns,
+    jsonable,
+    package_metadata,
 )
-from ._json import jsonable, package_metadata
 
 __all__ = ["trade_advice"]
 

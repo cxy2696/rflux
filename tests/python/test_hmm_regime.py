@@ -355,6 +355,41 @@ class TestStateAlignment(unittest.TestCase):
             alignment.parameters.transition, reference.transition, atol=1e-12
         )
 
+    def test_mismatched_feature_shapes_are_rejected(self):
+        reference = regimelab.HMMParameters(
+            start_prob=np.array([0.5, 0.5]),
+            transition=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            means=np.array([[0.0], [1.0]]),
+            variances=np.array([[1.0], [1.0]]),
+        )
+        target = regimelab.HMMParameters(
+            start_prob=np.array([0.5, 0.5]),
+            transition=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            means=np.array([[0.0, 0.0], [1.0, 1.0]]),
+            variances=np.array([[1.0, 1.0], [1.0, 1.0]]),
+        )
+        with self.assertRaises(ValueError):
+            regimelab.match_states(reference, target)
+        with self.assertRaises(ValueError):
+            regimelab.align_parameters(reference, target)
+
+    def test_overflowing_alignment_cost_is_rejected(self):
+        tiny = np.array([[5e-324], [5e-324]])
+        reference = regimelab.HMMParameters(
+            start_prob=np.array([0.5, 0.5]),
+            transition=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            means=np.array([[0.0], [1.0]]),
+            variances=tiny,
+        )
+        target = regimelab.HMMParameters(
+            start_prob=np.array([0.5, 0.5]),
+            transition=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            means=np.array([[10.0], [20.0]]),
+            variances=tiny,
+        )
+        with self.assertRaises(RFluxError):
+            regimelab.match_states(reference, target)
+
     def test_invalid_alignment_inputs(self):
         parameters = regimelab.HMMParameters(
             start_prob=np.array([1.0]),

@@ -49,7 +49,7 @@ static int test_status(void) {
     double out[5];
     const double x[5] = {1, 2, 3, 4, 5};
     CHECK(rflux_abi_version() == RFLUX_ABI_VERSION);
-    CHECK(strcmp(rflux_version_string(), "0.7.1") == 0);
+    CHECK(strcmp(rflux_version_string(), "0.8.0") == 0);
     CHECK(strcmp(rflux_status_name(RFLUX_OK), "RFLUX_OK") == 0);
     CHECK(strcmp(rflux_status_name(999), "RFLUX_ERR_UNKNOWN") ==
           0);
@@ -941,6 +941,94 @@ static int test_algorithms(void) {
     return 0;
 }
 
+static int test_research(void) {
+    {
+        const double prices[3][2] = {{100.0, 50.0}, {110.0, 55.0},
+                                     {121.0, 60.5}};
+        double forward[6];
+        CHECK(rflux_factor_forward_returns(&prices[0][0], 3, 2, 1, 0,
+                                           forward) == RFLUX_OK);
+        CHECK(approx(forward[0], 0.1, 1e-12));
+        CHECK(approx(forward[1], 0.1, 1e-12));
+        CHECK(isnan(forward[4]));
+        CHECK(isnan(forward[5]));
+        CHECK(rflux_factor_forward_returns(&prices[0][0], 3, 2, 1, 1,
+                                           forward) == RFLUX_OK);
+        CHECK(approx(forward[0], log(1.1), 1e-12));
+        CHECK(rflux_factor_forward_returns(&prices[0][0], 3, 2, 0, 0,
+                                           forward) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+    }
+    {
+        const double factor[8] = {1, 2, 3, 4, 1, 2, 3, 4};
+        const double forward[8] = {0.01, 0.02, 0.03, 0.04,
+                                   0.01, 0.02, 0.03, 0.04};
+        double quantiles[4];
+        CHECK(rflux_factor_quantile_returns(factor, forward, 2, 4, 2,
+                                            quantiles) == RFLUX_OK);
+        CHECK(approx(quantiles[0], 0.015, 1e-12));
+        CHECK(approx(quantiles[1], 0.015, 1e-12));
+        CHECK(approx(quantiles[2], 0.035, 1e-12));
+        CHECK(approx(quantiles[3], 0.035, 1e-12));
+        CHECK(rflux_factor_quantile_returns(factor, forward, 2, 4, 1,
+                                            quantiles) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+
+        double gross[2], costs[2], turnover[2], net[2], equity[3];
+        double long_short_quantiles[4];
+        CHECK(rflux_factor_long_short(factor, forward, 2, 4, 2, 10.0, gross,
+                                      costs, turnover, net, equity,
+                                      long_short_quantiles) == RFLUX_OK);
+        CHECK(approx(gross[0], 0.02, 1e-12));
+        CHECK(approx(turnover[0], 1.0, 1e-12));
+        CHECK(approx(costs[0], 0.001, 1e-12));
+        CHECK(approx(net[0], 0.019, 1e-12));
+        CHECK(approx(equity[1], 1.019, 1e-12));
+        CHECK(approx(equity[2], 1.019 * 1.02, 1e-12));
+        CHECK(approx(long_short_quantiles[0], 0.015, 1e-12));
+        CHECK(approx(long_short_quantiles[1], 0.015, 1e-12));
+        CHECK(approx(long_short_quantiles[2], 0.035, 1e-12));
+        CHECK(approx(long_short_quantiles[3], 0.035, 1e-12));
+    }
+    {
+        const double ic[3] = {1.0, 1.0, 0.0};
+        double summary[4];
+        size_t periods = 0;
+        CHECK(rflux_factor_ic_summary(ic, 3, summary, &periods) == RFLUX_OK);
+        CHECK(periods == 3);
+        CHECK(approx(summary[0], 2.0 / 3.0, 1e-12));
+        CHECK(approx(summary[3], 2.0 / 3.0, 1e-12));
+        CHECK(isfinite(summary[1]));
+        CHECK(isfinite(summary[2]));
+        CHECK(rflux_factor_ic_summary(ic, 3, NULL, &periods) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+    }
+    {
+        const double reference_means[2] = {-1.0, 1.0};
+        const double reference_variances[2] = {1.0, 0.25};
+        const double target_means[2] = {1.0, -1.0};
+        const double target_variances[2] = {0.25, 1.0};
+        int32_t order[2];
+        CHECK(rflux_regime_match_states(reference_means, reference_variances,
+                                        target_means, target_variances, 2, 1,
+                                        1.0, order) == RFLUX_OK);
+        CHECK(order[0] == 1);
+        CHECK(order[1] == 0);
+        const double zero_variance[2] = {0.0, 1.0};
+        CHECK(rflux_regime_match_states(reference_means, zero_variance,
+                                        target_means, target_variances, 2, 1,
+                                        1.0, order) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+        const double far_means[2] = {10.0, 20.0};
+        const double tiny_variances[2] = {5e-324, 5e-324};
+        CHECK(rflux_regime_match_states(reference_means, tiny_variances,
+                                        far_means, tiny_variances, 2, 1, 1.0,
+                                        order) ==
+              RFLUX_ERR_INVALID_ARGUMENT);
+    }
+    return 0;
+}
+
 int main(void) {
     int failures = 0;
     failures += test_status();
@@ -951,6 +1039,7 @@ int main(void) {
     failures += test_regimes();
     failures += test_graphs();
     failures += test_algorithms();
+    failures += test_research();
     if (failures == 0) {
         printf("test_capi: all C ABI tests passed\n");
         return 0;

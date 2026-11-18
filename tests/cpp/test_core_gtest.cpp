@@ -13,6 +13,7 @@
 #include "rflux/execution/factory.hpp"
 #include "rflux/core/market.hpp"
 #include "rflux/risk/pretrade.hpp"
+#include "rflux/factorlab/backtest.hpp"
 #include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
@@ -33,6 +34,7 @@
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
+#include "rflux/regimelab/alignment.hpp"
 #include "rflux/risk/tail_dependence.hpp"
 
 namespace {
@@ -282,6 +284,76 @@ TEST(FactorLabGTest, VolumeReversalAndAmihud) {
     const double first = std::abs(2.0 / 1.0 - 1.0) / (2.0 * 1.0);
     const double second = std::abs(4.0 / 2.0 - 1.0) / (4.0 * 2.0);
     EXPECT_NEAR(illiquidity[2], (first + second) / 2.0, 1e-12);
+}
+
+TEST(FactorLabGTest, BacktestKernels) {
+    const double prices[6] = {100.0, 50.0, 110.0, 55.0, 121.0, 60.5};
+    const auto forward =
+        rflux::factorlab::forward_returns(prices, 3, 2, 1, false);
+    EXPECT_NEAR(forward[0], 0.1, 1e-12);
+    EXPECT_NEAR(forward[1], 0.1, 1e-12);
+    EXPECT_TRUE(std::isnan(forward[4]));
+    EXPECT_TRUE(std::isnan(forward[5]));
+    const auto log_forward =
+        rflux::factorlab::forward_returns(prices, 3, 2, 1, true);
+    EXPECT_NEAR(log_forward[0], std::log(1.1), 1e-12);
+
+    const double factor[8] = {1, 2, 3, 4, 1, 2, 3, 4};
+    const double returns[8] = {0.01, 0.02, 0.03, 0.04,
+                               0.01, 0.02, 0.03, 0.04};
+    const auto quantiles = rflux::factorlab::quantile_portfolio_returns(
+        factor, returns, 2, 4, 2);
+    EXPECT_NEAR(quantiles[0], 0.015, 1e-12);
+    EXPECT_NEAR(quantiles[1], 0.015, 1e-12);
+    EXPECT_NEAR(quantiles[2], 0.035, 1e-12);
+    EXPECT_NEAR(quantiles[3], 0.035, 1e-12);
+
+    const auto result = rflux::factorlab::long_short_backtest(
+        factor, returns, 2, 4, 2, 10.0);
+    EXPECT_NEAR(result.gross_returns[0], 0.02, 1e-12);
+    EXPECT_NEAR(result.turnover[0], 1.0, 1e-12);
+    EXPECT_NEAR(result.costs[0], 0.001, 1e-12);
+    EXPECT_NEAR(result.net_returns[0], 0.019, 1e-12);
+    EXPECT_NEAR(result.equity[1], 1.019, 1e-12);
+    EXPECT_NEAR(result.equity[2], 1.019 * 1.02, 1e-12);
+
+    const double ic[3] = {1.0, 1.0, 0.0};
+    const auto summary = rflux::factorlab::summarize_ic(ic, 3);
+    EXPECT_NEAR(summary.mean, 2.0 / 3.0, 1e-12);
+    EXPECT_NEAR(summary.positive_ratio, 2.0 / 3.0, 1e-12);
+    EXPECT_EQ(summary.periods, 3u);
+    EXPECT_TRUE(std::isfinite(summary.std));
+    EXPECT_TRUE(std::isfinite(summary.information_ratio));
+}
+
+TEST(RegimelabGTest, StateMatchingRecoversPermutation) {
+    const double reference_means[2] = {-1.0, 1.0};
+    const double reference_variances[2] = {1.0, 0.25};
+    const double target_means[2] = {1.0, -1.0};
+    const double target_variances[2] = {0.25, 1.0};
+    const auto order = rflux::regimelab::match_states(
+        reference_means, reference_variances, target_means,
+        target_variances, 2, 1, 1.0);
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], 1);
+    EXPECT_EQ(order[1], 0);
+
+    const double zero_variance[2] = {0.0, 1.0};
+    EXPECT_THROW((void)rflux::regimelab::match_states(
+                     reference_means, zero_variance, target_means,
+                     target_variances, 2, 1, 1.0),
+                 rflux::InvalidArgument);
+    EXPECT_THROW((void)rflux::regimelab::match_states(
+                     reference_means, reference_variances, target_means,
+                     target_variances, 2, 1, -1.0),
+                 rflux::InvalidArgument);
+
+    const double far_means[2] = {10.0, 20.0};
+    const double tiny_variances[2] = {5e-324, 5e-324};
+    EXPECT_THROW((void)rflux::regimelab::match_states(
+                     reference_means, tiny_variances, far_means,
+                     tiny_variances, 2, 1, 1.0),
+                 rflux::InvalidArgument);
 }
 
 TEST(PortfolioLabGTest, RiskParityAndNcoWeights) {

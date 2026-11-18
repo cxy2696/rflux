@@ -1,8 +1,25 @@
 # Changelog
 
-## 未发布
+## 0.8.0 — 2026-11-19
 
 原生核心的性能与架构优化；C ABI 仍为 `1`，既有签名、布局和结果语义不变。
+`0.8.0` 新增可选 C 入口，按 ABI 规则属于 minor 版本。
+
+- 新增 C++ 回测内核（`src/factorlab/backtest.cpp`）：前瞻简单/对数收益、
+  与 `np.array_split` 一致的分位组合、带成本等权多空组合，以及逐期 IC 汇总。
+  C ABI 新增 `rflux_factor_forward_returns`、`rflux_factor_quantile_returns`、
+  `rflux_factor_long_short`、`rflux_factor_ic_summary`，pybind11 暴露同名函数。
+  `python/rflux/backtest.py` 只做形状校验并调用内核，不再用 NumPy 循环计算。
+- HMM 状态匹配从 Python 移到 C++（`src/regimelab/alignment.cpp`）。C ABI
+  新增 `rflux_regime_match_states`，pybind11 暴露 `regime_match_states`，使用
+  O(n^3) Hungarian 算法；`regimelab.match_states` 与 `align_parameters` 改为调用
+  该实现，返回契约不变。
+- CI 与 wheel 工作流只在 `ubuntu-latest` 上运行。移除 macOS runner 矩阵、
+  Windows wheel 矩阵和示例步骤中的平台条件；仍保留 C ABI 库、GoogleTest、
+  sanitizer 构建和 pybind11 扩展的检查。
+- 删除未使用的 `SharedArray` 共享内存工具及其测试，包顶层不再导出。
+- `rflux.native` 改为自动镜像扩展导出，不再手工维护与 `bindings.cpp`
+  同步的第二份清单。
 
 - qflux 内核新增 buffer-first 的 `*_into` 重载。C ABI 直接写入调用方数组，
   pybind11 直接写入 NumPy 结果，调用不再分配临时 `std::vector` 再拷贝

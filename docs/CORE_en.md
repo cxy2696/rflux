@@ -110,6 +110,13 @@ contiguous shift, no global coordinate compression); longer windows use the
 Fenwick tree over compressed coordinates.  Both paths return the same Type-7
 statistic.
 
+The research kernels follow the same ownership rule.  `factorlab/backtest.cpp`
+takes row-major factor and forward-return panels, splits each cross-section with
+`np.array_split` sizes and writes result vectors; the C ABI copies them into
+caller buffers.  `regimelab/alignment.cpp` returns a state permutation from the
+Hungarian assignment and owns no model state, so it works with parameters read
+from a live model or a saved snapshot.
+
 ## Deterministic parallelism
 
 `detail::parallel_for(count, fn, max_threads)` is the only threading primitive

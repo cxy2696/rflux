@@ -1,7 +1,8 @@
-"""Small ctypes/numpy conversion helpers shared by the public modules."""
+"""Small conversion, validation and JSON helpers shared by public modules."""
 
 from __future__ import annotations
 
+import math
 import operator
 from typing import Any, Callable, Sequence
 
@@ -226,3 +227,32 @@ def uint32_ptr(array: np.ndarray):
 
 def double_matrix(flat: np.ndarray, n: int) -> np.ndarray:
     return np.asarray(flat, dtype=np.float64).reshape(int(n), int(n))
+
+
+def package_metadata() -> dict[str, Any]:
+    """Version block shared by the JSON research reports."""
+    from ._ffi import abi_version, native_version
+    from ._version import __version__
+
+    return {
+        "version": __version__,
+        "native_version": native_version(),
+        "abi_version": abi_version(),
+    }
+
+
+def jsonable(value: Any) -> Any:
+    """Replace non-finite floats with None and unwrap NumPy scalars/arrays."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, np.generic):
+        return jsonable(value.item())
+    if isinstance(value, np.ndarray):
+        return [jsonable(item) for item in value.tolist()]
+    if isinstance(value, dict):
+        return {str(key): jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(item) for item in value]
+    return str(value)

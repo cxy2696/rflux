@@ -24,9 +24,9 @@ from ._common import (
     as_i32_1d,
     as_size,
     asset_names as _asset_names,
+    jsonable,
 )
 from ._ffi import check, get_lib
-from ._json import jsonable
 from ._native_backend import native_module, native_or
 from ._version import __version__
 

@@ -31,6 +31,7 @@
 
 #include "internal/common.hpp"
 #include "rflux/execution/almgren_chriss.hpp"
+#include "rflux/factorlab/backtest.hpp"
 #include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
@@ -41,6 +42,7 @@
 #include "rflux/qflux/ranking.hpp"
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
+#include "rflux/regimelab/alignment.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
 #include "rflux/risk/tail_dependence.hpp"
@@ -639,6 +641,104 @@ py::array_t<double> factor_amihud(const DoubleArray& close,
     });
 }
 
+py::array_t<double> factor_forward_returns(const DoubleArray& prices,
+                                           std::size_t periods, bool log) {
+    require_2d(prices, "prices");
+    const auto n_obs = static_cast<std::size_t>(prices.shape(0));
+    const auto n_assets = static_cast<std::size_t>(prices.shape(1));
+    std::vector<double> result = run_released([&] {
+        return rflux::factorlab::forward_returns(prices.data(), n_obs,
+                                                 n_assets, periods, log);
+    });
+    return matrix_to_array(result, prices.shape(0), prices.shape(1));
+}
+
+py::array_t<double> factor_quantile_returns(
+    const DoubleArray& factor, const DoubleArray& forward_returns,
+    std::size_t n_quantiles) {
+    require_2d(factor, "factor");
+    require_2d(forward_returns, "forward_returns");
+    if (factor.shape(0) != forward_returns.shape(0) ||
+        factor.shape(1) != forward_returns.shape(1)) {
+        throw rflux::InvalidArgument(
+            "factor and forward_returns must have equal shape");
+    }
+    const auto n_obs = static_cast<std::size_t>(factor.shape(0));
+    std::vector<double> result = run_released([&] {
+        return rflux::factorlab::quantile_portfolio_returns(
+            factor.data(), forward_returns.data(), n_obs,
+            static_cast<std::size_t>(factor.shape(1)), n_quantiles);
+    });
+    return matrix_to_array(result,
+                           static_cast<py::ssize_t>(n_quantiles),
+                           factor.shape(0));
+}
+
+py::tuple factor_long_short(const DoubleArray& factor,
+                            const DoubleArray& forward_returns,
+                            std::size_t n_quantiles, double cost_bps) {
+    require_2d(factor, "factor");
+    require_2d(forward_returns, "forward_returns");
+    if (factor.shape(0) != forward_returns.shape(0) ||
+        factor.shape(1) != forward_returns.shape(1)) {
+        throw rflux::InvalidArgument(
+            "factor and forward_returns must have equal shape");
+    }
+    const auto n_obs = static_cast<std::size_t>(factor.shape(0));
+    const auto result = run_released([&] {
+        return rflux::factorlab::long_short_backtest(
+            factor.data(), forward_returns.data(), n_obs,
+            static_cast<std::size_t>(factor.shape(1)), n_quantiles,
+            cost_bps);
+    });
+    return py::make_tuple(
+        vector_to_array(result.gross_returns), vector_to_array(result.costs),
+        vector_to_array(result.turnover), vector_to_array(result.net_returns),
+        vector_to_array(result.equity),
+        matrix_to_array(result.quantile_returns,
+                        static_cast<py::ssize_t>(n_quantiles),
+                        factor.shape(0)));
+}
+
+py::tuple ic_summary(const DoubleArray& ic) {
+    require_1d(ic, "ic");
+    const auto summary = run_released([&] {
+        return rflux::factorlab::summarize_ic(
+            ic.data(), static_cast<std::size_t>(ic.shape(0)));
+    });
+    return py::make_tuple(summary.mean, summary.std,
+                          summary.information_ratio, summary.positive_ratio,
+                          summary.periods);
+}
+
+py::array_t<std::int32_t> regime_match_states(
+    const DoubleArray& reference_means, const DoubleArray& reference_variances,
+    const DoubleArray& target_means, const DoubleArray& target_variances,
+    double variance_weight) {
+    require_2d(reference_means, "reference_means");
+    require_2d(reference_variances, "reference_variances");
+    require_2d(target_means, "target_means");
+    require_2d(target_variances, "target_variances");
+    if (reference_means.shape(0) != reference_variances.shape(0) ||
+        reference_means.shape(1) != reference_variances.shape(1) ||
+        reference_means.shape(0) != target_means.shape(0) ||
+        reference_means.shape(1) != target_means.shape(1) ||
+        target_means.shape(0) != target_variances.shape(0) ||
+        target_means.shape(1) != target_variances.shape(1)) {
+        throw rflux::InvalidArgument(
+            "state parameter panels must have equal shape");
+    }
+    std::vector<std::int32_t> result = run_released([&] {
+        return rflux::regimelab::match_states(
+            reference_means.data(), reference_variances.data(),
+            target_means.data(), target_variances.data(),
+            static_cast<std::size_t>(reference_means.shape(0)),
+            static_cast<std::size_t>(reference_means.shape(1)),
+            variance_weight);
+    });
+    return int_vector_to_array(result);
+}
+
 py::array_t<double> tail_dependence(const DoubleArray& returns, double q,
                                     bool upper) {
     require_2d(returns, "returns");
@@ -1053,6 +1153,19 @@ PYBIND11_MODULE(_native, module) {
     module.def("factor_turnover", &factor_turnover, py::arg("weights"));
     module.def("factor_amihud", &factor_amihud, py::arg("close"),
                py::arg("volume"), py::arg("window"), py::arg("scale") = 1e6);
+    module.def("factor_forward_returns", &factor_forward_returns,
+               py::arg("prices"), py::arg("periods"), py::arg("log") = false);
+    module.def("factor_quantile_returns", &factor_quantile_returns,
+               py::arg("factor"), py::arg("forward_returns"),
+               py::arg("n_quantiles"));
+    module.def("factor_long_short", &factor_long_short, py::arg("factor"),
+               py::arg("forward_returns"), py::arg("n_quantiles"),
+               py::arg("cost_bps") = 0.0);
+    module.def("ic_summary", &ic_summary, py::arg("ic"));
+    module.def("regime_match_states", &regime_match_states,
+               py::arg("reference_means"), py::arg("reference_variances"),
+               py::arg("target_means"), py::arg("target_variances"),
+               py::arg("variance_weight") = 1.0);
     module.def("tail_dependence", &tail_dependence, py::arg("returns"),
                py::arg("q") = 0.05, py::arg("upper") = false);
     module.def("hrp_weights", &hrp_weights, py::arg("covariance"));

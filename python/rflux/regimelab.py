@@ -30,7 +30,7 @@ from ._common import (
     int32_ptr,
 )
 from ._ffi import HMMOptions, RFluxError, check, get_lib
-from ._native_backend import native_call, native_module
+from ._native_backend import native_call, native_module, native_or
 
 
 @dataclass(frozen=True, slots=True)
@@ -784,10 +784,10 @@ def composite_regime(volatility_labels: Any, trend_labels: Any) -> np.ndarray:
 
 
 def _parameter_arrays(parameters: HMMParameters) -> tuple[np.ndarray, ...]:
-    start = np.asarray(parameters.start_prob, dtype=np.float64)
-    transition = np.asarray(parameters.transition, dtype=np.float64)
-    means = np.asarray(parameters.means, dtype=np.float64)
-    variances = np.asarray(parameters.variances, dtype=np.float64)
+    start = np.ascontiguousarray(parameters.start_prob, dtype=np.float64)
+    transition = np.ascontiguousarray(parameters.transition, dtype=np.float64)
+    means = np.ascontiguousarray(parameters.means, dtype=np.float64)
+    variances = np.ascontiguousarray(parameters.variances, dtype=np.float64)
     if start.ndim != 1 or start.size == 0:
         raise ValueError("start_prob must be a non-empty 1D array")
     k = start.size
@@ -810,63 +810,24 @@ def _parameter_arrays(parameters: HMMParameters) -> tuple[np.ndarray, ...]:
     return start, transition, means, variances
 
 
-def _hungarian(cost: np.ndarray) -> np.ndarray:
-    """Minimum-cost assignment for a square finite cost matrix.
-
-    Returns ``assignment[i] = j``, the target column assigned to reference row i.
-    This is the O(n^3) shortest augmenting path implementation with potentials.
-    """
-    matrix = np.asarray(cost, dtype=np.float64)
-    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
-        raise ValueError("cost must be square")
-    n = matrix.shape[0]
-    if n == 0:
-        raise ValueError("cost must not be empty")
-    if not np.all(np.isfinite(matrix)):
-        raise ValueError("cost must be finite")
-    u = np.zeros(n + 1, dtype=np.float64)
-    v = np.zeros(n + 1, dtype=np.float64)
-    p = np.zeros(n + 1, dtype=np.int64)
-    way = np.zeros(n + 1, dtype=np.int64)
-    for i in range(1, n + 1):
-        p[0] = i
-        j0 = 0
-        minv = np.full(n + 1, np.inf, dtype=np.float64)
-        used = np.zeros(n + 1, dtype=bool)
-        while True:
-            used[j0] = True
-            i0 = int(p[j0])
-            delta = np.inf
-            j1 = 0
-            for j in range(1, n + 1):
-                if used[j]:
-                    continue
-                current = matrix[i0 - 1, j - 1] - u[i0] - v[j]
-                if current < minv[j]:
-                    minv[j] = current
-                    way[j] = j0
-                if minv[j] < delta:
-                    delta = minv[j]
-                    j1 = j
-            for j in range(n + 1):
-                if used[j]:
-                    u[p[j]] += delta
-                    v[j] -= delta
-                else:
-                    minv[j] -= delta
-            j0 = j1
-            if p[j0] == 0:
-                break
-        while True:
-            j1 = int(way[j0])
-            p[j0] = p[j1]
-            j0 = j1
-            if j0 == 0:
-                break
-    assignment = np.empty(n, dtype=np.int64)
-    for j in range(1, n + 1):
-        assignment[int(p[j]) - 1] = j - 1
-    return assignment
+def _ctypes_match_states(
+    reference_means: np.ndarray,
+    reference_variances: np.ndarray,
+    target_means: np.ndarray,
+    target_variances: np.ndarray,
+    variance_weight: float,
+) -> np.ndarray:
+    n_states, n_features = reference_means.shape
+    order = empty_i32(n_states)
+    check(
+        get_lib().rflux_regime_match_states(
+            double_ptr(reference_means), double_ptr(reference_variances),
+            double_ptr(target_means), double_ptr(target_variances),
+            n_states, n_features, float(variance_weight), int32_ptr(order),
+        ),
+        "rflux_regime_match_states",
+    )
+    return order.astype(np.int64)
 
 
 def _validate_variance_weight(value: float) -> float:
@@ -901,14 +862,19 @@ def _matched_order(
     target_variances: np.ndarray,
     variance_weight: float,
 ) -> np.ndarray:
-    cost = _alignment_cost(
-        reference_means,
-        reference_variances,
-        target_means,
-        target_variances,
-        variance_weight,
+    values = native_or(
+        native_module,
+        "rflux_regime_match_states",
+        lambda: native_module.regime_match_states(
+            reference_means, reference_variances, target_means,
+            target_variances, float(variance_weight),
+        ),
+        lambda: _ctypes_match_states(
+            reference_means, reference_variances, target_means,
+            target_variances, variance_weight,
+        ),
     )
-    return _hungarian(cost)
+    return np.asarray(values, dtype=np.int64)
 
 
 def match_states(
@@ -953,6 +919,10 @@ def align_parameters(
     )
     if reference_start.size != start.size:
         raise ValueError("reference and target state counts must match")
+    if reference_means.shape != means.shape:
+        raise ValueError(
+            "reference and target must have the same state/feature shape"
+        )
     variance_weight = _validate_variance_weight(variance_weight)
     order = _matched_order(
         reference_means,

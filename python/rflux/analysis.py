@@ -13,8 +13,9 @@ from ._common import (
     as_size,
     asset_names as _asset_names,
     equal_weight_market_returns,
+    jsonable,
+    package_metadata,
 )
-from ._json import jsonable, package_metadata
 
 
 _SUMMARY_FIELDS = tuple(field.name for field in fields(metrics.PerformanceMetrics))

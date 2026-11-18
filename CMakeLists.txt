@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(rflux VERSION 0.7.1 LANGUAGES C CXX)
+project(rflux VERSION 0.8.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -54,6 +54,7 @@ set(RFLUX_CORE_SOURCES
     src/qflux/performance.cpp
     src/regimelab/hmm.cpp
     src/regimelab/regime.cpp
+    src/regimelab/alignment.cpp
     src/percolab/percolation.cpp
     src/percolab/network.cpp
     src/percolab/detector.cpp
@@ -62,6 +63,7 @@ set(RFLUX_CORE_SOURCES
     src/risk/tail_dependence.cpp
     src/factorlab/factors.cpp
     src/factorlab/evaluation.cpp
+    src/factorlab/backtest.cpp
     src/factorlab/factory.cpp
     src/portfoliolab/hrp.cpp
     src/portfoliolab/risk.cpp

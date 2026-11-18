@@ -11,8 +11,8 @@ cross-version C++ ABI promise.
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 1
+#define RFLUX_VERSION_MINOR 8
+#define RFLUX_VERSION_PATCH 0
 ```
 
 Runtime checks:
@@ -35,11 +35,14 @@ Version rules:
   extending an ABI-v1 options struct requires a new ABI version.
 - A release may add optional functions without forcing old clients to
   recompile.
-- `0.7.1` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
+- `0.8.0` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
   native bridge are additive.
 - Factors, HRP/NCO, tail dependence, Almgren-Chriss, Huber, site-percolation
   detection and the pre-trade gate have C entry points; all new symbols are
   additive.
+- `0.8.0` adds `rflux_factor_forward_returns`, `rflux_factor_quantile_returns`,
+  `rflux_factor_long_short`, `rflux_factor_ic_summary` and
+  `rflux_regime_match_states`; existing symbols and layouts are unchanged.
 
 ## 2. Status codes and exceptions
 
@@ -139,13 +142,18 @@ void rflux_clear_error(void);
 | `rflux_volatility_regime` | labels n, volatility n |
 | `rflux_trend_regime` | labels n, fast_ma n, slow_ma n |
 | `rflux_composite_regime` | n |
+| `rflux_regime_match_states` | K `int32_t` state ids |
 
-### 0.7 algorithm layer
+### Algorithm layer (0.7 and later)
 
 | Function | Output |
 | --- | --- |
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`, row-major |
 | `rflux_factor_ic` | `n_obs` Pearson or Spearman ICs |
+| `rflux_factor_forward_returns` | `n_obs * n_assets`, row-major; trailing rows NaN |
+| `rflux_factor_quantile_returns` | `n_quantiles * n_obs`, row-major |
+| `rflux_factor_long_short` | gross/costs/turnover/net `n_obs`, equity `n_obs + 1`, quantile returns `n_quantiles * n_obs` |
+| `rflux_factor_ic_summary` | mean, std, information ratio, positive ratio and one `size_t` count |
 | `rflux_factor_turnover` | `n_obs` one-way turnover values |
 | `rflux_hrp_weights` | n_assets, long-only and summing to one |
 | `rflux_hrp_order` | n_assets `size_t` leaf order |

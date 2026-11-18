@@ -1,9 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-11-19
 
 Performance and architecture work on the native core; the C ABI stays `1` and
-existing signatures, layouts and result semantics are unchanged.
+existing signatures, layouts and result semantics are unchanged.  Version
+`0.8.0` adds new optional C entry points, which is a minor release under the
+ABI rules.
+
+- New C++ backtest kernels in `src/factorlab/backtest.cpp`: forward simple/log
+  returns, `np.array_split`-compatible quantile portfolios, the cost-aware
+  equal-weight top-minus-bottom portfolio and a per-period IC summary.  The C
+  ABI exposes them as `rflux_factor_forward_returns`,
+  `rflux_factor_quantile_returns`, `rflux_factor_long_short` and
+  `rflux_factor_ic_summary`; the pybind11 bridge exposes the same functions.
+  `python/rflux/backtest.py` now validates shapes and delegates every numeric
+  step to the core instead of running NumPy loops.
+- HMM state matching moved from Python to `src/regimelab/alignment.cpp`.  The
+  C ABI function `rflux_regime_match_states` and the
+  `regime_match_states` binding solve the assignment with the O(n^3) Hungarian
+  algorithm; `regimelab.match_states` and `align_parameters` delegate to it and
+  keep the existing result contract.
+- CI and the wheel workflow run on `ubuntu-latest` only.  The macOS runner
+  matrix, the Windows wheel matrix and the platform conditionals around the
+  example steps are removed; the workflow still builds the C ABI library, the
+  GoogleTest suite, the sanitizer build and the pybind11 extension.
+- Removed the unused `SharedArray` shared-memory helper and its test; the
+  package top level no longer exports it.
+- `rflux.native` now mirrors the extension exports automatically instead of
+  keeping a second hand-written list in sync with `bindings.cpp`.
 
 - qflux kernels now have buffer-first `*_into` overloads.  The C ABI writes
   directly into caller arrays and the pybind11 bridge writes directly into the

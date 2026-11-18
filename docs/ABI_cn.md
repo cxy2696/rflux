@@ -9,8 +9,8 @@
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 7
-#define RFLUX_VERSION_PATCH 1
+#define RFLUX_VERSION_MINOR 8
+#define RFLUX_VERSION_PATCH 0
 ```
 
 运行时：
@@ -28,8 +28,11 @@ const char* rflux_version_string(void);
 - 增加函数、增加新枚举值属于向后兼容，发布时应提升次版本号；未发布改动可以先保留在开发分支。
 - 删除函数、改变参数/返回类型、改变错误语义、扩张 ABI-v1 options 结构，必须提升 ABI 版本。
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
-- 当前版本 `0.7.1` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
+- 当前版本 `0.8.0` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
 - 0.7 的因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控均已提供 C ABI 入口；新增函数均为追加符号。
+- 0.8 追加 `rflux_factor_forward_returns`、`rflux_factor_quantile_returns`、
+  `rflux_factor_long_short`、`rflux_factor_ic_summary` 和
+  `rflux_regime_match_states`；既有符号和布局不变。
 
 ## 2. 状态码与异常
 
@@ -121,13 +124,18 @@ void rflux_clear_error(void);
 | `rflux_volatility_regime` | labels n、volatility n |
 | `rflux_trend_regime` | labels n、fast_ma n、slow_ma n |
 | `rflux_composite_regime` | n |
+| `rflux_regime_match_states` | K 个 `int32_t` 状态编号 |
 
-### 0.7 算法层
+### 算法层（0.7 及之后）
 
 | 函数 | 输出 |
 | --- | --- |
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`，行主序 |
 | `rflux_factor_ic` | `n_obs` 个 Pearson/Spearman IC |
+| `rflux_factor_forward_returns` | `n_obs * n_assets`，行主序；尾部行 NaN |
+| `rflux_factor_quantile_returns` | `n_quantiles * n_obs`，行主序 |
+| `rflux_factor_long_short` | gross/costs/turnover/net 各 `n_obs`，equity `n_obs + 1`，分位收益 `n_quantiles * n_obs` |
+| `rflux_factor_ic_summary` | mean、std、信息比率、正比例和 1 个 `size_t` 计数 |
 | `rflux_factor_turnover` | `n_obs` 个单边换手率 |
 | `rflux_portfolio_risk` | 协方差、资产/成分风险、组合收益与标量 |
 | `rflux_hrp_weights` | n_assets，long-only，和为 1 |

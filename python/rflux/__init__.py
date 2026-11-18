@@ -30,7 +30,6 @@ from . import (  # noqa: E402
     qflux,
     regimelab,
     risk,
-    shared,
     symbols,
 )
 from .advice import trade_advice  # noqa: E402
@@ -54,7 +53,6 @@ from .config import (  # noqa: E402
     loads as load_configs,
     save as save_config,
 )
-from .shared import SharedArray  # noqa: E402
 from .metrics import performance_summary  # noqa: E402
 from .percolab import correlation_network  # noqa: E402
 from .qflux import returns, sma  # noqa: E402
@@ -69,7 +67,6 @@ __all__ = [
     "LibraryNotFoundError",
     "ModelConfig",
     "RFluxError",
-    "SharedArray",
     "__version__",
     "abi_version",
     "advice",
@@ -98,7 +95,6 @@ __all__ = [
     "returns",
     "risk",
     "save_config",
-    "shared",
     "sma",
     "symbols",
     "trade_advice",

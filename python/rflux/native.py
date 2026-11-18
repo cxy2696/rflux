@@ -17,46 +17,9 @@ from ._native_backend import (
 
 __all__ = ["available", "info"]
 
-_EXPORTS = (
-    "GaussianHMM",
-    "NativeError",
-    "almgren_chriss",
-    "atr",
-    "bollinger",
-    "correlation_matrix",
-    "order_book_metrics",
-    "graph_smooth",
-    "cvar_loss",
-    "describe",
-    "equity_curve",
-    "factor_amihud",
-    "factor_ic",
-    "factor_momentum",
-    "factor_volume_reversal",
-    "factor_turnover",
-    "factor_vwap_deviation",
-    "hrp_weights",
-    "huber_regression",
-    "macd",
-    "nco_weights",
-    "neutralize",
-    "pair_series",
-    "pearson",
-    "performance_summary",
-    "portfolio_risk",
-    "quantile",
-    "rebalance_targets",
-    "risk_parity_weights",
-    "series",
-    "series_into",
-    "sharpe",
-    "sortino",
-    "tail_dependence",
-    "var_cvar",
-)
-
 if _native is not None:
-    # Bind the public surface in one place so a new native entry point cannot
-    # be exported in one list but forgotten in the other.
-    globals().update({name: getattr(_native, name) for name in _EXPORTS})
-    __all__ += list(_EXPORTS)
+    # Mirror the public extension surface without keeping a second hand-written
+    # export list in sync with bindings.cpp.
+    exported = [name for name in dir(_native) if not name.startswith("_")]
+    globals().update({name: getattr(_native, name) for name in exported})
+    __all__ += exported
