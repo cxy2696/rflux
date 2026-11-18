@@ -75,10 +75,29 @@ CMake 优先使用系统 GoogleTest；未安装时可传
 - 不要暴露 C++ 类型，也不要在边界上让异常逃逸。
 - ABI-v1 的现有签名和 options 布局不能变；破坏性变更必须提升 ABI 版本。
 
-## Python 改动
+## 原生扩展
 
-可选数据依赖保持惰性。`import rflux` 不得访问网络或强制依赖 pandas。新的
-公开函数需要在 `tests/python/` 增加测试。
+pybind11 模块是可选的；没有扩展时，包通过 ctypes 走 C ABI。`RFLUX_DISABLE_NATIVE=1`
+可强制该路径。耗时的 C++ 计算要释放 GIL，Python API 调用留在释放区之外，
+优先让 `*_into` 内核直接写入 NumPy 输出缓冲区。wheel 在 CPython 3.12+ 使用
+abi3，3.10/3.11 使用版本相关 wheel；二进制契约见 `docs/ABI_cn.md`。
+
+## 更多扩展点
+
+- 数据源：实现 `python/rflux/data.py` 的 loader 契约，并补 mock schema 测试；
+  provider SDK 保持惰性导入。
+- HMM 变体：滤波必须保持因果性，校验参数表，并在
+  `tests/python/test_hmm_regime.py` 补已知状态的似然/预测测试。
+- 图或渗流内核：在 C++ 侧校验对称性和权重，再用小随机图与暴力参考实现对比。
+
+## 发布
+
+1. 同步 `CMakeLists.txt`、`include/rflux/rflux.h`、`python/rflux/_version.py`、
+   `pyproject.toml` 和 ABI 文档中的版本；运行 `python scripts/check_version.py`。
+2. 运行 `make check`、`pytest tests/python` 和 `ctest --preset dev --output-on-failure`；
+   C++ 有改动时再跑 sanitizer preset。
+3. 构建 sdist 和 wheel，在干净环境安装 wheel，并运行 import/CLI smoke test。
+4. 在确切提交上打 tag，附上当前 sdist 和 wheel；不发布到 PyPI。
 
 ## 风格
 

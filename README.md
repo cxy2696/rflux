@@ -127,11 +127,9 @@ the ctypes C ABI path.
 - [Data layer](docs/DATA_en.md) · [中文](docs/DATA_cn.md)
 - [Algorithm matrix](docs/ALGORITHMS_en.md) · [中文](docs/ALGORITHMS_cn.md)
 - [C++ core contracts](docs/CORE_en.md) · [中文](docs/CORE_cn.md)
-- [Native bridge](docs/NATIVE_en.md) · [中文](docs/NATIVE_cn.md)
 - [Methods and formulas](docs/METHODS_en.md) · [中文](docs/METHODS_cn.md)
 - [Applications](docs/APPLICATIONS_en.md) · [中文](docs/APPLICATIONS_cn.md)
-- [Extension guide](docs/EXTENDING_en.md) · [中文](docs/EXTENDING_cn.md)
-- [Examples](examples/README.md), [changelog](CHANGELOG.md), [release checklist](docs/RELEASE.md)
+- [Examples](examples/README.md), [changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md)
 
 ## License
 

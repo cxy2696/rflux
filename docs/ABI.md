@@ -226,6 +226,6 @@ new C symbols and does not change `rflux.h`, status codes or the options layout.
 
 The extension maps `rflux::InvalidArgument`, `NonFinite`, `NotReady` and
 `NumericalError` to `NativeError` with a `status` attribute; Python then raises
-`RFluxError` with the same status code. The binary policy for the extension
-(CPython 3.12+ abi3, 3.10/3.11 version-specific wheels) is documented in
-[NATIVE_en.md](NATIVE_en.md) and is separate from the C ABI promise.
+`RFluxError` with the same status code. The extension uses abi3 wheels on
+CPython 3.12+ and version-specific wheels on 3.10/3.11; that policy is separate
+from the C ABI promise.

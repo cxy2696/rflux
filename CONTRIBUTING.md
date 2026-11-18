@@ -82,6 +82,23 @@ outside the released region. New public behaviour needs a pytest under
 
 Keep optional data dependencies lazy. `import rflux` must not access the network or require pandas. New public functions need a test under `tests/python/`.
 
+## Native extension
+
+The pybind11 module is optional; without it the package uses the C ABI through ctypes. `RFLUX_DISABLE_NATIVE=1` forces that path. Release the GIL around expensive C++ work, keep all Python API calls outside the released region, and let `*_into` kernels fill NumPy output buffers directly. The wheel uses abi3 on CPython 3.12+ and version-specific wheels on 3.10/3.11; see `docs/ABI.md` for the binary contract.
+
+## More extension points
+
+- Data source: implement the loader contract in `python/rflux/data.py` and add a mocked-schema test; keep provider SDK imports lazy.
+- HMM variant: keep filtering causal, validate parameter tables, and add a known-state likelihood/forecast test under `tests/python/test_hmm_regime.py`.
+- Graph or percolation kernel: validate symmetry and weights in C++, then compare small random graphs with a brute-force reference.
+
+## Release
+
+1. Update the version in `CMakeLists.txt`, `include/rflux/rflux.h`, `python/rflux/_version.py`, `pyproject.toml` and the ABI docs; run `python scripts/check_version.py`.
+2. Run `make check`, `pytest tests/python`, and `ctest --preset dev --output-on-failure`; run the sanitizer preset when C++ code changed.
+3. Build the sdist and wheel, install the wheel in a clean environment, and run the import/CLI smoke tests.
+4. Tag the exact commit, attach the current sdist and wheels, and do not publish to PyPI.
+
 ## Style
 
 Match the surrounding code. C++ code is C++17, Python targets 3.10+. Prefer clear names and explicit edge-case handling over abstractions that hide numerical behavior.

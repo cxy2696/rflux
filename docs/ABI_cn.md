@@ -197,4 +197,4 @@ typedef struct rflux_hmm_options {
 
 当前 Python 包优先使用 pybind11 扩展 `rflux._native`，ctypes 仍走本文描述的 C ABI。原生扩展直接链接 `rflux_core`，不导出新的 C 符号，也不改变 `rflux.h`、状态码或 `rflux_hmm_options` 布局。
 
-pybind11 扩展把 `rflux::InvalidArgument`、`NonFinite`、`NotReady`、`NumericalError` 映射为带 `status` 属性的 `NativeError`，Python 层再转换为 `RFluxError`；状态码与 C ABI 保持一致。原生扩展的二进制兼容策略（CPython 3.12+ abi3、3.10/3.11 版本相关 wheel）见 [NATIVE_cn.md](NATIVE_cn.md)，不属于 C ABI 兼容承诺。
+pybind11 扩展把 `rflux::InvalidArgument`、`NonFinite`、`NotReady`、`NumericalError` 映射为带 `status` 属性的 `NativeError`，Python 层再转换为 `RFluxError`；状态码与 C ABI 保持一致。原生扩展在 CPython 3.12+ 使用 abi3 wheel，3.10/3.11 使用版本相关 wheel；该策略不属于 C ABI 兼容承诺。

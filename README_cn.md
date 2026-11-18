@@ -118,11 +118,9 @@ ctypes C ABI。
 - [数据层](docs/DATA_cn.md) · [English](docs/DATA_en.md)
 - [算法矩阵](docs/ALGORITHMS_cn.md) · [English](docs/ALGORITHMS_en.md)
 - [C++ 核心契约](docs/CORE_cn.md) · [English](docs/CORE_en.md)
-- [原生桥](docs/NATIVE_cn.md) · [English](docs/NATIVE_en.md)
 - [方法与公式](docs/METHODS_cn.md) · [English](docs/METHODS_en.md)
 - [应用](docs/APPLICATIONS_cn.md) · [English](docs/APPLICATIONS_en.md)
-- [扩展指南](docs/EXTENDING_cn.md) · [English](docs/EXTENDING_en.md)
-- [示例](examples/README_cn.md)、[更新记录](CHANGELOG_cn.md)、[发布清单](docs/RELEASE_cn.md)
+- [示例](examples/README_cn.md)、[更新记录](CHANGELOG_cn.md)、[贡献指南](CONTRIBUTING_cn.md)
 
 ## 许可
 
