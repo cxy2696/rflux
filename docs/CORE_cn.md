@@ -14,6 +14,10 @@
    `unique_ptr<BaseFactor>()` creator 无法携带这些参数。`FactorFactory` 接收
    `FactorSpec`，拒绝重名，并在 mutex 下复制 creator 后在锁外构造。
 
+Python 包只是该核心的薄消费者。数据适配和 CLI 格式化留在 Python，但所有算法、
+回测、图、报告统计和 HMM 计算都在 C++ 中通过 pybind11 扩展或 C ABI 完成。
+扩展是必需的，没有 NumPy 回退路径。
+
 ## 跨模块结构
 
 [`include/rflux/core/market.hpp`](../include/rflux/core/market.hpp)：
@@ -101,6 +105,8 @@ C 端直接写入调用方数组，pybind11 直接写入 NumPy 输出（`series_
 前瞻收益面板，按 `np.array_split` 的尺寸切分横截面并写出结果向量，C ABI 再
 拷贝到调用方缓冲区。`regimelab/alignment.cpp` 用 Hungarian 分配返回状态排列，
 不持有模型状态，因此既可用于在线模型，也可用于保存的参数快照。
+`portfoliolab/advice.cpp` 和 `regimelab/attribution.cpp` 对研究报告采用同一模式：
+返回数值结构，Python 层只负责格式化为 JSON。
 
 ## 确定性并行
 

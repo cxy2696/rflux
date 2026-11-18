@@ -76,12 +76,13 @@ double pearson(const std::vector<double>& x, const std::vector<double>& y) {
 
 std::vector<double> information_coefficient(
     const double* factor, const double* forward_returns, std::size_t n_obs,
-    std::size_t n_assets, bool spearman) {
+    std::size_t n_assets, bool spearman, std::size_t min_pairs) {
     rflux::detail::require_pointer(factor, "factor must not be NULL");
     rflux::detail::require_pointer(forward_returns,
                                    "forward_returns must not be NULL");
     rflux::detail::require(n_obs > 0, "n_obs must be positive");
     rflux::detail::require(n_assets > 0, "n_assets must be positive");
+    rflux::detail::require(min_pairs >= 2, "min_pairs must be at least two");
     rflux::detail::checked_mul(n_obs, n_assets, "n_obs*n_assets overflows");
     std::vector<double> result(n_obs, rflux::detail::kNaN);
     std::vector<double> x;
@@ -98,7 +99,10 @@ std::vector<double> information_coefficient(
             x.push_back(fx);
             y.push_back(fy);
         }
-        if (x.size() < 2 || !has_dispersion(x) || !has_dispersion(y)) continue;
+        if (x.size() < min_pairs || !has_dispersion(x) ||
+            !has_dispersion(y)) {
+            continue;
+        }
         if (spearman) {
             x = average_ranks(x);
             y = average_ranks(y);

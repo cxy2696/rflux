@@ -59,6 +59,11 @@ private:
 };
 
 
+/* Row-wise linear prediction: features @ coefficients + intercept. */
+[[nodiscard]] std::vector<double> linear_predict(
+    const double* features, std::size_t n_obs, std::size_t n_features,
+    const double* coefficients, double intercept);
+
 /* Historical CVaR of losses at confidence alpha (positive is a loss). */
 [[nodiscard]] double cvar_loss(const double* returns, std::size_t n,
                                double alpha);

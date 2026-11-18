@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,16 +9,13 @@ import numpy as np
 
 from . import qflux
 from ._common import (
-    double_ptr,
-    empty_f64,
     as_f64_1d,
     as_finite_float,
     as_open_unit_float,
     as_positive_float,
     as_size,
 )
-from ._ffi import check, get_lib
-from ._native_backend import native_module, native_or
+from ._native_backend import native_api as native_module
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,22 +58,7 @@ def equity_curve(returns_: Any, initial: float = 1.0) -> np.ndarray:
     if finite.size and np.any(finite <= -1.0):
         raise ValueError("returns must be greater than -1 for compounding")
     initial = as_finite_float(initial, "initial")
-    def fallback() -> np.ndarray:
-        out = empty_f64(data.size)
-        check(
-            get_lib().rflux_equity_curve(
-                double_ptr(data), data.size, float(initial), double_ptr(out)
-            ),
-            "rflux_equity_curve",
-        )
-        return out
-
-    return native_or(
-        native_module,
-        "rflux_equity_curve",
-        lambda: native_module.equity_curve(data, float(initial)),
-        fallback,
-    )
+    return native_module.equity_curve(data, float(initial))
 
 
 def performance_summary(
@@ -88,12 +69,7 @@ def performance_summary(
     confidence: float = 0.95,
     periods: int | None = None,
 ) -> PerformanceMetrics:
-    """Annualized performance and tail-risk summary, implemented in C++.
-
-    Returns are arithmetic periodic returns.  ``risk_free`` is annual and
-    ``confidence`` selects the historical VaR/CVaR level.  NaN returns are
-    excluded from statistics; ``periods`` controls the annualisation horizon.
-    """
+    """Annualized performance and tail-risk summary, implemented in C++."""
     data = as_f64_1d(returns_, "returns")
     finite = data[np.isfinite(data)]
     if finite.size < 2:
@@ -105,31 +81,9 @@ def performance_summary(
     elapsed = 0 if periods is None else as_size(periods, "periods")
     if periods is not None and elapsed <= 0:
         raise ValueError("periods must be positive")
-    n = data.size
-
-    def fallback() -> tuple[int, int, np.ndarray]:
-        n_periods = ctypes.c_size_t()
-        elapsed_periods = ctypes.c_size_t()
-        values = empty_f64(10)
-        check(
-            get_lib().rflux_performance_summary(
-                double_ptr(data), n, float(periods_per_year),
-                float(risk_free), float(confidence), elapsed,
-                ctypes.byref(n_periods), ctypes.byref(elapsed_periods),
-                double_ptr(values)
-            ),
-            "rflux_performance_summary",
-        )
-        return int(n_periods.value), int(elapsed_periods.value), values
-
-    n_periods, elapsed_periods, values = native_or(
-        native_module,
-        "rflux_performance_summary",
-        lambda: native_module.performance_summary(
-            data, float(periods_per_year), float(risk_free),
-            float(confidence), elapsed
-        ),
-        fallback,
+    n_periods, elapsed_periods, values = native_module.performance_summary(
+        data, float(periods_per_year), float(risk_free), float(confidence),
+        elapsed,
     )
     return PerformanceMetrics(
         n_periods=int(n_periods),

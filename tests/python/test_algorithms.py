@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 from rflux import execution, factorlab, mllab, portfoliolab, regimelab
-from rflux._native_backend import native_module
 from rflux.risk import tail_dependence
 
 
@@ -44,74 +43,8 @@ class TestFactorLab(unittest.TestCase):
         )
         np.testing.assert_allclose(turnover, [0.0, 0.1, 0.0])
 
-    def test_fallback_matches_native(self):
-        if native_module is None:
-            self.skipTest("native extension unavailable")
-        operations = {
-            "momentum": lambda: factorlab.momentum(self.close, 2),
-            "volume_reversal": lambda: factorlab.volume_reversal(
-                self.close, self.volume, 2
-            ),
-            "vwap_deviation": lambda: factorlab.vwap_deviation(
-                self.close, self.volume, 2
-            ),
-            "amihud": lambda: factorlab.amihud(self.close, self.volume, 2),
-        }
-        native = {name: operation() for name, operation in operations.items()}
-        original = factorlab.native_module
-        try:
-            factorlab.native_module = None
-            fallback = {name: operation() for name, operation in operations.items()}
-        finally:
-            factorlab.native_module = original
-        for name in operations:
-            np.testing.assert_allclose(
-                fallback[name], native[name], equal_nan=True, err_msg=name
-            )
 
 
-class TestNativeFallbacks(unittest.TestCase):
-    def test_hrp_execution_huber_parity(self):
-        if native_module is None:
-            self.skipTest("native extension unavailable")
-        rng = np.random.default_rng(11)
-        sample = rng.normal(size=(240, 4))
-        covariance = np.cov(sample, rowvar=False)
-        native_hrp = portfoliolab.hrp_weights(covariance)
-        native_plan = execution.almgren_chriss(
-            100.0, slices=8, horizon=1.0, temporary_impact=0.5,
-            permanent_impact=0.02, volatility=0.01, risk_aversion=1.5,
-        )
-        features = rng.normal(size=(80, 2))
-        target = 0.5 + 1.2 * features[:, 0] - 0.7 * features[:, 1]
-        target[0] = 50.0
-        native_fit = mllab.huber_regression(features, target)
-
-        saved = (portfoliolab.native_module, execution.native_module,
-                 mllab.native_module)
-        try:
-            portfoliolab.native_module = None
-            execution.native_module = None
-            mllab.native_module = None
-            fallback_hrp = portfoliolab.hrp_weights(covariance)
-            fallback_plan = execution.almgren_chriss(
-                100.0, slices=8, horizon=1.0, temporary_impact=0.5,
-                permanent_impact=0.02, volatility=0.01, risk_aversion=1.5,
-            )
-            fallback_fit = mllab.huber_regression(features, target)
-        finally:
-            (portfoliolab.native_module, execution.native_module,
-             mllab.native_module) = saved
-        np.testing.assert_allclose(fallback_hrp, native_hrp, atol=1e-12)
-        np.testing.assert_allclose(fallback_plan.trades, native_plan.trades,
-                                   atol=1e-12)
-        self.assertAlmostEqual(fallback_plan.expected_cost,
-                               native_plan.expected_cost, places=10)
-        np.testing.assert_allclose(
-            fallback_fit.coefficients, native_fit.coefficients, atol=1e-6
-        )
-        self.assertAlmostEqual(fallback_fit.intercept, native_fit.intercept,
-                               places=5)
 
 
 class TestPortfolioLab(unittest.TestCase):

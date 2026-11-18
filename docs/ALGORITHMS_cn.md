@@ -2,7 +2,7 @@
 
 [English](ALGORITHMS_en.md) · **中文**
 
-rflux 0.7 在数值核心上增加 C++ 算法层。每个算法都有类型化接口、输入输出契约、原生实现，以及需要时的 Python 回退。
+rflux 0.7 在数值核心上增加 C++ 算法层。每个算法都有类型化接口、输入输出契约和原生实现；Python 层只做输入校验和报告组装，不计算算法结果。
 
 ## 扩展契约
 
@@ -97,15 +97,16 @@ C++ 侧 `HmmRegimeDetector` 将现有 HMM 适配到 `BaseRegimeDetector`。
 | 组合构建 | [`src/portfoliolab/hrp.cpp`](../src/portfoliolab/hrp.cpp)、[`src/portfoliolab/risk.cpp`](../src/portfoliolab/risk.cpp) | `rflux_hrp_weights`、`rflux_hrp_order`、`rflux_risk_parity_weights`、`rflux_nco_weights`、`rflux_rebalance_targets`、`rflux_portfolio_risk` | `portfoliolab.hrp_weights`、`nco_weights`、`risk_parity_weights`、`rebalance_targets` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
 | 鲁棒机器学习 | [`src/mllab/huber.cpp`](../src/mllab/huber.cpp)、[`src/mllab/robust.cpp`](../src/mllab/robust.cpp) | `rflux_huber_regression`、`rflux_cvar_loss`、`rflux_graph_smooth` | `mllab.huber_regression`、`cvar_loss`、`graph_smooth` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
 | 执行与风险 | [`src/execution/almgren_chriss.cpp`](../src/execution/almgren_chriss.cpp)、[`src/execution/microstructure.cpp`](../src/execution/microstructure.cpp)、[`src/risk/pretrade.cpp`](../src/risk/pretrade.cpp)、[`src/risk/tail_dependence.cpp`](../src/risk/tail_dependence.cpp) | `rflux_almgren_chriss_plan`、`rflux_order_book_metrics`、`rflux_pretrade_check`、`rflux_tail_dependence` | `execution.almgren_chriss`、`execution.order_book_metrics`、`risk.tail_dependence` | [`test_algorithms.py`](../tests/python/test_algorithms.py)、[`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
-| 研究报告 | Python 编排（`analysis.py`、`advice.py`、`apps.py`）；回测内核、`portfolio_risk` 与指标调用 C++ | — | `analyze_prices`、`trade_advice`、`portfolio_risk`、`regime_attribution`、`performance_summary`、`backtest.*` | [`test_advice.py`](../tests/python/test_advice.py)、[`test_tools.py`](../tests/python/test_tools.py)、[`test_apps.py`](../tests/python/test_apps.py) |
+| 建议与归因 | [`src/portfoliolab/advice.cpp`](../src/portfoliolab/advice.cpp)、[`src/regimelab/attribution.cpp`](../src/regimelab/attribution.cpp) | — | `trade_advice`、`regime_attribution` | [`test_advice.py`](../tests/python/test_advice.py)、[`test_apps.py`](../tests/python/test_apps.py) |
+| 研究报告 | C++ 内核，Python 组装（`analysis.py`、`advice.py`、`apps.py`） | — | `analyze_prices`、`trade_advice`、`portfolio_risk`、`regime_attribution`、`performance_summary`、`backtest.*` | [`test_advice.py`](../tests/python/test_advice.py)、[`test_tools.py`](../tests/python/test_tools.py)、[`test_apps.py`](../tests/python/test_apps.py) |
 
-`scripts/verify_algorithms.py` 是可执行检查：遍历所有公开算法族，检查命名、形状、预热和范围，在可独立对照处给出参考值，记录热路径耗时，并把带时间戳的 JSON 报告写入 `artifacts/validation/`。`make algo-check` 依次跑原生扩展与 ctypes C ABI 回退两条驱动。新增公开算法族时，表格和测试必须一起更新。
+`scripts/verify_algorithms.py` 是可执行检查：遍历所有公开算法族，检查命名、形状、预热和范围，在可独立对照处给出参考值，记录热路径耗时，并把带时间戳的 JSON 报告写入 `artifacts/validation/`。`make algo-check` 通过原生扩展运行一次。新增公开算法族时，表格和测试必须一起更新。
 
 ## 新算法工程规则
 
 1. 数学实现放在 `src/` 的 C++ 中，并在 `include/rflux/` 暴露契约。
 2. 增加 GoogleTest：解析解或独立暴力参考；覆盖 NaN、零成交量、零方差、空面板。
 3. 增加 pybind11 原生绑定，耗时部分释放 GIL，输入输出使用连续 float64 数组。
-4. 如果进入公开 Python API，提供 NumPy 回退，并测试 native/fallback 一致性。
+4. Python 包装只做形状校验并返回原生结果；不增加 NumPy 回退或 Python 计算路径。
 5. 如果进入跨语言契约，C ABI 只能追加，不能修改现有布局；C++ 核心不允许文件 I/O 或 Python 类型。
 6. 文档明确预热、因果性、缩放和估计量定义。

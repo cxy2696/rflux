@@ -1,2 +1,0 @@
-Build artefacts for the Python loader are copied here by packaging scripts.
-Native shared libraries are intentionally not checked in.

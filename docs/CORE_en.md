@@ -17,6 +17,11 @@ The 0.7 C++ layer follows three design rules:
    carry that. `FactorFactory` consumes a `FactorSpec`, rejects duplicate names
    and copies creators under a mutex before invoking them.
 
+The Python package is a thin consumer of this core. Data adapters and CLI
+formatting stay in Python, but every algorithm, backtest, graph, report
+statistic and HMM computation runs in C++ behind the pybind11 extension or the
+C ABI. The extension is required; there is no NumPy fallback path.
+
 ## Cross-module structures
 
 [`include/rflux/core/market.hpp`](../include/rflux/core/market.hpp):
@@ -115,7 +120,9 @@ takes row-major factor and forward-return panels, splits each cross-section with
 `np.array_split` sizes and writes result vectors; the C ABI copies them into
 caller buffers.  `regimelab/alignment.cpp` returns a state permutation from the
 Hungarian assignment and owns no model state, so it works with parameters read
-from a live model or a saved snapshot.
+from a live model or a saved snapshot.  `portfoliolab/advice.cpp` and
+`regimelab/attribution.cpp` follow the same pattern for the research reports:
+they return numeric structs, and the Python layer only formats JSON.
 
 ## Deterministic parallelism
 

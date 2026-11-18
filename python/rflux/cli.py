@@ -15,16 +15,10 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ._ffi import (
-    LibraryNotFoundError,
-    abi_version,
-    get_lib,
-    native_version,
-)
 from ._version import __version__
 from . import config as model_config
 from . import qflux
-from ._native_backend import native_info as python_native_info
+from ._native_backend import abi_version, native_info as python_native_info
 from .advice import trade_advice
 from .analysis import analyze_prices
 from .apps import portfolio_risk
@@ -437,19 +431,16 @@ def _command_risk(args: argparse.Namespace) -> int:
 
 
 def _native_info() -> dict[str, Any]:
-    try:
-        lib = get_lib()
-        return {
-            "loaded": True,
-            "version": native_version(),
-            "abi_version": abi_version(),
-            "path": getattr(lib, "_name", None),
-        }
-    except (LibraryNotFoundError, OSError, ImportError) as exc:
-        return {"loaded": False, "error": str(exc)}
+    info = python_native_info()
+    return {
+        "loaded": True,
+        "version": info["version"],
+        "abi_version": abi_version(),
+        "path": info["module"],
+    }
 
 
-def _doctor_payload() -> tuple[dict[str, Any], bool]:
+def _doctor_payload() -> dict[str, Any]:
     native = _native_info()
     payload: dict[str, Any] = {
         "python_version": __version__,
@@ -459,58 +450,47 @@ def _doctor_payload() -> tuple[dict[str, Any], bool]:
     }
     for module in ("numpy", "pandas", "akshare", "yfinance"):
         payload["optional"][module] = importlib.util.find_spec(module) is not None
-    return payload, bool(native["loaded"])
+    return payload
 
 
 def _command_version(as_json: bool) -> int:
     native = _native_info()
-    payload: dict[str, Any] = {"version": __version__}
-    if native["loaded"]:
-        payload["native_version"] = native["version"]
-        payload["abi_version"] = native["abi_version"]
-    else:
-        payload["native_error"] = native["error"]
+    payload: dict[str, Any] = {
+        "version": __version__,
+        "native_version": native["version"],
+        "abi_version": native["abi_version"],
+    }
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"rflux {payload['version']}")
-        if native["loaded"]:
-            print(
-                f"native library {payload['native_version']} "
-                f"(ABI {payload['abi_version']})"
-            )
-        else:
-            print(f"native library error: {payload['native_error']}")
-    return 0 if native["loaded"] else 1
+        print(
+            f"native library {payload['native_version']} "
+            f"(ABI {payload['abi_version']})"
+        )
+    return 0
 
 
 def _command_doctor(as_json: bool) -> int:
-    payload, ok = _doctor_payload()
+    payload = _doctor_payload()
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         native = payload["native"]
-        if native.get("loaded"):
-            print("native library: loaded")
-            print(f"  path: {native.get('path')}")
-            print(f"  version: {native.get('version')}")
-            print(f"  ABI: {native.get('abi_version')}")
-        else:
-            print("native library: failed to load")
-            print(f"  {native.get('error')}")
+        print("native library: loaded")
+        print(f"  path: {native.get('path')}")
+        print(f"  version: {native.get('version')}")
+        print(f"  ABI: {native.get('abi_version')}")
         extension = payload.get("native_extension") or {}
-        if extension.get("available"):
-            print(
-                "native extension: loaded "
-                f"(stable ABI: {'yes' if extension.get('stable_abi') else 'no'}, "
-                f"GIL release: {'yes' if extension.get('gil_released') else 'no'})"
-            )
-        else:
-            print("native extension: not available (ctypes fallback active)")
+        print(
+            "native extension: loaded "
+            f"(stable ABI: {'yes' if extension.get('stable_abi') else 'no'}, "
+            f"GIL release: {'yes' if extension.get('gil_released') else 'no'})"
+        )
         print("optional dependencies:")
         for module, present in payload["optional"].items():
             print(f"  {module}: {'yes' if present else 'no'}")
-    return 0 if ok else 1
+    return 0
 
 
 def _command_config(args: argparse.Namespace) -> int:

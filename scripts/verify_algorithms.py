@@ -3,9 +3,7 @@
 
 This driver complements the unit tests: it calls each public family through the
 same Python entry points applications use, checks cross-kernel invariants, and
-writes a timestamped JSON trace under ``artifacts/validation/``.  Run it once
-with the native extension and once with ``RFLUX_DISABLE_NATIVE=1`` to verify
-both drivers.
+writes a timestamped JSON trace under ``artifacts/validation/``.
 
 It is deliberately dependency-light: NumPy and rflux only, no pandas/scipy.
 """
@@ -14,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import subprocess
 import sys
@@ -859,8 +856,7 @@ def main() -> int:
         _benchmarks(runner, data)
 
     info = rflux.native_info()
-    fallback = os.environ.get("RFLUX_DISABLE_NATIVE", "") == "1"
-    backend = "ctypes-fallback" if fallback else info.get("module", "unknown")
+    backend = info.get("module", "unknown")
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "label": args.label,

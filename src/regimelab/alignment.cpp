@@ -97,6 +97,41 @@ std::vector<std::size_t> hungarian(const std::vector<double>& cost,
 
 }  // namespace
 
+
+std::vector<double> alignment_costs(const double* reference_means,
+                                    const double* reference_variances,
+                                    const double* target_means,
+                                    const double* target_variances,
+                                    std::size_t n_states,
+                                    std::size_t n_features,
+                                    double variance_weight) {
+    std::vector<double> cost(n_states * n_states, kNaN);
+    for (std::size_t reference = 0; reference < n_states; ++reference) {
+        for (std::size_t target = 0; target < n_states; ++target) {
+            double mean_cost = 0.0;
+            double variance_cost = 0.0;
+            for (std::size_t feature = 0; feature < n_features; ++feature) {
+                const std::size_t offset = reference * n_features + feature;
+                const std::size_t target_offset =
+                    target * n_features + feature;
+                const double scale =
+                    std::sqrt(reference_variances[offset]);
+                const double difference =
+                    target_means[target_offset] - reference_means[offset];
+                mean_cost +=
+                    difference * difference / (scale * scale);
+                const double log_ratio =
+                    std::log(target_variances[target_offset]) -
+                    std::log(reference_variances[offset]);
+                variance_cost += log_ratio * log_ratio;
+            }
+            cost[reference * n_states + target] =
+                mean_cost + variance_weight * variance_cost;
+        }
+    }
+    return cost;
+}
+
 std::vector<std::int32_t> match_states(const double* reference_means,
                                        const double* reference_variances,
                                        const double* target_means,
@@ -124,30 +159,9 @@ std::vector<std::int32_t> match_states(const double* reference_means,
 
     rflux::detail::checked_mul(n_states, n_states,
                                "state cost matrix dimensions overflow");
-    std::vector<double> cost(n_states * n_states, kNaN);
-    for (std::size_t reference = 0; reference < n_states; ++reference) {
-        for (std::size_t target = 0; target < n_states; ++target) {
-            double mean_cost = 0.0;
-            double variance_cost = 0.0;
-            for (std::size_t feature = 0; feature < n_features; ++feature) {
-                const std::size_t offset = reference * n_features + feature;
-                const std::size_t target_offset =
-                    target * n_features + feature;
-                const double scale =
-                    std::sqrt(reference_variances[offset]);
-                const double difference =
-                    target_means[target_offset] - reference_means[offset];
-                mean_cost +=
-                    difference * difference / (scale * scale);
-                const double log_ratio =
-                    std::log(target_variances[target_offset]) -
-                    std::log(reference_variances[offset]);
-                variance_cost += log_ratio * log_ratio;
-            }
-            cost[reference * n_states + target] =
-                mean_cost + variance_weight * variance_cost;
-        }
-    }
+    const std::vector<double> cost = alignment_costs(
+        reference_means, reference_variances, target_means,
+        target_variances, n_states, n_features, variance_weight);
 
     for (double value : cost) {
         if (!std::isfinite(value)) {
@@ -163,6 +177,88 @@ std::vector<std::int32_t> match_states(const double* reference_means,
         order[reference] = static_cast<std::int32_t>(assignment[reference]);
     }
     return order;
+}
+
+
+AlignedHmmParameters align_parameters(
+    const double* reference_means, const double* reference_variances,
+    const double* target_start_prob, const double* target_transition,
+    const double* target_means, const double* target_variances,
+    std::size_t n_states, std::size_t n_features, double variance_weight) {
+    require_parameter_panel(reference_means, n_states, n_features,
+                            "reference_means must not be NULL");
+    require_parameter_panel(reference_variances, n_states, n_features,
+                            "reference_variances must not be NULL");
+    require_parameter_panel(target_means, n_states, n_features,
+                            "target_means must not be NULL");
+    require_parameter_panel(target_variances, n_states, n_features,
+                            "target_variances must not be NULL");
+    rflux::detail::require_pointer(target_start_prob,
+                                   "target_start_prob must not be NULL");
+    rflux::detail::require_pointer(target_transition,
+                                   "target_transition must not be NULL");
+    rflux::detail::require(std::isfinite(variance_weight) &&
+                               variance_weight >= 0.0,
+                           "variance_weight must be finite and non-negative");
+    for (std::size_t i = 0; i < n_states * n_features; ++i) {
+        if (!(reference_variances[i] > 0.0) ||
+            !(target_variances[i] > 0.0)) {
+            throw rflux::InvalidArgument("variances must be positive");
+        }
+    }
+    for (std::size_t i = 0; i < n_states; ++i) {
+        if (!std::isfinite(target_start_prob[i])) {
+            throw rflux::NonFinite(
+                "target_start_prob must contain finite values");
+        }
+    }
+    rflux::detail::checked_mul(n_states, n_states,
+                               "transition matrix dimensions overflow");
+    for (std::size_t i = 0; i < n_states * n_states; ++i) {
+        if (!std::isfinite(target_transition[i])) {
+            throw rflux::NonFinite(
+                "target_transition must contain finite values");
+        }
+    }
+
+    const std::vector<double> cost = alignment_costs(
+        reference_means, reference_variances, target_means,
+        target_variances, n_states, n_features, variance_weight);
+    for (double value : cost) {
+        if (!std::isfinite(value)) {
+            throw rflux::InvalidArgument(
+                "state alignment cost must be finite");
+        }
+    }
+    const std::vector<std::size_t> assignment =
+        hungarian(cost, n_states);
+
+    AlignedHmmParameters result;
+    result.order.resize(n_states);
+    result.start_prob.resize(n_states);
+    result.transition.resize(n_states * n_states);
+    result.means.resize(n_states * n_features);
+    result.variances.resize(n_states * n_features);
+    long double total_cost = 0.0L;
+    for (std::size_t reference = 0; reference < n_states; ++reference) {
+        const std::size_t target = assignment[reference];
+        result.order[reference] = static_cast<std::int32_t>(target);
+        result.start_prob[reference] = target_start_prob[target];
+        for (std::size_t feature = 0; feature < n_features; ++feature) {
+            result.means[reference * n_features + feature] =
+                target_means[target * n_features + feature];
+            result.variances[reference * n_features + feature] =
+                target_variances[target * n_features + feature];
+        }
+        for (std::size_t column = 0; column < n_states; ++column) {
+            result.transition[reference * n_states + column] =
+                target_transition[target * n_states + assignment[column]];
+        }
+        total_cost += static_cast<long double>(
+            cost[reference * n_states + target]);
+    }
+    result.cost = static_cast<double>(total_cost);
+    return result;
 }
 
 }  // namespace rflux::regimelab

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 import numpy as np
-
-from ._ffi import c_double_p, c_int32_p, c_uint32_p, check
 
 
 def asset_names(names: Sequence[str] | str | None, count: int) -> list[str]:
@@ -89,46 +87,6 @@ def as_u32_1d(values: Any, name: str = "values") -> np.ndarray:
     return np.ascontiguousarray(array, dtype=np.uint32)
 
 
-def equal_weight_market_returns(returns: np.ndarray) -> np.ndarray:
-    """Equal-weight cross-sectional mean of a periodic return panel.
-
-    Rows with no finite asset remain NaN so downstream HMM/report code can
-    exclude them explicitly instead of treating a missing row as zero.
-    """
-    values = np.asarray(returns, dtype=np.float64)
-    if values.ndim != 2:
-        raise ValueError(
-            f"returns must be two-dimensional, got shape {values.shape}"
-        )
-    counts = np.sum(np.isfinite(values), axis=1)
-    result = np.full(values.shape[0], np.nan, dtype=np.float64)
-    valid = counts > 0
-    result[valid] = np.nansum(values[valid], axis=1) / counts[valid]
-    return result
-
-
-def complete_case_covariance(
-    returns: np.ndarray, *, ddof: int = 1
-) -> tuple[np.ndarray, np.ndarray]:
-    """Covariance over rows where every asset is finite.
-
-    Returns ``(covariance, complete_rows)``.  When there are not enough rows the
-    covariance is a NaN matrix so callers can apply their own fallback while
-    still reporting the exact complete-case sample size.
-    """
-    values = np.asarray(returns, dtype=np.float64)
-    if values.ndim != 2:
-        raise ValueError(
-            f"returns must be two-dimensional, got shape {values.shape}"
-        )
-    complete = values[np.all(np.isfinite(values), axis=1)]
-    n_assets = values.shape[1]
-    if complete.shape[0] <= int(ddof):
-        return np.full((n_assets, n_assets), np.nan), complete
-    covariance = np.cov(complete, rowvar=False, ddof=int(ddof))
-    return np.atleast_2d(covariance), complete
-
-
 def as_f64_panel(
     values: Any,
     name: str = "panel",
@@ -180,58 +138,9 @@ def as_square(values: Any, name: str = "matrix") -> np.ndarray:
     return array
 
 
-def empty_f64(n: int) -> np.ndarray:
-    return np.empty(int(n), dtype=np.float64)
-
-
-def empty_i32(n: int) -> np.ndarray:
-    return np.empty(int(n), dtype=np.int32)
-
-
-def call_vector(
-    name: str, size: int, function: Callable[..., int], *args: Any
-) -> np.ndarray:
-    """Run a native function whose final argument is a double output pointer."""
-    out = empty_f64(size)
-    check(function(*args, double_ptr(out)), name)
-    return out
-
-
-def call_i32(
-    name: str, size: int, function: Callable[..., int], *args: Any
-) -> np.ndarray:
-    out = empty_i32(size)
-    check(function(*args, int32_ptr(out)), name)
-    return out
-
-
-def call_scalar(
-    name: str, function: Callable[..., int], *args: Any
-) -> float:
-    out = np.empty(1, dtype=np.float64)
-    check(function(*args, double_ptr(out)), name)
-    return float(out[0])
-
-
-def double_ptr(array: np.ndarray):
-    return array.ctypes.data_as(c_double_p)
-
-
-def int32_ptr(array: np.ndarray):
-    return array.ctypes.data_as(c_int32_p)
-
-
-def uint32_ptr(array: np.ndarray):
-    return array.ctypes.data_as(c_uint32_p)
-
-
-def double_matrix(flat: np.ndarray, n: int) -> np.ndarray:
-    return np.asarray(flat, dtype=np.float64).reshape(int(n), int(n))
-
-
 def package_metadata() -> dict[str, Any]:
     """Version block shared by the JSON research reports."""
-    from ._ffi import abi_version, native_version
+    from ._native_backend import abi_version, native_version
     from ._version import __version__
 
     return {

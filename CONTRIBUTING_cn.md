@@ -17,9 +17,8 @@ make check
 
 `make check` 包含 Markdown 检查（`scripts/check_docs.py`，检查相对链接、
 代码围栏和 GitHub 数学分隔符）、`scripts/check_version.py`（保证 CMake、C 头
-和 Python 元数据版本一致）以及 `make algo-check`：分别通过原生扩展和
-ctypes C ABI 运行 `scripts/verify_algorithms.py`。算法可追溯矩阵见
-`docs/ALGORITHMS_cn.md`。
+和 Python 元数据版本一致）以及 `make algo-check`：通过原生扩展运行
+`scripts/verify_algorithms.py`。算法可追溯矩阵见 `docs/ALGORITHMS_cn.md`。
 
 发布代码和测试保持 0 个完全克隆。大型重构前运行 `make dup-check`（需要
 Node/`npx`，因此 CI 不执行）；该命令以更严格的 5 行/40 token 阈值检查
@@ -54,17 +53,17 @@ CMake 优先使用系统 GoogleTest；未安装时可传
 `-DRFLUX_FETCH_GTEST=ON` 下载构建，或用 `-DRFLUX_BUILD_GTEST=OFF` 跳过该
 测试套件。
 
-`RFLUX_DISABLE_NATIVE=1` 会强制走 ctypes 回退。添加原生绑定时，耗时的 C++
-计算要释放 GIL，所有 Python API 调用必须放在释放区之外。新的公开行为需要
-在 `tests/python/` 增加 pytest；新的 C++ 内核还应增加 GoogleTest 用例。
+新的公开行为需要在 `tests/python/` 增加 pytest；新的 C++ 内核还应增加
+GoogleTest 用例。耗时的 C++ 计算要释放 GIL，所有 Python API 调用必须放在
+释放区之外。算法和计算放在 C++；Python 只做输入校验和报告组装。
 
 ## 添加内核
 
 1. 在对应的 `include/rflux/**/*.hpp` 中声明。
 2. 在 `src/` 中实现。
 3. 用已知输入增加数值测试，覆盖 NaN、零方差等边界。
-4. 如果需要跨语言使用，在 `include/rflux/rflux.h` 和 `src/rflux_capi.cpp`
-   增加 C 函数，再增加 ctypes 绑定和 C ABI 测试。
+4. 在 `src/python/bindings.cpp` 增加 pybind11 绑定；如果 C/C++ 调用方也需要，
+   再在 `include/rflux/rflux.h` 和 `src/rflux_capi.cpp` 增加 C 函数和 C ABI 测试。
 5. 确定性图算法要用已知图和小规模暴力实现对拍。Monte Carlo 算法要用独立
    单次 replicate 验证均值和总体标准差。
 
@@ -77,10 +76,11 @@ CMake 优先使用系统 GoogleTest；未安装时可传
 
 ## 原生扩展
 
-pybind11 模块是可选的；没有扩展时，包通过 ctypes 走 C ABI。`RFLUX_DISABLE_NATIVE=1`
-可强制该路径。耗时的 C++ 计算要释放 GIL，Python API 调用留在释放区之外，
-优先让 `*_into` 内核直接写入 NumPy 输出缓冲区。wheel 在 CPython 3.12+ 使用
-abi3，3.10/3.11 使用版本相关 wheel；二进制契约见 `docs/ABI_cn.md`。
+pybind11 模块是必需的，包没有纯 Python 执行路径。用 `python -m pip install -e .`
+或 `make native` 构建；`cmake --preset dev` 会在 `build/dev` 产出开发扩展。
+耗时的 C++ 计算要释放 GIL，Python API 调用留在释放区之外，优先让 `*_into`
+内核直接写入 NumPy 输出缓冲区。wheel 在 CPython 3.12+ 使用 abi3，3.10/3.11
+使用版本相关 wheel；二进制契约见 `docs/ABI_cn.md`。
 
 ## 更多扩展点
 

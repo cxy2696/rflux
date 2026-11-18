@@ -8,7 +8,6 @@ rest of the package.  The formulas and assumptions are documented in
 
 from __future__ import annotations
 
-import ctypes
 import math
 from dataclasses import asdict
 from typing import Any, Sequence
@@ -17,8 +16,6 @@ import numpy as np
 
 from . import metrics, qflux
 from ._common import (
-    double_ptr,
-    empty_f64,
     as_f64_1d,
     as_f64_panel,
     as_i32_1d,
@@ -26,8 +23,7 @@ from ._common import (
     asset_names as _asset_names,
     jsonable,
 )
-from ._ffi import check, get_lib
-from ._native_backend import native_module, native_or
+from ._native_backend import native_api as native_module, native_call
 from ._version import __version__
 
 
@@ -68,48 +64,13 @@ def portfolio_risk(
         )
     asset_names = _asset_names(names, n_assets)
 
-    def fallback() -> tuple[np.ndarray, ...]:
-        covariance = empty_f64(n_assets * n_assets)
-        asset_volatility = empty_f64(n_assets)
-        component = empty_f64(n_assets)
-        percentages = empty_f64(n_assets)
-        portfolio_returns = empty_f64(n_obs)
-        complete = ctypes.c_size_t()
-        annualized = ctypes.c_double()
-        diversification = ctypes.c_double()
-        gross_hhi = ctypes.c_double()
-        check(
-            get_lib().rflux_portfolio_risk(
-                double_ptr(panel), n_obs, n_assets, double_ptr(weight_array),
-                ddof, float(periods_per_year), double_ptr(covariance),
-                double_ptr(asset_volatility), double_ptr(component),
-                double_ptr(percentages), double_ptr(portfolio_returns),
-                ctypes.byref(complete), ctypes.byref(annualized),
-                ctypes.byref(diversification), ctypes.byref(gross_hhi)
-            ),
-            "rflux_portfolio_risk",
-        )
-        return (
-            covariance.reshape(n_assets, n_assets),
-            asset_volatility,
-            component,
-            percentages,
-            portfolio_returns[: int(complete.value)],
-            int(complete.value),
-            float(annualized.value),
-            float(diversification.value),
-            float(gross_hhi.value),
-        )
-
     (covariance, asset_volatility, contributions, percentages,
      portfolio_returns, complete_n, annualized_volatility,
-     diversification, gross_hhi) = native_or(
-        native_module,
-        "rflux_portfolio_risk",
+     diversification, gross_hhi) = native_call(
+        native_module, "rflux_portfolio_risk",
         lambda: native_module.portfolio_risk(
             panel, weight_array, ddof, float(periods_per_year)
         ),
-        fallback,
     )
     summary = metrics.performance_summary(
         portfolio_returns,
@@ -182,7 +143,8 @@ def regime_attribution(
     Labels must be ``-1`` (unlabelled/warm-up) or non-negative state ids.
     Consecutive valid labels form the transition count matrix.  State
     statistics use only finite returns; ``share_of_total_sum`` is an arithmetic
-    contribution, not a compounded contribution.
+    contribution, not a compounded contribution.  The statistics kernel runs in
+    C++ (``src/regimelab/attribution.cpp``).
     """
     values = as_f64_1d(returns, "returns")
     state_labels = as_i32_1d(labels, "labels")
@@ -192,71 +154,46 @@ def regime_attribution(
         raise ValueError("returns must not be empty")
     if np.any(state_labels < -1):
         raise ValueError("labels must be -1 or non-negative state ids")
-    if np.any(state_labels >= 0):
-        state_count = int(state_labels.max()) + 1
-    else:
+    if not np.any(state_labels >= 0):
         raise ValueError("labels must contain at least one valid state")
     periods_per_year, risk_free, confidence = metrics._validated_options(
         periods_per_year, risk_free, confidence
     )
     assert confidence is not None
 
-    total_sum = float(np.sum(values[np.isfinite(values)]))
+    payload = native_call(
+        native_module, "regime_attribution",
+        lambda: native_module.regime_attribution(
+            values, state_labels, float(periods_per_year), float(risk_free),
+            float(confidence),
+        ),
+    )
+    state_count = int(payload["state_count"])
+
+    def optional(key: str, index: int) -> float | None:
+        value = float(payload[key][index])
+        return value if math.isfinite(value) else None
+
     states: dict[str, Any] = {}
     for state in range(state_count):
-        mask = state_labels == state
-        selected = values[mask & np.isfinite(values)]
-        count = int(selected.size)
-        state_periods = int(mask.sum())
-        entry: dict[str, Any] = {
-            "periods": state_periods,
-            "period_share": float(state_periods / values.size),
-            "n_returns": count,
-            "mean_return": None,
-            "annualized_mean_return": None,
-            "annualized_volatility": None,
-            "sharpe": None,
-            "var": None,
-            "cvar": None,
-            "hit_rate": None,
-            "sum_return": None,
-            "share_of_total_sum": None,
+        states[str(state)] = {
+            "periods": int(payload["periods"][state]),
+            "period_share": float(payload["period_share"][state]),
+            "n_returns": int(payload["n_returns"][state]),
+            "mean_return": optional("mean_return", state),
+            "annualized_mean_return": optional(
+                "annualized_mean_return", state
+            ),
+            "annualized_volatility": optional(
+                "annualized_volatility", state
+            ),
+            "sharpe": optional("sharpe", state),
+            "var": optional("var", state),
+            "cvar": optional("cvar", state),
+            "hit_rate": optional("hit_rate", state),
+            "sum_return": optional("sum_return", state),
+            "share_of_total_sum": optional("share_of_total_sum", state),
         }
-        if count:
-            mean = float(selected.mean())
-            entry["mean_return"] = mean
-            entry["annualized_mean_return"] = mean * periods_per_year
-            entry["hit_rate"] = float(np.mean(selected > 0.0))
-            entry["sum_return"] = float(selected.sum())
-            if total_sum != 0.0:
-                entry["share_of_total_sum"] = float(
-                    selected.sum() / total_sum
-                )
-            tail = qflux.var_cvar(selected, confidence)
-            entry["var"] = float(tail.var)
-            entry["cvar"] = float(tail.cvar)
-            if count >= 2:
-                entry["annualized_volatility"] = float(
-                    selected.std(ddof=1) * math.sqrt(periods_per_year)
-                )
-                entry["sharpe"] = float(
-                    qflux.sharpe(selected, periods_per_year, risk_free)
-                )
-        states[str(state)] = entry
-
-    counts = np.zeros((state_count, state_count), dtype=np.int64)
-    for first, second in zip(state_labels[:-1], state_labels[1:]):
-        if first >= 0 and second >= 0:
-            counts[int(first), int(second)] += 1
-    row_sums = counts.sum(axis=1)
-    probabilities: list[list[float | None]] = []
-    for row in range(state_count):
-        if row_sums[row] == 0:
-            probabilities.append([None] * state_count)
-        else:
-            probabilities.append(
-                [float(value / row_sums[row]) for value in counts[row]]
-            )
 
     report = {
         "package": {"version": __version__},
@@ -270,13 +207,19 @@ def regime_attribution(
         },
         "input": {
             "observations": int(values.size),
-            "labelled_observations": int(np.count_nonzero(state_labels >= 0)),
+            "labelled_observations": int(payload["labelled_observations"]),
             "states": state_count,
         },
         "states": states,
         "transitions": {
-            "counts": counts.tolist(),
-            "probabilities": probabilities,
+            "counts": payload["transition_counts"].tolist(),
+            "probabilities": [
+                [
+                    None if not math.isfinite(float(value)) else float(value)
+                    for value in row
+                ]
+                for row in payload["transition_probabilities"]
+            ],
         },
     }
     return jsonable(report)

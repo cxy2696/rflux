@@ -9,7 +9,7 @@ from unittest import mock
 import numpy as np
 
 from rflux import backtest, data, metrics
-from rflux._ffi import RFluxError
+from rflux import RFluxError
 
 
 class TestMetricsAndBacktest(unittest.TestCase):

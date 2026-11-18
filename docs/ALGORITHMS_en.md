@@ -3,8 +3,9 @@
 **English** · [中文](ALGORITHMS_cn.md)
 
 rflux 0.7 adds a C++ algorithm layer on top of the numerical core. Every
-algorithm has a typed interface, a documented input/output contract, a native
-implementation, and a Python fallback where needed.
+algorithm has a typed interface, a documented input/output contract and a
+native implementation. The Python layer validates inputs and assembles
+reports; it does not compute algorithm results.
 
 ## Extension contracts
 
@@ -93,7 +94,7 @@ The C++ `HmmRegimeDetector` adapts the existing HMM to `BaseRegimeDetector`.
 - `huber_regression`: iteratively reweighted least squares with a robust MAD
   scale.  A C++ implementation lives in
   [`include/rflux/mllab/huber.hpp`](../include/rflux/mllab/huber.hpp) and is
-  exposed through the native bridge; NumPy is the fallback.
+  exposed through the native bridge.
 - `cvar_loss`: historical CVaR of losses, useful as a model-selection or
   portfolio objective diagnostic.
 - `graph_smooth`: degree-normalised diffusion of a node signal as a
@@ -137,14 +138,14 @@ the audit trail from formula to code:
 | Portfolio construction | [`src/portfoliolab/hrp.cpp`](../src/portfoliolab/hrp.cpp), [`src/portfoliolab/risk.cpp`](../src/portfoliolab/risk.cpp) | `rflux_hrp_weights`, `rflux_hrp_order`, `rflux_risk_parity_weights`, `rflux_nco_weights`, `rflux_rebalance_targets`, `rflux_portfolio_risk` | `portfoliolab.hrp_weights`, `nco_weights`, `risk_parity_weights`, `rebalance_targets` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
 | Robust ML | [`src/mllab/huber.cpp`](../src/mllab/huber.cpp), [`src/mllab/robust.cpp`](../src/mllab/robust.cpp) | `rflux_huber_regression`, `rflux_cvar_loss`, `rflux_graph_smooth` | `mllab.huber_regression`, `cvar_loss`, `graph_smooth` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
 | Execution and risk | [`src/execution/almgren_chriss.cpp`](../src/execution/almgren_chriss.cpp), [`src/execution/microstructure.cpp`](../src/execution/microstructure.cpp), [`src/risk/pretrade.cpp`](../src/risk/pretrade.cpp), [`src/risk/tail_dependence.cpp`](../src/risk/tail_dependence.cpp) | `rflux_almgren_chriss_plan`, `rflux_order_book_metrics`, `rflux_pretrade_check`, `rflux_tail_dependence` | `execution.almgren_chriss`, `execution.order_book_metrics`, `risk.tail_dependence` | [`test_algorithms.py`](../tests/python/test_algorithms.py), [`test_core_gtest.cpp`](../tests/cpp/test_core_gtest.cpp) |
-| Research reports | Python composition (`analysis.py`, `advice.py`, `apps.py`); backtest kernels, `portfolio_risk` and metrics call C++ | — | `analyze_prices`, `trade_advice`, `portfolio_risk`, `regime_attribution`, `performance_summary`, `backtest.*` | [`test_advice.py`](../tests/python/test_advice.py), [`test_tools.py`](../tests/python/test_tools.py), [`test_apps.py`](../tests/python/test_apps.py) |
+| Advice and attribution | [`src/portfoliolab/advice.cpp`](../src/portfoliolab/advice.cpp), [`src/regimelab/attribution.cpp`](../src/regimelab/attribution.cpp) | — | `trade_advice`, `regime_attribution` | [`test_advice.py`](../tests/python/test_advice.py), [`test_apps.py`](../tests/python/test_apps.py) |
+| Reports | C++ kernels, Python assembly (`analysis.py`, `advice.py`, `apps.py`) | — | `analyze_prices`, `trade_advice`, `portfolio_risk`, `regime_attribution`, `performance_summary`, `backtest.*` | [`test_advice.py`](../tests/python/test_advice.py), [`test_tools.py`](../tests/python/test_tools.py), [`test_apps.py`](../tests/python/test_apps.py) |
 
 `scripts/verify_algorithms.py` is the executable audit: it exercises all public
 families, checks names/shapes/warm-ups/ranges and independent references where
 practical, records hot-kernel timings, and writes a timestamped JSON report to
-`artifacts/validation/`.  `make algo-check` runs it twice, once through the
-native extension (when installed) and once through the ctypes C ABI fallback.
-The matrix lives next to the algorithms. A new public family needs a row and a
+`artifacts/validation/`.  `make algo-check` runs it once through the native
+extension.  The matrix lives next to the algorithms. A new public family needs a row and a
 test before review.
 
 ## Engineering rules for new algorithms
@@ -155,8 +156,8 @@ test before review.
    values; test edge cases (NaN, zero volume, zero variance, empty panels).
 3. Add a native pybind11 binding for the Python fast path, release the GIL for
    nontrivial work, and accept/return contiguous float64 arrays.
-4. Provide a NumPy fallback when the algorithm is part of the public Python API,
-   and test native/fallback parity.
+4. Python wrappers validate shapes and expose the native result; no NumPy
+   fallback or Python compute path is added.
 5. Keep the C ABI additive if a kernel becomes part of the cross-language
    contract.  Do not add file I/O or Python types to the C++ core.
 6. Document warm-up, causality, scaling and the exact estimator definition.

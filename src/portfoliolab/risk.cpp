@@ -11,6 +11,108 @@
 
 namespace rflux::portfoliolab {
 
+std::vector<double> complete_case_covariance(const double* returns,
+                                             std::size_t n_obs,
+                                             std::size_t n_assets,
+                                             std::size_t ddof,
+                                             std::size_t* complete_observations) {
+    rflux::detail::require_pointer(returns, "returns must not be NULL");
+    rflux::detail::require(n_obs > 0, "n_obs must be positive");
+    rflux::detail::require(n_assets > 0, "n_assets must be positive");
+    rflux::detail::require(ddof >= 1, "ddof must be positive");
+    rflux::detail::checked_mul(n_obs, n_assets, "n_obs*n_assets overflows");
+    rflux::detail::checked_mul(n_assets, n_assets,
+                               "n_assets*n_assets overflows");
+    std::vector<double> result(n_assets * n_assets,
+                               rflux::detail::kNaN);
+    std::size_t complete = 0;
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        bool valid = true;
+        for (std::size_t asset = 0; asset < n_assets; ++asset) {
+            if (!std::isfinite(returns[row * n_assets + asset])) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) ++complete;
+    }
+    if (complete_observations != nullptr) *complete_observations = complete;
+    if (complete <= ddof) return result;
+
+    std::vector<long double> mean(n_assets, 0.0L);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        bool valid = true;
+        for (std::size_t asset = 0; asset < n_assets; ++asset) {
+            if (!std::isfinite(returns[row * n_assets + asset])) {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) continue;
+        for (std::size_t asset = 0; asset < n_assets; ++asset) {
+            mean[asset] +=
+                static_cast<long double>(returns[row * n_assets + asset]);
+        }
+    }
+    for (long double& value : mean) {
+        value /= static_cast<long double>(complete);
+    }
+    for (std::size_t left = 0; left < n_assets; ++left) {
+        for (std::size_t right = left; right < n_assets; ++right) {
+            long double value = 0.0L;
+            for (std::size_t row = 0; row < n_obs; ++row) {
+                bool valid = true;
+                for (std::size_t asset = 0; asset < n_assets; ++asset) {
+                    if (!std::isfinite(returns[row * n_assets + asset])) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (!valid) continue;
+                value += (static_cast<long double>(
+                              returns[row * n_assets + left]) -
+                          mean[left]) *
+                         (static_cast<long double>(
+                              returns[row * n_assets + right]) -
+                          mean[right]);
+            }
+            value /= static_cast<long double>(complete - ddof);
+            const double covariance = static_cast<double>(value);
+            result[left * n_assets + right] = covariance;
+            result[right * n_assets + left] = covariance;
+        }
+    }
+    return result;
+}
+
+std::vector<double> portfolio_series(const double* returns,
+                                     std::size_t n_obs,
+                                     std::size_t n_assets,
+                                     const double* weights) {
+    rflux::detail::require_pointer(returns, "returns must not be NULL");
+    rflux::detail::require_pointer(weights, "weights must not be NULL");
+    rflux::detail::require(n_obs > 0, "n_obs must be positive");
+    rflux::detail::require(n_assets > 0, "n_assets must be positive");
+    rflux::detail::checked_mul(n_obs, n_assets, "n_obs*n_assets overflows");
+    std::vector<double> result(n_obs, 0.0);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        long double sum = 0.0L;
+        bool saw_finite = false;
+        for (std::size_t asset = 0; asset < n_assets; ++asset) {
+            const double observation = returns[row * n_assets + asset];
+            const double weight = weights[asset];
+            if (!std::isfinite(observation) || !std::isfinite(weight)) {
+                continue;
+            }
+            sum += static_cast<long double>(observation) *
+                   static_cast<long double>(weight);
+            saw_finite = true;
+        }
+        result[row] = saw_finite ? static_cast<double>(sum) : 0.0;
+    }
+    return result;
+}
+
 PortfolioRisk portfolio_risk(const double* returns, std::size_t n_obs,
                              std::size_t n_assets, const double* weights,
                              std::size_t ddof, double periods_per_year) {

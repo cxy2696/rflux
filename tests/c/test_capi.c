@@ -49,7 +49,7 @@ static int test_status(void) {
     double out[5];
     const double x[5] = {1, 2, 3, 4, 5};
     CHECK(rflux_abi_version() == RFLUX_ABI_VERSION);
-    CHECK(strcmp(rflux_version_string(), "0.8.0") == 0);
+    CHECK(strcmp(rflux_version_string(), "0.9.0") == 0);
     CHECK(strcmp(rflux_status_name(RFLUX_OK), "RFLUX_OK") == 0);
     CHECK(strcmp(rflux_status_name(999), "RFLUX_ERR_UNKNOWN") ==
           0);

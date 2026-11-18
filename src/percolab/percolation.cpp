@@ -267,6 +267,50 @@ std::vector<PercolationPoint> percolation_scan(
                     });
 }
 
+
+PercolationSummary percolation_summary(const double* probabilities,
+                                       const double* giant_mean,
+                                       const double* susceptibility,
+                                       std::size_t n) {
+    rflux::detail::require_pointer(probabilities,
+                                   "probabilities must not be NULL");
+    rflux::detail::require_pointer(giant_mean,
+                                   "giant_mean must not be NULL");
+    rflux::detail::require_pointer(susceptibility,
+                                   "susceptibility must not be NULL");
+    PercolationSummary result;
+    result.critical_probability = rflux::detail::kNaN;
+    result.p_half_giant = rflux::detail::kNaN;
+    result.max_susceptibility = rflux::detail::kNaN;
+    result.giant_area = 0.0;
+    if (n == 0) return result;
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < n; ++i) {
+        if (susceptibility[i] > susceptibility[best]) best = i;
+    }
+    result.critical_probability = probabilities[best];
+    double maximum = susceptibility[0];
+    for (std::size_t i = 1; i < n; ++i) {
+        maximum = std::max(maximum, susceptibility[i]);
+    }
+    result.max_susceptibility = maximum;
+    const double terminal = giant_mean[n - 1];
+    if (std::isfinite(terminal) && terminal > 0.0) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (giant_mean[i] >= 0.5 * terminal) {
+                result.p_half_giant = probabilities[i];
+                break;
+            }
+        }
+    }
+    for (std::size_t i = 1; i < n; ++i) {
+        const double width = probabilities[i] - probabilities[i - 1];
+        const double height = 0.5 * (giant_mean[i] + giant_mean[i - 1]);
+        result.giant_area += width * height;
+    }
+    return result;
+}
+
 std::vector<PercolationPoint> bond_percolation(
     const double* adjacency, std::size_t n, const double* probabilities,
     std::size_t n_probabilities, std::size_t repetitions, std::uint64_t seed) {

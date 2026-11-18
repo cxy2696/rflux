@@ -8,14 +8,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 [[ -x "$PYTHON" ]] || PYTHON="$(command -v python3)"
-export PYTHONPATH="$ROOT/python"
-if [[ -z "${RFLUX_LIBRARY:-}" ]]; then
-  for candidate in build/librflux.dylib build/librflux.so build/librflux.dll; do
-    if [[ -f "$ROOT/$candidate" ]]; then
-      export RFLUX_LIBRARY="$ROOT/$candidate"
-      break
-    fi
-  done
+
+if ! "$PYTHON" -c "import rflux" >/dev/null 2>&1; then
+  echo "rflux is not installed for $PYTHON; run 'make native' first" >&2
+  exit 2
 fi
 
 failed=0

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
@@ -20,6 +21,8 @@
 #include "rflux/mllab/factory.hpp"
 #include "rflux/regimelab/detector.hpp"
 #include "rflux/regimelab/factory.hpp"
+#include "rflux/percolab/network.hpp"
+#include "rflux/portfoliolab/advice.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
 #include "rflux/portfoliolab/risk.hpp"
 #include "rflux/portfoliolab/factory.hpp"
@@ -32,6 +35,7 @@
 #include "rflux/qflux/ranking.hpp"
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
+#include "rflux/regimelab/attribution.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
 #include "rflux/regimelab/alignment.hpp"
@@ -354,6 +358,141 @@ TEST(RegimelabGTest, StateMatchingRecoversPermutation) {
                      reference_means, tiny_variances, far_means,
                      tiny_variances, 2, 1, 1.0),
                  rflux::InvalidArgument);
+}
+
+
+TEST(QfluxStatsGTest, FiniteValueHelpers) {
+    const double values[5] = {1.0, std::numeric_limits<double>::quiet_NaN(),
+                              3.0, -2.0, 5.0};
+    const auto stats = rflux::qflux::finite_stats(values, 5);
+    EXPECT_EQ(stats.count, 4u);
+    EXPECT_DOUBLE_EQ(stats.minimum, -2.0);
+    EXPECT_DOUBLE_EQ(stats.maximum, 5.0);
+    EXPECT_DOUBLE_EQ(stats.sum, 7.0);
+    EXPECT_DOUBLE_EQ(stats.mean, 1.75);
+    bool found = false;
+    EXPECT_DOUBLE_EQ(rflux::qflux::last_finite(values, 5, &found), 5.0);
+    EXPECT_TRUE(found);
+    const auto top = rflux::qflux::top_k_indices(values, 5, 2, true);
+    ASSERT_EQ(top.size(), 2u);
+    EXPECT_EQ(top[0], 4u);
+    EXPECT_EQ(top[1], 2u);
+    /* numpy semantics: the first NaN wins argmax. */
+    EXPECT_EQ(rflux::qflux::argmax_index(values, 5), 1u);
+    const double rows[6] = {0.1, 0.9, 0.3, 0.2};
+    const auto row_max = rflux::qflux::row_argmax(rows, 2, 2);
+    ASSERT_EQ(row_max.size(), 2u);
+    EXPECT_EQ(row_max[0], 1);
+    EXPECT_EQ(row_max[1], 0);
+}
+
+TEST(QfluxStatsGTest, MarketReturnsAndPortfolioSeries) {
+    const double returns[6] = {0.1, 0.2, std::numeric_limits<double>::quiet_NaN(),
+                               0.3, 0.2, 0.2};
+    const auto market = rflux::qflux::equal_weight_market_returns(returns, 3, 2);
+    ASSERT_EQ(market.size(), 3u);
+    EXPECT_NEAR(market[0], 0.15, 1e-12);
+    EXPECT_NEAR(market[1], 0.3, 1e-12);
+    EXPECT_NEAR(market[2], 0.2, 1e-12);
+    const double weights[2] = {0.5, 0.5};
+    const auto series = rflux::portfoliolab::portfolio_series(returns, 3, 2,
+                                                              weights);
+    ASSERT_EQ(series.size(), 3u);
+    EXPECT_NEAR(series[0], 0.15, 1e-12);
+    EXPECT_NEAR(series[1], 0.15, 1e-12);
+    EXPECT_NEAR(series[2], 0.2, 1e-12);
+    std::size_t complete = 0;
+    const auto covariance = rflux::portfoliolab::complete_case_covariance(
+        returns, 3, 2, 1, &complete);
+    EXPECT_EQ(complete, 2u);
+    ASSERT_EQ(covariance.size(), 4u);
+    EXPECT_NEAR(covariance[0], 0.005, 1e-12);
+}
+
+TEST(PortfolioLabGTest, AdviceSignalsAndAllocation) {
+    constexpr std::size_t n_obs = 80;
+    std::vector<double> prices(n_obs * 2);
+    std::vector<double> returns(n_obs * 2, 0.0);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        prices[row * 2] = 100.0 + static_cast<double>(row);
+        prices[row * 2 + 1] = 50.0 + 0.5 * static_cast<double>(row);
+        if (row > 0) {
+            returns[row * 2] = 0.001;
+            returns[row * 2 + 1] = 0.002;
+        }
+    }
+    const auto signals = rflux::portfoliolab::advice_signals(
+        prices.data(), returns.data(), n_obs, 2);
+    ASSERT_EQ(signals.rows.size(), 2u);
+    EXPECT_NEAR(signals.rows[0].last_price, 179.0, 1e-12);
+    EXPECT_GT(signals.rows[0].momentum_20, 0.0);
+    EXPECT_GE(signals.scores[0], -1.0);
+    EXPECT_LE(signals.scores[0], 1.0);
+
+    const double covariance[4] = {0.04, 0.0, 0.0, 0.09};
+    const double scores[2] = {0.1, -0.1};
+    const double market[3] = {0.001, 0.001, 0.001};
+    const auto allocation = rflux::portfoliolab::advice_allocation(
+        covariance, scores, 2, nullptr, false, market, 3, 252.0, 1.0, 0.15,
+        1.0);
+    ASSERT_EQ(allocation.target_weights.size(), 2u);
+    EXPECT_GE(allocation.exposure, 0.0);
+    EXPECT_LE(allocation.exposure, 1.0);
+    EXPECT_LE(allocation.target_weights[0] + allocation.target_weights[1],
+              1.0 + 1e-12);
+    EXPECT_GE(allocation.cash_weight, 0.0);
+}
+
+TEST(RegimelabGTest, AttributionAndStickyRegime) {
+    const double returns[4] = {0.1, -0.1, 0.2, 0.0};
+    const std::int32_t labels[4] = {0, 0, 1, -1};
+    const auto attribution = rflux::regimelab::regime_attribution(
+        returns, labels, 4, 252.0, 0.0, 0.95);
+    ASSERT_EQ(attribution.state_count, 2u);
+    EXPECT_EQ(attribution.labelled_observations, 3u);
+    EXPECT_EQ(attribution.states[0].periods, 2u);
+    EXPECT_NEAR(attribution.states[0].mean_return, 0.0, 1e-12);
+    ASSERT_EQ(attribution.transition_counts.size(), 4u);
+    EXPECT_EQ(attribution.transition_counts[0 * 2 + 1], 1u);
+    EXPECT_NEAR(attribution.transition_probabilities[0 * 2 + 0], 0.5, 1e-12);
+
+    const double probabilities[8] = {0.9, 0.1, 0.2, 0.8,
+                                     0.1, 0.9, 0.7, 0.3};
+    const auto sticky = rflux::regimelab::sticky_regime(
+        probabilities, 4, 2, 1, 0.6, 0.4);
+    ASSERT_EQ(sticky.labels.size(), 4u);
+    EXPECT_EQ(sticky.labels[0], 0);
+    EXPECT_EQ(sticky.labels[1], 1);
+    EXPECT_EQ(sticky.labels[2], 1);
+    EXPECT_EQ(sticky.labels[3], 0);
+    ASSERT_EQ(sticky.switches.size(), 2u);
+    EXPECT_EQ(sticky.switches[0], 1);
+    EXPECT_EQ(sticky.switches[1], 3);
+}
+
+TEST(PercolabGTest, CorrelationAdjacencyAndSummary) {
+    const double correlation[4] = {1.0, 0.8, 0.8, 1.0};
+    const auto adjacency = rflux::percolab::correlation_adjacency(
+        correlation, 2, 0.5, true);
+    ASSERT_EQ(adjacency.adjacency.size(), 4u);
+    EXPECT_NEAR(adjacency.adjacency[1], 0.8, 1e-12);
+    EXPECT_NEAR(adjacency.adjacency[2], 0.8, 1e-12);
+    EXPECT_EQ(adjacency.n_edges, 1u);
+    EXPECT_NEAR(adjacency.density, 1.0, 1e-12);
+    const std::int32_t labels[3] = {0, 0, 1};
+    const auto sizes = rflux::percolab::component_sizes(labels, 3, 2);
+    ASSERT_EQ(sizes.size(), 2u);
+    EXPECT_EQ(sizes[0], 2u);
+    EXPECT_EQ(sizes[1], 1u);
+    const double probabilities[3] = {0.0, 0.5, 1.0};
+    const double giant[3] = {0.0, 0.5, 1.0};
+    const double susceptibility[3] = {1.0, 2.0, 1.0};
+    const auto summary = rflux::percolab::percolation_summary(
+        probabilities, giant, susceptibility, 3);
+    EXPECT_NEAR(summary.critical_probability, 0.5, 1e-12);
+    EXPECT_NEAR(summary.p_half_giant, 0.5, 1e-12);
+    EXPECT_NEAR(summary.max_susceptibility, 2.0, 1e-12);
+    EXPECT_NEAR(summary.giant_area, 0.5, 1e-12);
 }
 
 TEST(PortfolioLabGTest, RiskParityAndNcoWeights) {

@@ -18,9 +18,9 @@ docs), run `bash scripts/vscode_verify.sh`. It writes logs under
 `make check` includes a lightweight Markdown check (`scripts/check_docs.py`) for
 relative links, fenced code blocks and GitHub-compatible math delimiters,
 `scripts/check_version.py` to keep CMake, the C header and Python metadata in
-sync, and `make algo-check`, which runs `scripts/verify_algorithms.py` once
-through the native extension and once through the ctypes C ABI.  The algorithm
-traceability matrix lives in `docs/ALGORITHMS_en.md`.
+sync, and `make algo-check`, which runs `scripts/verify_algorithms.py` through
+the native extension.  The algorithm traceability matrix lives in
+`docs/ALGORITHMS_en.md`.
 
 The shipping code and tests are kept at zero exact clones. Run `make dup-check`
 before a large refactor (it needs Node/`npx`, so CI does not run it). GitHub
@@ -59,17 +59,18 @@ The CMake build uses a system GoogleTest when present. If it is not installed,
 pass `-DRFLUX_FETCH_GTEST=ON` to download and build it, or leave
 `-DRFLUX_BUILD_GTEST=OFF` to skip only that suite.
 
-`RFLUX_DISABLE_NATIVE=1` forces the ctypes fallback. When adding a native
-binding, release the GIL around expensive C++ work and keep all Python API calls
-outside the released region. New public behaviour needs a pytest under
-`tests/python/`; new C++ kernels should also get a GoogleTest case.
+New public behaviour needs a pytest under `tests/python/`; new C++ kernels
+should also get a GoogleTest case. Release the GIL around expensive C++ work
+and keep all Python API calls outside the released region. Algorithmic work and
+computation belong in C++; Python should only validate inputs and assemble
+reports.
 
 ## Adding a kernel
 
 1. Declare it in the relevant `include/rflux/**/*.hpp` header.
 2. Implement it under `src/`.
 3. Add a numeric test with known inputs, including NaN/zero-variance/edge cases where relevant.
-4. If it needs to be used from other languages, add a C function in `include/rflux/rflux.h` and `src/rflux_capi.cpp`, then a ctypes binding and a C ABI test.
+4. Bind it through pybind11 in `src/python/bindings.cpp`. If C/C++ callers need the same kernel, also add a C function in `include/rflux/rflux.h` and `src/rflux_capi.cpp` with a C ABI test.
 5. For deterministic graph kernels, test known graphs and compare against a brute-force implementation on a small random graph. For Monte Carlo kernels, verify the mean and population standard deviation against independent single-replicate calls.
 
 ## Adding a C ABI function
@@ -85,7 +86,7 @@ Keep optional data dependencies lazy. `import rflux` must not access the network
 
 ## Native extension
 
-The pybind11 module is optional; without it the package uses the C ABI through ctypes. `RFLUX_DISABLE_NATIVE=1` forces that path. Release the GIL around expensive C++ work, keep all Python API calls outside the released region, and let `*_into` kernels fill NumPy output buffers directly. The wheel uses abi3 on CPython 3.12+ and version-specific wheels on 3.10/3.11; see `docs/ABI.md` for the binary contract.
+The pybind11 module is required: the package has no pure-Python execution path. Build it with `python -m pip install -e .` or `make native`; `cmake --preset dev` produces a developer extension in `build/dev`. Release the GIL around expensive C++ work, keep all Python API calls outside the released region, and let `*_into` kernels fill NumPy output buffers directly. The wheel uses abi3 on CPython 3.12+ and version-specific wheels on 3.10/3.11; see `docs/ABI.md` for the binary contract.
 
 ## More extension points
 

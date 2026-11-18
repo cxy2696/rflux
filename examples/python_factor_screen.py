@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cross-sectional factor screening with sector neutralization.
 
-    PYTHONPATH=python python examples/python_factor_screen.py
+    python examples/python_factor_screen.py
 
 The example uses a synthetic multi-asset panel so it runs without network access.
 The same steps apply to a real wide price table from :mod:`rflux.data`:

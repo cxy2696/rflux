@@ -151,10 +151,10 @@ print(rflux.percolab.modularity(net.adjacency, sectors))
 `rflux risk` converts a price CSV to returns and calls `portfolio_risk`:
 
 ```bash
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 0.2,0.2,0.2,0.2,0.2
 
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 1,-1,0,0,0 --format json
 ```
 

@@ -120,6 +120,50 @@ TrendRegimeResult trend_regime(const double* prices, std::size_t n,
     return result;
 }
 
+StickyRegimeResult sticky_regime(const double* probabilities,
+                                 std::size_t n_obs, std::size_t n_states,
+                                 std::size_t min_duration,
+                                 double entry_threshold,
+                                 double exit_threshold) {
+    require_pointer(probabilities, "probabilities must not be NULL");
+    require(n_states > 0, "n_states must be positive");
+    require(min_duration >= 1, "min_duration must be positive");
+    require(std::isfinite(entry_threshold) &&
+                std::isfinite(exit_threshold) && exit_threshold > 0.0 &&
+                exit_threshold < entry_threshold && entry_threshold <= 1.0,
+            "require 0 < exit_threshold < entry_threshold <= 1");
+    StickyRegimeResult result;
+    if (n_obs == 0) return result;
+    require(probabilities != nullptr, "probabilities must not be NULL");
+    std::vector<std::int32_t> labels(n_obs, 0);
+    std::size_t current = 0;
+    for (std::size_t state = 1; state < n_states; ++state) {
+        if (probabilities[state] > probabilities[current]) current = state;
+    }
+    labels[0] = static_cast<std::int32_t>(current);
+    std::size_t last_switch = 0;
+    for (std::size_t row = 1; row < n_obs; ++row) {
+        std::size_t challenger = 0;
+        const double* probabilities_row = probabilities + row * n_states;
+        for (std::size_t state = 1; state < n_states; ++state) {
+            if (probabilities_row[state] > probabilities_row[challenger]) {
+                challenger = state;
+            }
+        }
+        if (challenger != current &&
+            probabilities_row[challenger] >= entry_threshold &&
+            probabilities_row[current] <= exit_threshold &&
+            row - last_switch >= min_duration) {
+            current = challenger;
+            last_switch = row;
+            result.switches.push_back(static_cast<std::int32_t>(row));
+        }
+        labels[row] = static_cast<std::int32_t>(current);
+    }
+    result.labels = std::move(labels);
+    return result;
+}
+
 std::vector<std::int32_t> composite_regime(
     const std::int32_t* volatility_labels, const std::int32_t* trend_labels,
     std::size_t n) {
@@ -138,6 +182,31 @@ std::vector<std::int32_t> composite_regime(
         out[i] = std::max(volatility, 2 - trend);
     }
     return out;
+}
+
+double conditional_mean(const double* state_probs, const double* means,
+                        std::size_t n_states, std::size_t n_features,
+                        std::size_t feature) {
+    require_pointer(state_probs, "state_probs must not be NULL");
+    require_pointer(means, "means must not be NULL");
+    require(n_states > 0, "n_states must be positive");
+    require(n_features > 0, "n_features must be positive");
+    require(feature < n_features, "feature is out of range");
+    long double total = 0.0L;
+    for (std::size_t state = 0; state < n_states; ++state) {
+        require(std::isfinite(state_probs[state]) &&
+                    state_probs[state] >= 0.0,
+                "state_probs must be finite and non-negative");
+        total += static_cast<long double>(state_probs[state]);
+    }
+    require(total > 0.0L, "state_probs must have positive mass");
+    long double value = 0.0L;
+    for (std::size_t state = 0; state < n_states; ++state) {
+        value += static_cast<long double>(state_probs[state]) *
+                 static_cast<long double>(
+                     means[state * n_features + feature]);
+    }
+    return static_cast<double>(value / total);
 }
 
 }  // namespace rflux::regimelab

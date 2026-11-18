@@ -4,11 +4,12 @@ Layers
 ------
 - C ABI: ``include/rflux/rflux.h`` (stable, opaque handles, no exceptions).
 - C++17 core: qflux, regimelab, percolab, factorlab, portfoliolab, execution and mllab.
-- Python: NumPy wrappers, data adapters and research tools.
+- Python: thin NumPy wrappers, data adapters and research reports.
 
-The pybind11 extension is optional and is preferred when present; the stable C
-ABI remains a lazy, portable fallback.  Set ``RFLUX_LIBRARY`` to an explicit
-shared-library path, or ``RFLUX_DISABLE_NATIVE=1`` to force ctypes.
+Algorithmic work and computation run in the C++ core and are reached through
+the compiled pybind11 extension.  Build it with ``python -m pip install -e .``
+(or ``cmake --preset dev``); importing :mod:`rflux` without it raises
+``ImportError``.
 """
 
 from __future__ import annotations
@@ -35,15 +36,14 @@ from . import (  # noqa: E402
 from .advice import trade_advice  # noqa: E402
 from .analysis import analyze_prices  # noqa: E402
 from .apps import portfolio_risk, regime_attribution  # noqa: E402
-from ._ffi import (  # noqa: E402
+from ._native_backend import (  # noqa: E402
     ABI_VERSION,
     ABIError,
-    LibraryNotFoundError,
     RFluxError,
     abi_version,
+    native_info,
     native_version,
 )
-from ._native_backend import native_info  # noqa: E402
 from .config import (  # noqa: E402
     ConfigError,
     FitOptions,
@@ -64,7 +64,6 @@ __all__ = [
     "ConfigError",
     "FitOptions",
     "HMMConfig",
-    "LibraryNotFoundError",
     "ModelConfig",
     "RFluxError",
     "__version__",

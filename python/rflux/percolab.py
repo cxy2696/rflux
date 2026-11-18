@@ -1,17 +1,18 @@
 """percolab: correlation graphs, centrality, percolation and risk diffusion.
 
-Percolation and diffusion are Monte Carlo procedures with explicit seeds; their
-outputs are deterministic for a given seed on a given platform.
+Every graph and percolation kernel lives in the C++ core
+(``src/percolab/``); this module validates shapes and wraps the native results
+in small dataclasses.
 """
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
+from . import qflux
 from ._common import (
     as_f64_1d,
     as_f64_2d,
@@ -20,16 +21,8 @@ from ._common import (
     as_square,
     as_u32_1d,
     as_u64,
-    call_i32,
-    call_scalar,
-    call_vector,
-    double_ptr,
-    empty_f64,
-    int32_ptr,
-    uint32_ptr,
 )
-from ._ffi import check, get_lib
-from . import qflux
+from ._native_backend import native_api as native_module, native_call
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +52,6 @@ class MSTResult:
 
 @dataclass(frozen=True, slots=True)
 class PathStats:
-    """Shortest-path summaries of an undirected unweighted graph."""
-
     efficiency: float
     average_path_length: float
     diameter: int
@@ -75,54 +66,30 @@ class PercolationScan:
     giant_std: np.ndarray
     susceptibility: np.ndarray
 
-    def critical_probability(self) -> float:
-        """Scanned probability with the largest finite-cluster susceptibility.
+    def _summary(self) -> tuple[float, float, float, float]:
+        return native_call(
+            native_module, "percolation_summary",
+            lambda: native_module.percolation_summary(
+                self.probabilities, self.giant_mean, self.susceptibility
+            ),
+        )
 
-        On sparse graphs the susceptibility can peak at ``p = 0`` because all
-        nodes are isolated.  That endpoint is not a usable percolation
-        threshold; use :meth:`p_half_giant` for a giant-component-based
-        descriptive threshold.
-        """
-        if self.susceptibility.size == 0:
-            return float("nan")
-        return float(self.probabilities[int(np.argmax(self.susceptibility))])
+    def critical_probability(self) -> float:
+        """Scanned probability with the largest finite-cluster susceptibility."""
+        return float(self._summary()[0])
 
     def p_half_giant(self) -> float:
         """First scanned probability whose giant fraction reaches half its
-        final value.
-
-        This is a finite-sample descriptive threshold.  It avoids the
-        ``p = 0`` susceptibility degeneracy on sparse graphs and is the
-        recommended summary for correlation networks.
-        """
-        if self.probabilities.size == 0 or self.giant_mean.size == 0:
-            return float("nan")
-        terminal = float(self.giant_mean[-1])
-        if not np.isfinite(terminal) or terminal <= 0.0:
-            return float("nan")
-        hits = np.flatnonzero(self.giant_mean >= 0.5 * terminal)
-        if hits.size == 0:
-            return float("nan")
-        return float(self.probabilities[int(hits[0])])
+        final value."""
+        return float(self._summary()[1])
 
     def max_susceptibility(self) -> float:
         """Largest finite-cluster susceptibility in the scan."""
-        if self.susceptibility.size == 0:
-            return float("nan")
-        return float(np.max(self.susceptibility))
+        return float(self._summary()[2])
 
     def giant_area(self) -> float:
-        """Trapezoidal integral of ``giant_mean`` over probabilities.
-
-        The scan probabilities should be increasing; the result is the area
-        under the giant-component curve and is a compact summary of how early
-        the network percolates.
-        """
-        if self.probabilities.size < 2:
-            return 0.0
-        widths = np.diff(self.probabilities)
-        heights = 0.5 * (self.giant_mean[1:] + self.giant_mean[:-1])
-        return float(np.sum(widths * heights))
+        """Trapezoidal integral of ``giant_mean`` over probabilities."""
+        return float(self._summary()[3])
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,27 +137,28 @@ class CorrelationNetwork:
     @property
     def max_core(self) -> int:
         """Largest k for which the correlation graph has a non-empty k-core."""
-        return int(self.core_numbers.max()) if self.core_numbers.size else 0
+        return int(native_call(
+            native_module, "max_i32",
+            lambda: native_module.max_i32(self.core_numbers),
+        ))
 
 
-def _components_from_summary(
-    labels: np.ndarray, n_components: int, largest_size: int
+def _components(
+    labels: np.ndarray, n_components: int, largest_size: int, sizes: np.ndarray
 ) -> GraphComponents:
-    sizes = np.bincount(labels, minlength=n_components).astype(np.int64)
     return GraphComponents(
         labels=np.asarray(labels, dtype=np.int32),
         n_components=int(n_components),
         largest_size=int(largest_size),
-        sizes=sizes,
+        sizes=np.asarray(sizes, dtype=np.int64),
     )
 
 
 def _distance_matrix(matrix: np.ndarray) -> np.ndarray:
-    n = matrix.shape[0]
-    out = call_vector(
-        "rflux_corr_to_distance", n * n, get_lib().rflux_corr_to_distance,
-        double_ptr(matrix), n)
-    return out.reshape(n, n)
+    return native_call(
+        native_module, "correlation_to_distance",
+        lambda: native_module.correlation_to_distance(matrix),
+    )
 
 
 def correlation_to_distance(correlation: Any) -> np.ndarray:
@@ -198,47 +166,12 @@ def correlation_to_distance(correlation: Any) -> np.ndarray:
     return _distance_matrix(as_square(correlation, "correlation"))
 
 
-def _occupation_args(
-    matrix: np.ndarray,
-    normalized: str,
-    edge_array: Any,
-    node_array: Any,
-) -> tuple[Any, ...]:
-    """Leading arguments shared by the percolation C entry points."""
-    return (
-        double_ptr(matrix),
-        matrix.shape[0],
-        double_ptr(edge_array) if edge_array is not None else None,
-        double_ptr(node_array) if node_array is not None else None,
-        1 if normalized == "site" else 0,
-    )
-
-
-def _component_scan(
-    matrix: np.ndarray, threshold: float, function: Any, name: str
-) -> GraphComponents:
-    n = matrix.shape[0]
-    labels = np.empty(n, dtype=np.int32)
-    n_components = ctypes.c_size_t(0)
-    largest = ctypes.c_size_t(0)
-    check(
-        function(
-            double_ptr(matrix),
-            n,
-            float(threshold),
-            int32_ptr(labels),
-            ctypes.byref(n_components),
-            ctypes.byref(largest),
-        ),
-        name,
-    )
-    return _components_from_summary(labels, n_components.value, largest.value)
-
-
 def _components_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
-    return _component_scan(
-        matrix, threshold, get_lib().rflux_graph_components,
-        "rflux_graph_components")
+    labels, n_components, largest, sizes = native_call(
+        native_module, "connected_components",
+        lambda: native_module.connected_components(matrix, float(threshold)),
+    )
+    return _components(labels, n_components, largest, sizes)
 
 
 def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
@@ -247,9 +180,10 @@ def threshold_components(adjacency: Any, threshold: float) -> GraphComponents:
 
 
 def _strength_matrix(matrix: np.ndarray) -> np.ndarray:
-    return call_vector(
-        "rflux_network_strength", matrix.shape[0],
-        get_lib().rflux_network_strength, double_ptr(matrix), matrix.shape[0])
+    return native_call(
+        native_module, "network_strength",
+        lambda: native_module.network_strength(matrix),
+    )
 
 
 def network_strength(adjacency: Any) -> np.ndarray:
@@ -258,26 +192,27 @@ def network_strength(adjacency: Any) -> np.ndarray:
 
 
 def _centrality_matrix(matrix: np.ndarray, kind_value: int) -> np.ndarray:
-    return call_vector(
-        "rflux_network_centrality", matrix.shape[0],
-        get_lib().rflux_network_centrality,
-        double_ptr(matrix), matrix.shape[0], kind_value)
+    return native_call(
+        native_module, "centrality",
+        lambda: native_module.centrality(matrix, kind_value),
+    )
 
 
 def centrality(adjacency: Any, kind: str = "eigenvector") -> np.ndarray:
     """``degree`` or L2-normalised ``eigenvector`` centrality."""
     kinds = {"degree": 0, "eigenvector": 1}
     try:
-        value = kinds[str(kind).lower()]
-    except KeyError as exc:
-        raise ValueError("kind must be 'degree' or 'eigenvector'") from exc
-    return _centrality_matrix(as_square(adjacency, "adjacency"), value)
+        kind_value = kinds[str(kind).strip().lower()]
+    except KeyError:
+        raise ValueError("kind must be 'degree' or 'eigenvector'") from None
+    return _centrality_matrix(as_square(adjacency, "adjacency"), kind_value)
 
 
 def _clustering_matrix(matrix: np.ndarray) -> np.ndarray:
-    return call_vector(
-        "rflux_network_clustering", matrix.shape[0],
-        get_lib().rflux_network_clustering, double_ptr(matrix), matrix.shape[0])
+    return native_call(
+        native_module, "clustering",
+        lambda: native_module.clustering(matrix),
+    )
 
 
 def clustering(adjacency: Any) -> np.ndarray:
@@ -286,97 +221,83 @@ def clustering(adjacency: Any) -> np.ndarray:
 
 
 def _transitivity_matrix(matrix: np.ndarray) -> float:
-    return call_scalar(
-        "rflux_network_transitivity", get_lib().rflux_network_transitivity,
-        double_ptr(matrix), matrix.shape[0])
+    return float(native_call(
+        native_module, "transitivity",
+        lambda: native_module.transitivity(matrix),
+    ))
 
 
 def transitivity(adjacency: Any) -> float:
-    """Global clustering coefficient ``3 * triangles / connected triples``."""
+    """Global clustering coefficient of an undirected unweighted graph."""
     return _transitivity_matrix(as_square(adjacency, "adjacency"))
 
 
 def _path_statistics_matrix(matrix: np.ndarray) -> PathStats:
-    efficiency = ctypes.c_double(0.0)
-    average = ctypes.c_double(0.0)
-    diameter = ctypes.c_size_t(0)
-    reachable = ctypes.c_size_t(0)
-    connected = ctypes.c_int32(0)
-    check(
-        get_lib().rflux_network_path_stats(
-            double_ptr(matrix),
-            matrix.shape[0],
-            ctypes.byref(efficiency),
-            ctypes.byref(average),
-            ctypes.byref(diameter),
-            ctypes.byref(reachable),
-            ctypes.byref(connected),
-        ),
-        "rflux_network_path_stats",
+    efficiency, average, diameter, reachable, connected = native_call(
+        native_module, "path_statistics",
+        lambda: native_module.path_statistics(matrix),
     )
     return PathStats(
-        efficiency=float(efficiency.value),
-        average_path_length=float(average.value),
-        diameter=int(diameter.value),
-        n_reachable_pairs=int(reachable.value),
-        connected=bool(connected.value),
+        efficiency=float(efficiency),
+        average_path_length=float(average),
+        diameter=int(diameter),
+        n_reachable_pairs=int(reachable),
+        connected=bool(connected),
     )
 
 
 def path_statistics(adjacency: Any) -> PathStats:
-    """Shortest-path efficiency, average path length and diameter."""
+    """Shortest-path summaries of an undirected unweighted graph."""
     return _path_statistics_matrix(as_square(adjacency, "adjacency"))
 
 
 def _core_numbers_matrix(matrix: np.ndarray) -> np.ndarray:
-    return call_i32(
-        "rflux_network_core_numbers", matrix.shape[0],
-        get_lib().rflux_network_core_numbers,
-        double_ptr(matrix), matrix.shape[0],
+    return native_call(
+        native_module, "core_numbers",
+        lambda: native_module.core_numbers(matrix),
     )
 
 
 def core_numbers(adjacency: Any) -> np.ndarray:
-    """k-core number of every node (isolated nodes receive zero)."""
+    """k-core number of every node; isolated nodes are zero."""
     return _core_numbers_matrix(as_square(adjacency, "adjacency"))
 
 
 def _assortativity_matrix(matrix: np.ndarray) -> float:
-    return call_scalar(
-        "rflux_network_assortativity", get_lib().rflux_network_assortativity,
-        double_ptr(matrix), matrix.shape[0])
+    return float(native_call(
+        native_module, "assortativity",
+        lambda: native_module.assortativity(matrix),
+    ))
 
 
 def assortativity(adjacency: Any) -> float:
-    """Newman degree assortativity; NaN for empty or regular graphs."""
+    """Newman degree assortativity for an undirected unweighted graph."""
     return _assortativity_matrix(as_square(adjacency, "adjacency"))
 
 
 def modularity(adjacency: Any, labels: Any) -> float:
     """Newman modularity of a partition of a weighted undirected graph.
 
-    Labels may be arbitrary non-negative integers (for example sector codes);
-    they are remapped to contiguous community indices before the native call.
+    Labels may be arbitrary non-negative integers; the C++ binding remaps them
+    to contiguous community indices.
     """
     matrix = as_square(adjacency, "adjacency")
     label_array = as_i32_1d(labels, "labels")
-    n = matrix.shape[0]
-    if label_array.size != n:
+    if label_array.size != matrix.shape[0]:
         raise ValueError("labels must contain one entry per node")
     if np.any(label_array < 0):
         raise ValueError("labels must be non-negative")
-    communities, inverse = np.unique(label_array, return_inverse=True)
-    contiguous = np.ascontiguousarray(inverse, dtype=np.int32)
-    return call_scalar(
-        "rflux_network_modularity", get_lib().rflux_network_modularity,
-        double_ptr(matrix), n, int32_ptr(contiguous), communities.size)
+    return float(native_call(
+        native_module, "modularity",
+        lambda: native_module.modularity(matrix, label_array),
+    ))
 
 
 def _betweenness_matrix(matrix: np.ndarray, normalized: bool) -> np.ndarray:
-    return call_vector(
-        "rflux_network_betweenness", matrix.shape[0],
-        get_lib().rflux_network_betweenness,
-        double_ptr(matrix), matrix.shape[0], 1 if normalized else 0)
+    return native_call(
+        native_module, "betweenness",
+        lambda: native_module.betweenness(matrix, normalized),
+    )
 
 
 def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
@@ -386,52 +307,29 @@ def betweenness(adjacency: Any, normalized: bool = True) -> np.ndarray:
 
 def bridges(adjacency: Any) -> np.ndarray:
     """Bridges as a ``(k, 2)`` uint32 array, sorted by ``(u, v)``."""
-    matrix = as_square(adjacency, "adjacency")
-    n = matrix.shape[0]
-    if n <= 1:
-        return np.empty((0, 2), dtype=np.uint32)
-    left = np.empty(n - 1, dtype=np.uint32)
-    right = np.empty(n - 1, dtype=np.uint32)
-    n_edges = ctypes.c_size_t(0)
-    check(
-        get_lib().rflux_network_bridges(
-            double_ptr(matrix),
-            n,
-            uint32_ptr(left),
-            uint32_ptr(right),
-            ctypes.byref(n_edges),
-        ),
-        "rflux_network_bridges",
-    )
-    count = int(n_edges.value)
-    return np.column_stack((left[:count], right[:count])).astype(
-        np.uint32, copy=False
+    return native_call(
+        native_module, "bridges",
+        lambda: native_module.bridges(as_square(adjacency, "adjacency")),
     )
 
 
 def articulation_points(adjacency: Any) -> np.ndarray:
     """Boolean articulation-point mask with one entry per node."""
-    matrix = as_square(adjacency, "adjacency")
-    values = call_i32(
-        "rflux_network_articulation_points", matrix.shape[0],
-        get_lib().rflux_network_articulation_points,
-        double_ptr(matrix), matrix.shape[0],
+    values = native_call(
+        native_module, "articulation_points",
+        lambda: native_module.articulation_points(
+            as_square(adjacency, "adjacency")
+        ),
     )
-    return values.astype(bool)
+    return np.asarray(values, dtype=bool)
 
 
 def truss_numbers(adjacency: Any) -> np.ndarray:
-    """Symmetric ``n x n`` int32 edge-trussness matrix.
-
-    Edges in no triangle have trussness 2; non-edges and the diagonal are 0.
-    """
-    matrix = as_square(adjacency, "adjacency")
-    values = call_i32(
-        "rflux_network_truss_numbers", matrix.shape[0] * matrix.shape[0],
-        get_lib().rflux_network_truss_numbers,
-        double_ptr(matrix), matrix.shape[0],
+    """Symmetric ``n x n`` int32 edge-trussness matrix."""
+    return native_call(
+        native_module, "truss_numbers",
+        lambda: native_module.truss_numbers(as_square(adjacency, "adjacency")),
     )
-    return values.reshape(matrix.shape[0], matrix.shape[0])
 
 
 def pagerank(
@@ -442,41 +340,24 @@ def pagerank(
 ) -> np.ndarray:
     """Directed weighted PageRank; dangling rows use uniform teleportation."""
     matrix = as_square(adjacency, "adjacency")
-    return call_vector(
-        "rflux_pagerank", matrix.shape[0], get_lib().rflux_pagerank,
-        double_ptr(matrix), matrix.shape[0], float(damping),
-        as_size(max_iter, "max_iter"), float(tol))
+    return native_call(
+        native_module, "pagerank",
+        lambda: native_module.pagerank(
+            matrix, float(damping), as_size(max_iter, "max_iter"), float(tol)
+        ),
+    )
 
 
 def _mst_matrix(matrix: np.ndarray) -> MSTResult:
-    n = matrix.shape[0]
-    n_edges = ctypes.c_size_t(0)
-    if n <= 1:
-        check(
-            get_lib().rflux_network_mst(
-                double_ptr(matrix), n, None, None, None, ctypes.byref(n_edges)
-            ),
-            "rflux_network_mst",
-        )
-        empty_u32 = np.empty(0, dtype=np.uint32)
-        empty_f64_array = np.empty(0, dtype=np.float64)
-        return MSTResult(empty_u32, empty_u32.copy(), empty_f64_array)
-    u = np.empty(n - 1, dtype=np.uint32)
-    v = np.empty(n - 1, dtype=np.uint32)
-    weights = empty_f64(n - 1)
-    check(
-        get_lib().rflux_network_mst(
-            double_ptr(matrix),
-            n,
-            uint32_ptr(u),
-            uint32_ptr(v),
-            double_ptr(weights),
-            ctypes.byref(n_edges),
-        ),
-        "rflux_network_mst",
+    u, v, weight = native_call(
+        native_module, "minimum_spanning_tree",
+        lambda: native_module.minimum_spanning_tree(matrix),
     )
-    count = int(n_edges.value)
-    return MSTResult(u[:count].copy(), v[:count].copy(), weights[:count].copy())
+    return MSTResult(
+        np.asarray(u, dtype=np.uint32),
+        np.asarray(v, dtype=np.uint32),
+        np.asarray(weight, dtype=np.float64),
+    )
 
 
 def mst_from_distance(distance: Any) -> MSTResult:
@@ -490,20 +371,16 @@ def mst_from_correlation(correlation: Any) -> MSTResult:
     return _mst_matrix(_distance_matrix(matrix))
 
 
-def _mst_clusters_matrix(
-    matrix: np.ndarray, threshold: float
-) -> GraphComponents:
-    return _component_scan(
-        matrix, threshold, get_lib().rflux_mst_clusters, "rflux_mst_clusters")
+def _mst_clusters_matrix(matrix: np.ndarray, threshold: float) -> GraphComponents:
+    labels, n_components, largest, sizes = native_call(
+        native_module, "mst_clusters",
+        lambda: native_module.mst_clusters(matrix, float(threshold)),
+    )
+    return _components(labels, n_components, largest, sizes)
 
 
 def mst_clusters(distance: Any, threshold: float) -> GraphComponents:
-    """Single-linkage clusters obtained by cutting the MST above ``threshold``.
-
-    Nodes stay connected when every edge on their MST path has distance
-    ``<= threshold``; this equals connected components of all edges with
-    distance ``<= threshold``.
-    """
+    """Single-linkage clusters obtained by cutting the MST above ``threshold``."""
     return _mst_clusters_matrix(as_square(distance, "distance"), threshold)
 
 
@@ -512,7 +389,7 @@ def _occupation_inputs(
     kind: str,
     edge_weights: Any,
     node_weights: Any,
-) -> tuple[np.ndarray, str, np.ndarray | None, np.ndarray | None]:
+) -> tuple[np.ndarray, bool, np.ndarray | None, np.ndarray | None]:
     matrix = as_square(adjacency, "adjacency")
     normalized = str(kind).strip().lower()
     if normalized not in ("bond", "site"):
@@ -533,7 +410,7 @@ def _occupation_inputs(
         node_array = as_f64_1d(node_weights, "node_weights")
         if node_array.size != matrix.shape[0]:
             raise ValueError("node_weights must have one entry per node")
-    return matrix, normalized, edge_array, node_array
+    return matrix, normalized == "site", edge_array, node_array
 
 
 def percolation_scan(
@@ -546,45 +423,25 @@ def percolation_scan(
     repetitions: int = 100,
     seed: int = 42,
 ) -> PercolationScan:
-    """General bond/site percolation scan.
-
-    Candidate edges are ``adjacency > 0``.  Bond occupancy uses
-    ``min(1, p * edge_weight)``; site occupancy uses
-    ``min(1, p * node_weight)`` and keeps an edge only when both endpoints
-    survive.  Edge weights must be finite, symmetric and non-negative; node
-    weights must be finite and non-negative.  Passing weights that do not
-    belong to ``kind`` is an error.
-    """
-    matrix, normalized, edge_array, node_array = _occupation_inputs(
+    """General bond/site percolation scan."""
+    matrix, site, edge_array, node_array = _occupation_inputs(
         adjacency, kind, edge_weights, node_weights
     )
     probability_array = as_f64_1d(probabilities, "probabilities")
-    n_probabilities = probability_array.size
-    if n_probabilities == 0:
+    if probability_array.size == 0:
         raise ValueError("probabilities must not be empty")
-    repetitions = as_size(repetitions, "repetitions")
-    seed = as_u64(seed, "seed")
-    mean = empty_f64(n_probabilities)
-    std = empty_f64(n_probabilities)
-    susceptibility = empty_f64(n_probabilities)
-    check(
-        get_lib().rflux_percolation_scan(
-            *_occupation_args(matrix, normalized, edge_array, node_array),
-            double_ptr(probability_array),
-            n_probabilities,
-            repetitions,
-            seed,
-            double_ptr(mean),
-            double_ptr(std),
-            double_ptr(susceptibility),
+    mean, std, susceptibility = native_call(
+        native_module, "percolation_scan",
+        lambda: native_module.percolation_scan(
+            matrix, probability_array, site, edge_array, node_array,
+            as_size(repetitions, "repetitions"), as_u64(seed, "seed"),
         ),
-        "rflux_percolation_scan",
     )
     return PercolationScan(
         probabilities=probability_array.copy(),
-        giant_mean=mean,
-        giant_std=std,
-        susceptibility=susceptibility,
+        giant_mean=np.asarray(mean, dtype=np.float64),
+        giant_std=np.asarray(std, dtype=np.float64),
+        susceptibility=np.asarray(susceptibility, dtype=np.float64),
     )
 
 
@@ -651,64 +508,47 @@ def cluster_size_distribution(
     repetitions: int = 100,
     seed: int = 42,
 ) -> np.ndarray:
-    """Mean number of clusters of each size at one occupation probability.
-
-    The result has ``n + 1`` entries; index ``s`` counts components of size
-    ``s`` (including the largest) and index 0 is always zero.
-    """
-    matrix, normalized, edge_array, node_array = _occupation_inputs(
+    """Mean number of clusters of each size at one occupation probability."""
+    matrix, site, edge_array, node_array = _occupation_inputs(
         adjacency, kind, edge_weights, node_weights
     )
     value = float(probability)
     if not np.isfinite(value) or not 0.0 <= value <= 1.0:
         raise ValueError("probability must be in [0, 1]")
-    repetitions = as_size(repetitions, "repetitions")
-    seed = as_u64(seed, "seed")
-    out = empty_f64(matrix.shape[0] + 1)
-    check(
-        get_lib().rflux_cluster_size_distribution(
-            *_occupation_args(matrix, normalized, edge_array, node_array),
-            value,
-            repetitions,
-            seed,
-            double_ptr(out),
+    return native_call(
+        native_module, "cluster_size_distribution",
+        lambda: native_module.cluster_size_distribution(
+            matrix, value, site, edge_array, node_array,
+            as_size(repetitions, "repetitions"), as_u64(seed, "seed"),
         ),
-        "rflux_cluster_size_distribution",
     )
-    return out
+
+
+_STRATEGIES = {
+    "strength": 0,
+    "degree": 1,
+    "eigenvector": 2,
+    "betweenness": 3,
+    "core": 4,
+}
 
 
 def _removal_order_matrix(matrix: np.ndarray, strategy: str) -> np.ndarray:
-    normalized = str(strategy).strip().lower()
-    if normalized == "strength":
-        scores = _strength_matrix(matrix)
-    elif normalized == "degree":
-        mask = matrix > 0.0
-        np.fill_diagonal(mask, False)
-        scores = mask.sum(axis=1).astype(np.float64)
-    elif normalized == "eigenvector":
-        scores = _centrality_matrix(matrix, 1)
-    elif normalized == "betweenness":
-        scores = _betweenness_matrix(matrix, False)
-    elif normalized == "core":
-        scores = -_core_numbers_matrix(matrix).astype(np.float64)
-    else:
+    try:
+        value = _STRATEGIES[str(strategy).strip().lower()]
+    except KeyError:
         raise ValueError(
             "strategy must be 'strength', 'degree', 'eigenvector', "
             "'betweenness' or 'core'"
-        )
-    order = np.argsort(-scores, kind="stable")
-    return np.ascontiguousarray(order, dtype=np.uint32)
+        ) from None
+    return native_call(
+        native_module, "removal_order",
+        lambda: native_module.removal_order(matrix, value),
+    )
 
 
 def removal_order(adjacency: Any, strategy: str = "strength") -> np.ndarray:
-    """Return a deterministic node-removal permutation.
-
-    ``strength`` removes the largest weighted degree first, ``degree`` the
-    largest unweighted degree, ``eigenvector`` the largest eigenvector
-    centrality, ``betweenness`` the largest Brandes betweenness and ``core``
-    the lowest core number.  Ties keep ascending node order.
-    """
+    """Return a deterministic node-removal permutation."""
     return _removal_order_matrix(as_square(adjacency, "adjacency"), strategy)
 
 
@@ -719,13 +559,7 @@ def targeted_removal(
     checkpoints: int = 10,
     strategy: str = "strength",
 ) -> RemovalCurve:
-    """Deterministic node-removal curve (attack tolerance).
-
-    Nodes are removed in ``order`` (a permutation of ``0..n-1``) or in the
-    order produced by :func:`removal_order`.  Points are reported at
-    ``floor(k * n / checkpoints)`` removals for ``k = 0..checkpoints``; when
-    ``checkpoints`` exceeds ``n`` some points repeat.
-    """
+    """Deterministic node-removal curve (attack tolerance)."""
     matrix = as_square(adjacency, "adjacency")
     n = matrix.shape[0]
     checkpoints = as_size(checkpoints, "checkpoints")
@@ -737,50 +571,33 @@ def targeted_removal(
             raise ValueError("order must contain one entry per node")
         if not np.array_equal(np.sort(order_array), np.arange(n)):
             raise ValueError("order must be a permutation of 0..n-1")
-
-    removed = np.empty(checkpoints + 1, dtype=np.uintp)
-    giant = empty_f64(checkpoints + 1)
-    susceptibility = empty_f64(checkpoints + 1)
-    n_components = np.empty(checkpoints + 1, dtype=np.uintp)
-    check(
-        get_lib().rflux_targeted_removal(
-            double_ptr(matrix),
-            n,
-            uint32_ptr(order_array),
-            checkpoints,
-            removed.ctypes.data_as(ctypes.POINTER(ctypes.c_size_t)),
-            double_ptr(giant),
-            double_ptr(susceptibility),
-            n_components.ctypes.data_as(ctypes.POINTER(ctypes.c_size_t)),
+    removed, giant, susceptibility, n_components = native_call(
+        native_module, "targeted_removal",
+        lambda: native_module.targeted_removal(
+            matrix, order_array, checkpoints
         ),
-        "rflux_targeted_removal",
     )
     return RemovalCurve(
-        removed=removed.astype(np.int64),
-        giant_fraction=giant,
-        susceptibility=susceptibility,
-        n_components=n_components.astype(np.int64),
+        removed=np.asarray(removed, dtype=np.int64),
+        giant_fraction=np.asarray(giant, dtype=np.float64),
+        susceptibility=np.asarray(susceptibility, dtype=np.float64),
+        n_components=np.asarray(n_components, dtype=np.int64),
     )
 
 
 def core_percolation(adjacency: Any) -> CoreScan:
-    """Deterministic k-core (core-percolation) curve from core numbers.
-
-    For threshold ``k`` the surviving set is the k-core: the fixed point of
-    repeatedly deleting nodes with fewer than ``k`` neighbours inside the
-    remaining graph.  The curve requires no sampling and is not a random
-    bootstrap percolation process.
-    """
-    matrix = as_square(adjacency, "adjacency")
-    core = _core_numbers_matrix(matrix)
-    n = core.size
-    maximum = int(core.max()) if n else 0
-    ks = np.arange(1, maximum + 1, dtype=np.int64)
-    n_nodes = np.array(
-        [int(np.count_nonzero(core >= k)) for k in ks], dtype=np.int64
+    """Deterministic k-core (core-percolation) curve from core numbers."""
+    ks, fraction, n_nodes = native_call(
+        native_module, "core_percolation",
+        lambda: native_module.core_percolation(
+            as_square(adjacency, "adjacency")
+        ),
     )
-    fraction = n_nodes.astype(np.float64) / float(n)
-    return CoreScan(k=ks, core_fraction=fraction, n_nodes=n_nodes)
+    return CoreScan(
+        k=np.asarray(ks, dtype=np.int64),
+        core_fraction=np.asarray(fraction, dtype=np.float64),
+        n_nodes=np.asarray(n_nodes, dtype=np.int64),
+    )
 
 
 def risk_diffusion(
@@ -793,11 +610,7 @@ def risk_diffusion(
     repetitions: int = 100,
     seed: int = 42,
 ) -> DiffusionResult:
-    """Stochastic SIR risk diffusion on a weighted graph.
-
-    ``mean_affected[t]`` is the mean fraction ever infected/recovered at step t;
-    ``infection_frequency[i]`` is the probability that node i was ever infected.
-    """
+    """Stochastic SIR risk diffusion on a weighted graph."""
     matrix = as_square(adjacency, "adjacency")
     n = matrix.shape[0]
     steps = as_size(steps, "steps")
@@ -812,42 +625,30 @@ def risk_diffusion(
     if seeds is None:
         seed_array = np.empty(0, dtype=np.uint32)
     else:
-        raw_seeds = np.asarray(seeds)
+        raw = np.asarray(seeds)
         seed_array = (
             np.empty(0, dtype=np.uint32)
-            if raw_seeds.size == 0
-            else as_u32_1d(raw_seeds, "seeds")
+            if raw.size == 0
+            else as_u32_1d(raw, "seeds")
         )
-    if seed_array.size:
-        if int(seed_array.max()) >= n:
-            raise ValueError("seed node index is out of range")
-        seed_pointer = uint32_ptr(seed_array)
-    else:
-        seed_pointer = None
-    mean_affected = empty_f64(steps + 1)
-    infection_frequency = empty_f64(n)
-    check(
-        get_lib().rflux_risk_diffusion(
-            double_ptr(matrix),
-            n,
-            seed_pointer,
-            seed_array.size,
-            float(beta),
-            float(gamma),
-            steps,
-            repetitions,
+    if seed_array.size and int(seed_array.max()) >= n:
+        raise ValueError("seed node index is out of range")
+    mean_affected, infection = native_call(
+        native_module, "risk_diffusion",
+        lambda: native_module.risk_diffusion(
+            matrix, seed_array, float(beta), float(gamma), steps, repetitions,
             seed,
-            double_ptr(mean_affected),
-            double_ptr(infection_frequency),
         ),
-        "rflux_risk_diffusion",
     )
-    return DiffusionResult(mean_affected, infection_frequency)
+    return DiffusionResult(
+        mean_affected=np.asarray(mean_affected, dtype=np.float64),
+        infection_frequency=np.asarray(infection, dtype=np.float64),
+    )
 
 
-def _adjacency_matrix(
+def _adjacency_result(
     matrix: np.ndarray, threshold: float, *, weighted: bool = True
-) -> np.ndarray:
+) -> tuple[np.ndarray, int, float]:
     if not 0.0 < float(threshold) <= 1.0:
         raise ValueError("threshold must be in (0, 1]")
     if not np.all(np.isfinite(matrix)):
@@ -855,25 +656,24 @@ def _adjacency_matrix(
             "correlation matrix contains NaN/inf; drop constant or "
             "insufficient series first"
         )
-    mask = matrix >= float(threshold)
-    np.fill_diagonal(mask, False)
-    adjacency = np.zeros_like(matrix)
-    if weighted:
-        adjacency[mask] = np.maximum(matrix[mask], 0.0)
-    else:
-        adjacency[mask] = 1.0
-    adjacency = 0.5 * (adjacency + adjacency.T)
-    np.fill_diagonal(adjacency, 0.0)
-    return np.ascontiguousarray(adjacency)
+    adjacency, n_edges, density = native_call(
+        native_module, "correlation_adjacency",
+        lambda: native_module.correlation_adjacency(
+            matrix, float(threshold), weighted
+        ),
+    )
+    return np.asarray(adjacency, dtype=np.float64), int(n_edges), float(density)
 
 
 def correlation_adjacency(
     correlation: Any, threshold: float = 0.5, *, weighted: bool = True
 ) -> np.ndarray:
     """Threshold a correlation matrix into a non-negative adjacency matrix."""
-    return _adjacency_matrix(
-        as_square(correlation, "correlation"), threshold, weighted=weighted
+    matrix = as_square(correlation, "correlation")
+    adjacency, _, _ = _adjacency_result(
+        matrix, threshold, weighted=weighted
     )
+    return adjacency
 
 
 def network_from_correlation(
@@ -882,21 +682,17 @@ def network_from_correlation(
     """Build a full correlation network summary from a correlation matrix."""
     matrix = as_square(correlation, "correlation")
     n = matrix.shape[0]
-    adjacency = _adjacency_matrix(matrix, threshold)
+    adjacency, n_edges, density = _adjacency_result(matrix, threshold)
     distance = _distance_matrix(matrix)
     components = _components_matrix(adjacency, float(threshold))
     strength_values = _strength_matrix(adjacency)
     eigenvector_values = _centrality_matrix(adjacency, 1)
     clustering_values = _clustering_matrix(adjacency)
-    finite_clustering = clustering_values[np.isfinite(clustering_values)]
-    average_clustering = (
-        float(finite_clustering.mean()) if finite_clustering.size else float("nan")
-    )
+    average_clustering = float(native_call(
+        native_module, "finite_stats",
+        lambda: native_module.finite_stats(clustering_values),
+    )[2])
     tree = _mst_matrix(distance)
-    n_edges = int(np.count_nonzero(np.triu(adjacency, 1) > 0.0))
-    density = (
-        2.0 * n_edges / (n * (n - 1)) if n > 1 else 0.0
-    )
     path = _path_statistics_matrix(adjacency)
     cores = _core_numbers_matrix(adjacency)
     global_clustering = _transitivity_matrix(adjacency)
@@ -911,7 +707,7 @@ def network_from_correlation(
         clustering=clustering_values,
         average_clustering=average_clustering,
         mst=tree,
-        density=float(density),
+        density=density,
         n_edges=n_edges,
         path_stats=path,
         core_numbers=cores,

@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from rflux import percolab
-from rflux._ffi import RFluxError
+from rflux import RFluxError
 
 
 CORR = np.array(

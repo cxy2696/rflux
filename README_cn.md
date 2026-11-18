@@ -5,10 +5,11 @@
 
 [English](README.md) · **中文**
 
-rflux 是一个 C++17 + Python 量化研究库。计算核心用 C++ 实现，通过稳定的 C ABI
-和 pybind11 扩展供 Python 调用；数据适配和命令行工具放在 Python 层，回测内核在 C++ 核心中运行。
+rflux 是一个 C++17 + Python 量化研究库。所有算法与计算都在 C++ 核心中完成：
+稳定的 C ABI 供 C/C++ 调用，pybind11 扩展供 Python 调用；Python 层只负责输入校验、
+数据适配以及报告/命令行格式化。
 
-当前版本 `0.8.0`，C ABI 版本 `1`。
+当前版本 `0.9.0`，C ABI 版本 `1`。
 
 ## 安装
 
@@ -85,7 +86,9 @@ rflux advice examples/data/sample_prices.csv --no-hmm
 - **数据层**：本地 CSV、AKShare（A 股股票与 ETF）、yfinance 统一为长表
   OHLCV，包含代码归一、校验、SQLite 缓存和重试。
 - **C ABI**：因子、回测、HMM 状态对齐、HRP、Almgren-Chriss、Huber、渗流和
-  下单前风控均可从 C 调用，也可作为 Python ctypes 回退。
+  下单前风控均可从 C/C++ 调用。
+- **Python 桥**：需要编译好的 pybind11 扩展；算法、回测、图、报告和 HMM 内核
+  都由它提供。
 
 ## 数据示例
 
@@ -109,8 +112,8 @@ ctest --preset dev --output-on-failure
 ```
 
 CMake 在 Release 和 RelWithDebInfo 构建中自动启用 IPO/LTO（工具链支持时）。
-加 `-DRFLUX_ENABLE_IPO=OFF` 可关闭。设置 `RFLUX_DISABLE_NATIVE=1` 可强制使用
-ctypes C ABI。
+加 `-DRFLUX_ENABLE_IPO=OFF` 可关闭。Python 包直接导入编译好的扩展；源码检出时
+用 `make native` 或可编辑安装构建。没有纯 Python 执行路径。
 
 ## 文档
 

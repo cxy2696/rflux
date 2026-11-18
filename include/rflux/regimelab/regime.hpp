@@ -34,6 +34,23 @@ TrendRegimeResult trend_regime(const double* prices, std::size_t n,
                                std::size_t slow_window = 60,
                                double threshold = 0.0);
 
+struct StickyRegimeResult {
+    std::vector<std::int32_t> labels;
+    std::vector<std::int32_t> switches;
+};
+
+/*
+ * Hysteresis-smoothed causal labels from row-major state probabilities.  A
+ * challenger replaces the incumbent only after `min_duration` bars, when the
+ * challenger reaches `entry_threshold` and the incumbent falls to
+ * `exit_threshold`.
+ */
+StickyRegimeResult sticky_regime(const double* probabilities,
+                                 std::size_t n_obs, std::size_t n_states,
+                                 std::size_t min_duration,
+                                 double entry_threshold,
+                                 double exit_threshold);
+
 /*
  * Risk-off score: max(volatility_label, 2 - trend_label).  Undefined inputs
  * stay undefined (-1).

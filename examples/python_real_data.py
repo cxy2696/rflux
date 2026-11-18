@@ -4,14 +4,14 @@
 Install the optional dependencies, for example:
 
     pip install 'rflux[yfinance]'
-    PYTHONPATH=python python examples/python_real_data.py \
+    python examples/python_real_data.py \
         --source yfinance --symbols AAPL MSFT NVDA --start 2021-01-01
 
     pip install 'rflux[akshare]'
-    PYTHONPATH=python python examples/python_real_data.py \
+    python examples/python_real_data.py \
         --source akshare --symbols 600519.SH 000001.SZ --start 2021-01-01
 
-    PYTHONPATH=python python examples/python_real_data.py \
+    python examples/python_real_data.py \
         --source csv --path my_prices.csv --date-column date
 
 This script downloads data only when explicitly run.  It is not part of the

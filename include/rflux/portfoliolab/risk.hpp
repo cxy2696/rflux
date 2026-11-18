@@ -18,6 +18,23 @@ struct PortfolioRisk {
 };
 
 /*
+ * Sample covariance over rows where every asset is finite.  Returns a
+ * row-major n_assets x n_assets matrix; when there are not enough complete
+ * rows it is all NaN and *complete_observations still reports the count.
+ */
+[[nodiscard]] std::vector<double> complete_case_covariance(
+    const double* returns, std::size_t n_obs, std::size_t n_assets,
+    std::size_t ddof, std::size_t* complete_observations);
+
+/*
+ * Row sum of returns * weights, skipping NaN cells (the Python nansum
+ * convention).  A row without a finite term is 0.
+ */
+[[nodiscard]] std::vector<double> portfolio_series(
+    const double* returns, std::size_t n_obs, std::size_t n_assets,
+    const double* weights);
+
+/*
  * Sample covariance from complete rows, Euler volatility contributions and
  * the portfolio return path.  Weights are exposures and may be long-short.
  */

@@ -11,7 +11,6 @@ import rflux
 from rflux import qflux
 from rflux._native_backend import native_module
 
-@unittest.skipIf(native_module is None, "native extension is not built")
 class TestNativeBridge(unittest.TestCase):
     def test_identity_and_abi(self):
         from rflux import native
@@ -118,7 +117,6 @@ if __name__ == "__main__":
     unittest.main()
 
 
-@unittest.skipIf(native_module is None, "native extension is not built")
 class TestNativeBufferKernels(unittest.TestCase):
     def setUp(self):
         rng = np.random.default_rng(1234)

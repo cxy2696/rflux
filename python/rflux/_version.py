@@ -1,3 +1,3 @@
 """Package version kept in one place for Python modules and the CLI."""
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"

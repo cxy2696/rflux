@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,11 +12,8 @@ from ._common import (
     as_finite_float,
     as_positive_float,
     as_size,
-    double_ptr,
-    empty_f64,
 )
-from ._ffi import check, get_lib
-from ._native_backend import native_module, native_or
+from ._native_backend import native_api as native_module
 
 __all__ = [
     "ExecutionPlan",
@@ -60,48 +56,11 @@ def almgren_chriss(
     volatility = _nonnegative(volatility, "volatility")
     risk_aversion = _nonnegative(risk_aversion, "risk_aversion")
 
-    def native() -> ExecutionPlan:
-        trades, cost, variance, kappa = native_module.almgren_chriss(
-            quantity,
-            slices,
-            horizon,
-            temporary_impact,
-            permanent_impact,
-            volatility,
-            risk_aversion,
-        )
-        return ExecutionPlan(
-            trades, float(cost), float(variance), float(kappa))
-
-    def fallback() -> ExecutionPlan:
-        trades = empty_f64(slices)
-        cost = ctypes.c_double()
-        variance = ctypes.c_double()
-        kappa = ctypes.c_double()
-        check(
-            get_lib().rflux_almgren_chriss_plan(
-                float(quantity),
-                slices,
-                float(horizon),
-                float(temporary_impact),
-                float(permanent_impact),
-                float(volatility),
-                float(risk_aversion),
-                double_ptr(trades),
-                ctypes.byref(cost),
-                ctypes.byref(variance),
-                ctypes.byref(kappa),
-            ),
-            "rflux_almgren_chriss_plan",
-        )
-        return ExecutionPlan(
-            trades, float(cost.value), float(variance.value),
-            float(kappa.value)
-        )
-
-    return native_or(
-        native_module, "rflux_almgren_chriss", native, fallback
+    trades, cost, variance, kappa = native_module.almgren_chriss(
+        quantity, slices, horizon, temporary_impact, permanent_impact,
+        volatility, risk_aversion,
     )
+    return ExecutionPlan(trades, float(cost), float(variance), float(kappa))
 
 
 def order_book_metrics(
@@ -127,28 +86,10 @@ def order_book_metrics(
         raise ValueError("sizes must be non-negative")
     if np.any(ask < bid):
         raise ValueError("ask price must not be below bid price")
-    n = bid.size
-    def fallback() -> tuple[np.ndarray, ...]:
-        spread = empty_f64(n)
-        mid = empty_f64(n)
-        microprice = empty_f64(n)
-        imbalance = empty_f64(n)
-        check(
-            get_lib().rflux_order_book_metrics(
-                double_ptr(bid), double_ptr(bid_qty), double_ptr(ask),
-                double_ptr(ask_qty), n, double_ptr(spread), double_ptr(mid),
-                double_ptr(microprice), double_ptr(imbalance)
-            ),
-            "rflux_order_book_metrics",
-        )
-        return spread, mid, microprice, imbalance
-
-    spread, mid, microprice, imbalance = native_or(
-        native_module,
-        "rflux_order_book_metrics",
-        lambda: native_module.order_book_metrics(bid, bid_qty, ask, ask_qty),
-        fallback,
+    spread, mid, microprice, imbalance = native_module.order_book_metrics(
+        bid, bid_qty, ask, ask_qty
     )
+
     return {
         "spread": spread,
         "mid": mid,

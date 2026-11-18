@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <numeric>
 #include <vector>
 
 #include "internal/common.hpp"
@@ -12,7 +14,6 @@
 namespace rflux::qflux {
 namespace {
 
-using rflux::detail::finite_values;
 using rflux::detail::kNaN;
 using rflux::detail::mean_of;
 using rflux::detail::require;
@@ -169,7 +170,8 @@ void for_each_correlation_pair(double* out, std::size_t n_assets,
 Moments describe(const double* values, std::size_t n) {
     require_pointer(values, "values must not be NULL");
     require(n > 0, "n must be positive");
-    const std::vector<double> data = finite_values(values, n);
+    const std::vector<double> data =
+        rflux::detail::finite_values(values, n);
     if (data.empty()) {
         throw InvalidArgument("describe requires at least one finite value");
     }
@@ -222,7 +224,8 @@ double quantile(const double* values, std::size_t n, double q) {
     require(n > 0, "n must be positive");
     require(std::isfinite(q) && q >= 0.0 && q <= 1.0,
             "q must be in [0, 1]");
-    std::vector<double> data = finite_values(values, n);
+    std::vector<double> data =
+        rflux::detail::finite_values(values, n);
     if (data.empty()) {
         throw InvalidArgument("quantile requires at least one finite value");
     }
@@ -379,7 +382,8 @@ TailRisk historical_var_cvar(const double* returns, std::size_t n,
     require(std::isfinite(confidence) && confidence > 0.0 &&
                 confidence < 1.0,
             "confidence must be in (0, 1)");
-    std::vector<double> data = finite_values(returns, n);
+    std::vector<double> data =
+        rflux::detail::finite_values(returns, n);
     if (data.empty()) {
         throw InvalidArgument("var_cvar requires at least one finite value");
     }
@@ -399,6 +403,154 @@ TailRisk historical_var_cvar(const double* returns, std::size_t n,
                       ? -static_cast<double>(
                             tail_sum / static_cast<long double>(tail_count))
                       : kNaN;
+    return result;
+}
+
+std::vector<double> equal_weight_market_returns(const double* returns,
+                                                std::size_t n_obs,
+                                                std::size_t n_assets) {
+    require_pointer(returns, "returns must not be NULL");
+    require(n_obs > 0, "n_obs must be positive");
+    require(n_assets > 0, "n_assets must be positive");
+    detail::checked_mul(n_obs, n_assets, "panel dimensions overflow");
+    std::vector<double> result(n_obs, kNaN);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        long double sum = 0.0L;
+        std::size_t count = 0;
+        for (std::size_t asset = 0; asset < n_assets; ++asset) {
+            const double value = returns[row * n_assets + asset];
+            if (!std::isfinite(value)) continue;
+            sum += static_cast<long double>(value);
+            ++count;
+        }
+        if (count > 0) {
+            result[row] =
+                static_cast<double>(sum / static_cast<long double>(count));
+        }
+    }
+    return result;
+}
+
+FiniteStats finite_stats(const double* values, std::size_t n) {
+    require_pointer(values, "values must not be NULL");
+    FiniteStats result;
+    result.minimum = kNaN;
+    result.maximum = kNaN;
+    result.mean = kNaN;
+    result.sum = kNaN;
+    long double sum = 0.0L;
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double value = values[i];
+        if (!std::isfinite(value)) continue;
+        if (count == 0) {
+            result.minimum = value;
+            result.maximum = value;
+        } else {
+            result.minimum = std::min(result.minimum, value);
+            result.maximum = std::max(result.maximum, value);
+        }
+        sum += static_cast<long double>(value);
+        ++count;
+    }
+    if (count > 0) {
+        result.sum = static_cast<double>(sum);
+        result.mean =
+            static_cast<double>(sum / static_cast<long double>(count));
+    }
+    result.count = count;
+    return result;
+}
+
+std::vector<double> finite_values(const double* values, std::size_t n) {
+    return rflux::detail::finite_values(values, n);
+}
+
+double last_finite(const double* values, std::size_t n, bool* found) {
+    require_pointer(values, "values must not be NULL");
+    for (std::size_t index = n; index > 0; --index) {
+        const double value = values[index - 1];
+        if (std::isfinite(value)) {
+            if (found != nullptr) *found = true;
+            return value;
+        }
+    }
+    if (found != nullptr) *found = false;
+    return kNaN;
+}
+
+std::vector<std::size_t> top_k_indices(const double* values, std::size_t n,
+                                       std::size_t k, bool descending) {
+    require_pointer(values, "values must not be NULL");
+    std::vector<std::size_t> indices;
+    indices.reserve(n);
+    for (std::size_t index = 0; index < n; ++index) {
+        if (std::isfinite(values[index])) indices.push_back(index);
+    }
+    std::stable_sort(indices.begin(), indices.end(),
+                     [&](std::size_t left, std::size_t right) {
+                         if (values[left] == values[right]) {
+                             return descending ? left > right : left < right;
+                         }
+                         return descending ? values[left] > values[right]
+                                           : values[left] < values[right];
+                     });
+    if (indices.size() > k) indices.resize(k);
+    return indices;
+}
+
+std::vector<std::int32_t> row_argmax(const double* values,
+                                    std::size_t n_obs,
+                                    std::size_t n_cols) {
+    require_pointer(values, "values must not be NULL");
+    require(n_obs > 0, "n_obs must be positive");
+    require(n_cols > 0, "n_cols must be positive");
+    detail::checked_mul(n_obs, n_cols, "matrix dimensions overflow");
+    std::vector<std::int32_t> result(n_obs, 0);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        const double* values_row = values + row * n_cols;
+        std::size_t best = 0;
+        for (std::size_t column = 1; column < n_cols; ++column) {
+            if (std::isnan(values_row[column])) {
+                if (!std::isnan(values_row[best])) {
+                    best = column;
+                    break;
+                }
+                continue;
+            }
+            if (!std::isnan(values_row[best]) &&
+                values_row[column] > values_row[best]) {
+                best = column;
+            }
+        }
+        result[row] = static_cast<std::int32_t>(best);
+    }
+    return result;
+}
+
+std::size_t argmax_index(const double* values, std::size_t n) {
+    require_pointer(values, "values must not be NULL");
+    require(n > 0, "n must be positive");
+    std::size_t best = 0;
+    for (std::size_t index = 1; index < n; ++index) {
+        if (std::isnan(values[index])) {
+            if (!std::isnan(values[best])) return index;
+            continue;
+        }
+        if (!std::isnan(values[best]) && values[index] > values[best]) {
+            best = index;
+        }
+    }
+    return best;
+}
+
+std::int32_t max_i32(const std::int32_t* values, std::size_t n) {
+    require_pointer(values, "values must not be NULL");
+    if (n == 0) return 0;
+    std::int32_t result = values[0];
+    for (std::size_t index = 1; index < n; ++index) {
+        result = std::max(result, values[index]);
+    }
     return result;
 }
 

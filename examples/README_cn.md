@@ -6,17 +6,17 @@
 
 ```bash
 make -j
-python -m pip install -e .  # 可选：编译原生扩展并安装包
-export PYTHONPATH="$PWD/python"
+python -m pip install -e .  # 编译并安装原生扩展
 ```
 
-在仓库内运行时，Python 加载器会自动查找 `build/librflux.dylib` 或 `build/librflux.so`；也可以显式设置 `RFLUX_LIBRARY`。`make python-lib` 只复制 C ABI 共享库，适合没有编译原生扩展、只验证 ctypes 回退的场景。
+Python 示例导入已安装的包；没有 ctypes 或纯 Python 执行路径。只需要重建
+扩展时，`make native` 等价于可编辑安装。
 
 ## 0. 命令行直接分析
 
 ```bash
-PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
-PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv --format json
+python -m rflux analyze examples/data/sample_prices.csv
+python -m rflux analyze examples/data/sample_prices.csv --format json
 ```
 
 `analyze` 读取宽表 CSV，自动识别日期列，计算资产统计、等权市场、相关网络和 3 状态 HMM。`--no-hmm`、`--no-network` 可以关掉较慢的部分；`--format json` 适合接入脚本。安装为包之后命令简写为 `rflux ...`。
@@ -123,7 +123,7 @@ python examples/python_real_data.py \
 
 ```bash
 python examples/python_applications.py
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 0.30,0.25,0.20,0.15,0.10
 ```
 

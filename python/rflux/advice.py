@@ -1,19 +1,19 @@
 """Risk-aware research rebalance proposals.
 
-This module combines trend, momentum, RSI, HRP risk budgets and an optional
-HMM market regime to produce a transparent target portfolio.  It is a
-research tool, not a personalised investment recommendation: the output lists
-the inputs, the signal contribution and the risk estimate behind every weight.
+The scoring, allocation, regime and position-sizing kernels are implemented in
+C++ (``src/portfoliolab/advice.cpp``); this module validates inputs, drives the
+optional HMM step and assembles the JSON-friendly report.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
 from typing import Any, Sequence
 
 import numpy as np
 
-from . import metrics, portfoliolab, qflux, regimelab
+from . import metrics, qflux, regimelab
 from ._common import (
     as_f64_1d,
     as_f64_panel,
@@ -21,51 +21,27 @@ from ._common import (
     as_positive_float,
     as_size,
     asset_names as _asset_names,
-    complete_case_covariance,
-    equal_weight_market_returns,
     jsonable,
     package_metadata,
 )
+from ._native_backend import native_api as native_module, native_call
 
 __all__ = ["trade_advice"]
 
-
-def _zscore(values: np.ndarray) -> np.ndarray:
-    finite = np.isfinite(values)
-    result = np.zeros_like(values, dtype=np.float64)
-    if finite.sum() < 2:
-        return result
-    sample = values[finite]
-    scale = float(sample.std(ddof=0))
-    if scale <= 0.0 or not np.isfinite(scale):
-        return result
-    result[finite] = (values[finite] - float(sample.mean())) / scale
-    return np.clip(result, -3.0, 3.0)
+_SIGNAL_FIELDS = (
+    "last_price",
+    "momentum_20",
+    "momentum_60",
+    "trend",
+    "rsi_14",
+    "daily_sigma",
+    "reference_stop",
+)
+_ACTIONS = {1: "increase", 0: "hold", -1: "decrease"}
 
 
-def _cap_weights(weights: np.ndarray, max_weight: float) -> np.ndarray:
-    result = np.clip(weights, 0.0, None)
-    total = float(result.sum())
-    if total <= 0.0 or not np.isfinite(total):
-        result = np.full(weights.size, 1.0 / weights.size)
-    else:
-        result = result / total
-    for _ in range(weights.size + 1):
-        over = result > max_weight + 1e-15
-        if not over.any():
-            break
-        excess = float((result[over] - max_weight).sum())
-        result[over] = max_weight
-        free = ~over
-        if not free.any():
-            break
-        free_total = float(result[free].sum())
-        if free_total <= 0.0:
-            result[free] = excess / float(free.sum())
-        else:
-            result[free] += excess * result[free] / free_total
-    return result
-
+def _optional(value: float) -> float | None:
+    return float(value) if math.isfinite(value) else None
 
 
 def _current_weights(value: Any, n_assets: int) -> np.ndarray | None:
@@ -79,69 +55,6 @@ def _current_weights(value: Any, n_assets: int) -> np.ndarray | None:
     if float(weights.sum()) > 1.0 + 1e-8:
         raise ValueError("current_weights must sum to at most one")
     return weights.astype(np.float64, copy=True)
-
-
-def _signal_row(
-    prices: np.ndarray,
-    returns: np.ndarray,
-    column: int,
-) -> dict[str, Any]:
-    close = prices[:, column]
-    finite = close[np.isfinite(close)]
-    if finite.size < 2:
-        return {
-            "last_price": float(finite[-1]) if finite.size else None,
-            "momentum_20": None,
-            "momentum_60": None,
-            "trend": 0.0,
-            "rsi_14": None,
-            "daily_sigma": None,
-            "reference_stop": None,
-        }
-    last = float(finite[-1])
-    def trailing(window: int) -> float:
-        """Return over exactly ``window`` calendar positions."""
-        if close.size <= window:
-            return float("nan")
-        current = close[-1]
-        base = close[-window - 1]
-        if not (np.isfinite(current) and np.isfinite(base)) or base == 0.0:
-            return float("nan")
-        return float(current / base - 1.0)
-    momentum_20 = trailing(20)
-    momentum_60 = trailing(60)
-    sma20 = qflux.sma(close, min(20, close.size))[-1]
-    sma60 = qflux.sma(close, min(60, close.size))[-1]
-    trend = 0.0
-    if np.isfinite(sma20) and sma20 > 0.0:
-        trend += 1.0 if last > float(sma20) else -1.0
-    if np.isfinite(sma60) and sma60 > 0.0:
-        trend += 1.0 if last > float(sma60) else -1.0
-    trend /= 2.0
-    try:
-        rsi_value = float(qflux.rsi(close, 14)[-1])
-    except Exception:
-        rsi_value = float("nan")
-    # Use the last 20 calendar rows, not the last 20 non-missing values, so a
-    # long gap cannot silently stretch the volatility window.
-    recent_returns = returns[-20:, column]
-    usable = recent_returns[np.isfinite(recent_returns)]
-    daily_sigma = (
-        float(np.std(usable, ddof=1))
-        if usable.size >= 2 else float("nan")
-    )
-    return {
-        "last_price": last,
-        "momentum_20": float(momentum_20) if np.isfinite(momentum_20) else None,
-        "momentum_60": float(momentum_60) if np.isfinite(momentum_60) else None,
-        "trend": float(trend),
-        "rsi_14": rsi_value if np.isfinite(rsi_value) else None,
-        "daily_sigma": daily_sigma if np.isfinite(daily_sigma) else None,
-        "reference_stop": (
-            last * (1.0 - 2.0 * daily_sigma)
-            if np.isfinite(daily_sigma) and daily_sigma > 0.0 else None
-        ),
-    }
 
 
 def trade_advice(
@@ -196,102 +109,35 @@ def trade_advice(
     current = _current_weights(current_weights, n_assets)
 
     returns = qflux.returns_panel(panel)
-    market_returns = equal_weight_market_returns(returns)
-
+    market_returns = native_call(
+        native_module, "equal_weight_market_returns",
+        lambda: native_module.equal_weight_market_returns(returns),
+    )
+    signal_matrix, scores = native_call(
+        native_module, "advice_signals",
+        lambda: native_module.advice_signals(panel, returns),
+    )
     signals = {
-        name: _signal_row(panel, returns, column)
-        for column, name in enumerate(asset_names)
+        name: {
+            field: _optional(signal_matrix[index, column])
+            for column, field in enumerate(_SIGNAL_FIELDS)
+        }
+        for index, name in enumerate(asset_names)
     }
-    momentum_20 = np.array([
-        signals[name]["momentum_20"] if signals[name]["momentum_20"] is not None
-        else np.nan
-        for name in asset_names
-    ])
-    momentum_60 = np.array([
-        signals[name]["momentum_60"] if signals[name]["momentum_60"] is not None
-        else np.nan
-        for name in asset_names
-    ])
-    trend = np.array([signals[name]["trend"] for name in asset_names])
-    rsi = np.array([
-        signals[name]["rsi_14"] if signals[name]["rsi_14"] is not None
-        else np.nan
-        for name in asset_names
-    ])
-    score = (
-        0.50 * _zscore(momentum_20)
-        + 0.30 * _zscore(momentum_60)
-        + 0.20 * trend
+
+    covariance, _ = native_call(
+        native_module, "complete_case_covariance",
+        lambda: native_module.complete_case_covariance(returns, 1),
     )
-    # Penalise crowded overbought names and give a small cushion to oversold
-    # names.  The size is deliberately modest relative to the trend signal.
-    rsi_adjust = np.zeros(n_assets, dtype=np.float64)
-    rsi_adjust[np.isfinite(rsi) & (rsi >= 75.0)] = -0.20
-    rsi_adjust[np.isfinite(rsi) & (rsi <= 25.0)] = 0.10
-    score = np.clip(score + rsi_adjust, -1.0, 1.0)
-
-    # ``returns_panel`` leaves a NaN warm-up row; drop incomplete rows before
-    # estimating the covariance, otherwise every HRP weight would fall back to
-    # equal weight on real data.
-    covariance, _ = complete_case_covariance(returns)
-    base = None
-    if n_assets == 1:
-        base = np.array([1.0], dtype=np.float64)
-    else:
-        try:
-            base = portfoliolab.hrp_weights(covariance)
-        except Exception:
-            base = None
-    if base is None:
-        diagonal = np.diag(covariance).astype(np.float64, copy=True)
-        diagonal[~np.isfinite(diagonal) | (diagonal <= 0.0)] = np.nan
-        if np.all(np.isnan(diagonal)):
-            base = np.full(n_assets, 1.0 / n_assets)
-        else:
-            inverse = 1.0 / diagonal
-            inverse[~np.isfinite(inverse)] = np.nan
-            if not np.any(np.isfinite(inverse)):
-                base = np.full(n_assets, 1.0 / n_assets)
-            else:
-                inverse = np.where(np.isfinite(inverse), inverse, 0.0)
-                base = inverse / inverse.sum()
-    base = _cap_weights(base, max_weight)
-
-    tilted = base * (1.0 + 0.5 * score)
-    if not np.any(tilted > 0.0):
-        tilted = base.copy()
-    tilted = _cap_weights(tilted, max_weight)
-
-    market_vol = (
-        float(np.nanstd(market_returns, ddof=1) * np.sqrt(periods_per_year))
-        if np.isfinite(market_returns).sum() > 1
-        else float("nan")
-    )
-    # Scale the proposed risk-asset mix by its own ex-ante volatility.  Using
-    # the equal-weight market volatility would over- or under-de-risk a
-    # portfolio whose weights differ materially from equal weight.
-    portfolio_vol = float("nan")
-    if (np.all(np.isfinite(covariance)) and np.all(np.isfinite(tilted))
-            and float(tilted.sum()) > 0.0):
-        annual_covariance = covariance * periods_per_year
-        portfolio_variance = float(
-            tilted @ annual_covariance @ tilted
-        )
-        if np.isfinite(portfolio_variance) and portfolio_variance > 0.0:
-            portfolio_vol = float(np.sqrt(portfolio_variance))
-    vol_scale = 1.0
-    if np.isfinite(portfolio_vol) and portfolio_vol > target_volatility:
-        vol_scale = target_volatility / portfolio_vol
-    elif not np.isfinite(portfolio_vol):
-        # Fall back to the market proxy only when the covariance is unusable.
-        if np.isfinite(market_vol) and market_vol > target_volatility:
-            vol_scale = target_volatility / market_vol
 
     regime: dict[str, Any] | None = None
     regime_scale = 1.0
     errors: list[str] = []
     if include_hmm:
-        values = market_returns[np.isfinite(market_returns)]
+        values = native_call(
+            native_module, "finite_values",
+            lambda: native_module.finite_values(market_returns),
+        )
         if values.size >= max(2, hmm_states):
             try:
                 snapshot = regimelab.fit_hmm_snapshot(
@@ -302,23 +148,24 @@ def trade_advice(
                     seed=seed,
                     horizon=1,
                 )
-                filtered = snapshot.latest_filtered
-                means = snapshot.means[:, 0]
-                expected_next = float(np.dot(snapshot.forecast, means))
-                stress_probability = float(
-                    filtered[means < 0.0].sum()
-                ) if np.any(means < 0.0) else 0.0
-                if expected_next < 0.0 and float(filtered.max()) >= 0.5:
-                    regime_scale = 0.5
-                elif stress_probability >= 0.65:
-                    regime_scale = 0.7
+                latest_state, expected_next, stress_probability, scale = (
+                    native_call(
+                        native_module, "advice_regime",
+                        lambda: native_module.advice_regime(
+                            snapshot.latest_filtered,
+                            snapshot.forecast,
+                            snapshot.means[:, 0],
+                        ),
+                    )
+                )
+                regime_scale = float(scale)
                 regime = {
                     "states": snapshot.n_states,
-                    "latest_state": int(np.argmax(filtered)),
-                    "latest_filtered": filtered.tolist(),
-                    "state_means": means.tolist(),
-                    "expected_next_return": expected_next,
-                    "stress_probability": stress_probability,
+                    "latest_state": int(latest_state),
+                    "latest_filtered": snapshot.latest_filtered.tolist(),
+                    "state_means": snapshot.means[:, 0].tolist(),
+                    "expected_next_return": float(expected_next),
+                    "stress_probability": float(stress_probability),
                     "risk_off": regime_scale < 1.0,
                     "exposure_scale": regime_scale,
                 }
@@ -327,85 +174,79 @@ def trade_advice(
         else:
             errors.append("HMM skipped: not enough finite market returns")
 
-    exposure = float(np.clip(vol_scale * regime_scale, 0.0, 1.0))
-    target = tilted * exposure
-    cash = float(max(0.0, 1.0 - target.sum()))
-    if current is None:
-        current = np.full(n_assets, 1.0 / n_assets, dtype=np.float64)
-        current_source = "equal_weight"
-    else:
-        current_source = "provided"
-    delta = target - current
-    actions = []
+    (
+        base, current_resolved, target, deltas, actions,
+        market_vol, portfolio_vol, vol_scale, exposure, cash,
+        current_cash, turnover,
+    ) = native_call(
+        native_module, "advice_allocation",
+        lambda: native_module.advice_allocation(
+            covariance, scores, current, market_returns,
+            float(periods_per_year), float(max_weight),
+            float(target_volatility), float(regime_scale),
+        ),
+    )
+    current_source = "equal_weight" if current is None else "provided"
+
+    sizing = native_call(
+        native_module, "advice_sizing",
+        lambda: native_module.advice_sizing(
+            target,
+            [signals[name]["last_price"] if signals[name]["last_price"] is not None else math.nan
+             for name in asset_names],
+            [signals[name]["reference_stop"] if signals[name]["reference_stop"] is not None else math.nan
+             for name in asset_names],
+            portfolio_value, float(risk_per_trade),
+        ),
+    )
+    notional, stop_distance, target_shares, risk_shares, recommended = sizing
+
+    report_actions = []
     for index, name in enumerate(asset_names):
-        change = float(delta[index])
-        action = "hold"
-        if change > 0.02:
-            action = "increase"
-        elif change < -0.02:
-            action = "decrease"
-        reasons = []
-        if signals[name]["momentum_20"] is not None:
-            reasons.append(
-                f"20d momentum {signals[name]['momentum_20'] * 100:+.1f}%"
-            )
-        if signals[name]["momentum_60"] is not None:
-            reasons.append(
-                f"60d momentum {signals[name]['momentum_60'] * 100:+.1f}%"
-            )
-        reasons.append(f"trend {signals[name]['trend']:+.1f}")
-        if signals[name]["rsi_14"] is not None:
-            reasons.append(f"RSI14 {signals[name]['rsi_14']:.1f}")
         signal = signals[name]
-        stop = signal["reference_stop"]
-        last_price = signal["last_price"]
-        notional = (
-            float(target[index]) * portfolio_value
-            if portfolio_value is not None else None
-        )
-        target_shares = (
-            int(np.floor(notional / last_price))
-            if notional is not None and last_price and last_price > 0.0
-            else None
-        )
-        risk_shares = None
-        if (
-            portfolio_value is not None and stop is not None and last_price
-            and last_price > stop > 0.0
-        ):
-            risk_shares = int(np.floor(
-                portfolio_value * risk_per_trade / (last_price - stop)
-            ))
-        recommended_shares = None
-        if target_shares is not None:
-            recommended_shares = target_shares
-            if risk_shares is not None:
-                recommended_shares = min(target_shares, risk_shares)
-        actions.append({
+        reasons = []
+        if signal["momentum_20"] is not None:
+            reasons.append(f"20d momentum {signal['momentum_20'] * 100:+.1f}%")
+        if signal["momentum_60"] is not None:
+            reasons.append(f"60d momentum {signal['momentum_60'] * 100:+.1f}%")
+        reasons.append(f"trend {signal['trend']:+.1f}")
+        if signal["rsi_14"] is not None:
+            reasons.append(f"RSI14 {signal['rsi_14']:.1f}")
+        report_actions.append({
             "asset": name,
-            "action": action,
-            "current_weight": float(current[index]),
+            "action": _ACTIONS[int(actions[index])],
+            "current_weight": float(current_resolved[index]),
             "target_weight": float(target[index]),
-            "delta": change,
-            "signal_score": float(score[index]),
-            "last_price": last_price,
-            "reference_stop": stop,
-            "stop_distance_pct": (
-                float((last_price - stop) / last_price)
-                if last_price and stop is not None and last_price > 0.0
-                else None
+            "delta": float(deltas[index]),
+            "signal_score": float(scores[index]),
+            "last_price": signal["last_price"],
+            "reference_stop": signal["reference_stop"],
+            "stop_distance_pct": _optional(stop_distance[index]),
+            "target_notional": _optional(notional[index]),
+            "target_shares": (
+                int(target_shares[index]) if target_shares[index] >= 0 else None
             ),
-            "target_notional": notional,
-            "target_shares": target_shares,
-            "risk_limited_shares": risk_shares,
-            "recommended_shares": recommended_shares,
+            "risk_limited_shares": (
+                int(risk_shares[index]) if risk_shares[index] >= 0 else None
+            ),
+            "recommended_shares": (
+                int(recommended[index]) if recommended[index] >= 0 else None
+            ),
             "reason": "; ".join(reasons),
         })
 
-    target_series = np.nansum(returns * target, axis=1)
-    current_series = np.nansum(returns * current, axis=1)
-    target_series = target_series[np.isfinite(target_series)]
-    current_series = current_series[np.isfinite(current_series)]
+    target_series = native_call(
+        native_module, "finite_values",
+        lambda: native_module.finite_values(
+            native_module.portfolio_series(returns, target)
+        ),
+    )
+    current_series = native_call(
+        native_module, "finite_values",
+        lambda: native_module.finite_values(
+            native_module.portfolio_series(returns, current_resolved)
+        ),
+    )
     target_metrics = (
         metrics.performance_summary(
             target_series,
@@ -429,12 +270,6 @@ def trade_advice(
         if target_series.size >= 2
         else None
     )
-    # Cash is part of the portfolio: moving from a fully invested book to a
-    # partly invested one is turnover too.
-    current_cash = max(0.0, 1.0 - float(current.sum()))
-    turnover = float(
-        0.5 * (np.abs(delta).sum() + abs(cash - current_cash))
-    )
     report = {
         "package": package_metadata(),
         "input": {
@@ -445,20 +280,20 @@ def trade_advice(
         },
         "signals": signals,
         "allocation": {
-            "base_weights": base.tolist(),
-            "target_weights": target.tolist(),
-            "cash_weight": cash,
-            "exposure": exposure,
-            "volatility_scale": vol_scale,
-            "regime_scale": regime_scale,
+            "base_weights": [float(value) for value in base],
+            "target_weights": [float(value) for value in target],
+            "cash_weight": float(cash),
+            "exposure": float(exposure),
+            "volatility_scale": float(vol_scale),
+            "regime_scale": float(regime_scale),
             "max_weight": max_weight,
-            "expected_turnover": turnover,
-            "actions": actions,
+            "expected_turnover": float(turnover),
+            "actions": report_actions,
         },
         "regime": regime,
         "risk": {
-            "market_annualized_volatility": market_vol,
-            "portfolio_annualized_volatility": portfolio_vol,
+            "market_annualized_volatility": _optional(market_vol),
+            "portfolio_annualized_volatility": _optional(portfolio_vol),
             "target_annualized_volatility": (
                 target_metrics.annualized_volatility
                 if target_metrics is not None else None

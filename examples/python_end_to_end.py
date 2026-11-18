@@ -3,8 +3,7 @@
 
 Run from the repository root:
 
-    PYTHONPATH=python RFLUX_LIBRARY=$PWD/build/librflux.dylib \
-        python examples/python_end_to_end.py
+    python examples/python_end_to_end.py
 
 The pipeline makes time alignment explicit:
 

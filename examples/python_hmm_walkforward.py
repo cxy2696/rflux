@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk-forward HMM demo: out-of-sample scoring and state alignment.
 
-    PYTHONPATH=python python examples/python_hmm_walkforward.py
+    python examples/python_hmm_walkforward.py
 
 The model is refitted on a trailing window and scored on the next block.  Each
 new fit is aligned to the first model's state labels before labels are compared.

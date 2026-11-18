@@ -11,7 +11,7 @@ cross-version C++ ABI promise.
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 8
+#define RFLUX_VERSION_MINOR 9
 #define RFLUX_VERSION_PATCH 0
 ```
 
@@ -23,7 +23,8 @@ const char* rflux_version_string(void);
 ```
 
 A dynamic binding must check both the ABI number and the version string. The
-Python loader rejects anything other than `rflux_abi_version() == 1`.
+Python extension exposes `ABI_VERSION` and rejects a package/extension version
+mismatch at import time.
 
 Version rules:
 
@@ -35,12 +36,12 @@ Version rules:
   extending an ABI-v1 options struct requires a new ABI version.
 - A release may add optional functions without forcing old clients to
   recompile.
-- `0.8.0` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
+- `0.9.0` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
   native bridge are additive.
 - Factors, HRP/NCO, tail dependence, Almgren-Chriss, Huber, site-percolation
   detection and the pre-trade gate have C entry points; all new symbols are
   additive.
-- `0.8.0` adds `rflux_factor_forward_returns`, `rflux_factor_quantile_returns`,
+- `0.9.0` adds the research report kernels (advice, regime attribution, sticky regimes, graph construction and summaries) through pybind11; the C ABI gains no breaking change.  `0.8.0` adds `rflux_factor_forward_returns`, `rflux_factor_quantile_returns`,
   `rflux_factor_long_short`, `rflux_factor_ic_summary` and
   `rflux_regime_match_states`; existing symbols and layouts are unchanged.
 
@@ -241,9 +242,11 @@ Before a release, check:
 
 ## 9. Python bridge and ABI
 
-The Python package prefers the pybind11 extension `rflux._native`; ctypes uses
-the C ABI described here. The extension links `rflux_core` directly, exports no
-new C symbols and does not change `rflux.h`, status codes or the options layout.
+The Python package uses the pybind11 extension `rflux._native` and has no
+ctypes or pure-Python execution path. The extension links `rflux_core`
+directly, exports no new C symbols and does not change `rflux.h`, status codes
+or the options layout. The wheel ships only the extension; the C ABI shared
+library is a separate CMake install target for C/C++ callers.
 
 The extension maps `rflux::InvalidArgument`, `NonFinite`, `NotReady` and
 `NumericalError` to `NativeError` with a `status` attribute; Python then raises

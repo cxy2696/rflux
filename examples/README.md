@@ -9,20 +9,19 @@ documented in [METHODS_en.md](../docs/METHODS_en.md), the algorithm matrix in
 
 ```bash
 make -j
-python -m pip install -e .   # optional: native extension + package
-export PYTHONPATH="$PWD/python"
+python -m pip install -e .   # builds and installs the native extension
 ```
 
-Inside the repository the Python loader finds `build/librflux.dylib` or
-`build/librflux.so` automatically; `RFLUX_LIBRARY` overrides the path.
-`make python-lib` copies only the C ABI shared library for ctypes-only checks.
+The Python examples import the installed package; there is no ctypes or
+pure-Python execution path. `make native` is equivalent to the editable
+install when only the extension needs rebuilding.
 
 ## 0. Command line
 
 ```bash
-PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv
-PYTHONPATH=python python -m rflux analyze examples/data/sample_prices.csv --format json
-PYTHONPATH=python python -m rflux advice examples/data/sample_prices.csv --no-hmm
+python -m rflux analyze examples/data/sample_prices.csv
+python -m rflux analyze examples/data/sample_prices.csv --format json
+python -m rflux advice examples/data/sample_prices.csv --no-hmm
 ```
 
 `analyze` reads a wide CSV, detects the date column, and reports asset
@@ -128,7 +127,7 @@ empty responses and schema errors into `DataSourceError`.
 
 ```bash
 python examples/python_applications.py
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 0.30,0.25,0.20,0.15,0.10
 ```
 

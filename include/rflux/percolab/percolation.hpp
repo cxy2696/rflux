@@ -54,6 +54,40 @@ std::vector<PercolationPoint> percolation_scan(
     const OccupationWeights& weights, const double* probabilities,
     std::size_t n_probabilities, std::size_t repetitions, std::uint64_t seed);
 
+enum class RemovalStrategy {
+    strength = 0,
+    degree = 1,
+    eigenvector = 2,
+    betweenness = 3,
+    core = 4
+};
+
+/* Deterministic node-removal permutation; ties keep ascending node order. */
+[[nodiscard]] std::vector<std::uint32_t> removal_order(
+    const double* adjacency, std::size_t n, RemovalStrategy strategy);
+
+struct CoreCurve {
+    std::vector<std::int64_t> k;
+    std::vector<std::int64_t> n_nodes;
+    std::vector<double> fraction;
+};
+
+/* k-core survival curve derived from the core-number decomposition. */
+[[nodiscard]] CoreCurve core_percolation(const double* adjacency,
+                                         std::size_t n);
+
+struct PercolationSummary {
+    double critical_probability = 0.0;
+    double p_half_giant = 0.0;
+    double max_susceptibility = 0.0;
+    double giant_area = 0.0;
+};
+
+/* Descriptive summaries of a percolation scan. */
+[[nodiscard]] PercolationSummary percolation_summary(
+    const double* probabilities, const double* giant_mean,
+    const double* susceptibility, std::size_t n);
+
 /* Convenience wrappers around percolation_scan(). */
 std::vector<PercolationPoint> bond_percolation(const double* adjacency,
                                                std::size_t n,

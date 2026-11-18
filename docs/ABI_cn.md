@@ -9,7 +9,7 @@
 ```c
 #define RFLUX_ABI_VERSION 1u
 #define RFLUX_VERSION_MAJOR 0
-#define RFLUX_VERSION_MINOR 8
+#define RFLUX_VERSION_MINOR 9
 #define RFLUX_VERSION_PATCH 0
 ```
 
@@ -20,7 +20,7 @@ uint32_t rflux_abi_version(void);
 const char* rflux_version_string(void);
 ```
 
-动态绑定必须同时检查 ABI 与版本。当前 Python 绑定在装载库时检查 `rflux_abi_version() == 1`，否则抛出 `ABIError`。
+动态绑定必须同时检查 ABI 与版本。Python 扩展暴露 `ABI_VERSION`，并在包与扩展版本不一致时于导入阶段抛出 `ABIError`。
 
 版本策略：
 
@@ -28,8 +28,9 @@ const char* rflux_version_string(void);
 - 增加函数、增加新枚举值属于向后兼容，发布时应提升次版本号；未发布改动可以先保留在开发分支。
 - 删除函数、改变参数/返回类型、改变错误语义、扩张 ABI-v1 options 结构，必须提升 ABI 版本。
 - 头文件可以在同一 ABI 内新增可选的函数；旧客户端不需要重新编译。
-- 当前版本 `0.8.0` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
+- 当前版本 `0.9.0` 使用 ABI `1`。新增 C++ 算法接口、Python 数据层和原生桥均为追加能力，不改变既有 C 函数签名或结构布局。
 - 0.7 的因子、HRP、Almgren-Chriss、Huber、site percolation 检测和下单前风控均已提供 C ABI 入口；新增函数均为追加符号。
+- 0.9 通过 pybind11 新增研究报告内核（建议、状态归因、sticky regime、图构建与摘要），C ABI 无破坏性变更。
 - 0.8 追加 `rflux_factor_forward_returns`、`rflux_factor_quantile_returns`、
   `rflux_factor_long_short`、`rflux_factor_ic_summary` 和
   `rflux_regime_match_states`；既有符号和布局不变。
@@ -215,6 +216,6 @@ typedef struct rflux_hmm_options {
 
 ## 9. Python 原生桥与 ABI
 
-当前 Python 包优先使用 pybind11 扩展 `rflux._native`，ctypes 仍走本文描述的 C ABI。原生扩展直接链接 `rflux_core`，不导出新的 C 符号，也不改变 `rflux.h`、状态码或 `rflux_hmm_options` 布局。
+当前 Python 包使用 pybind11 扩展 `rflux._native`，没有 ctypes 或纯 Python 执行路径。原生扩展直接链接 `rflux_core`，不导出新的 C 符号，也不改变 `rflux.h`、状态码或 `rflux_hmm_options` 布局。wheel 只包含扩展；C ABI 共享库是面向 C/C++ 调用方的独立 CMake 安装目标。
 
 pybind11 扩展把 `rflux::InvalidArgument`、`NonFinite`、`NotReady`、`NumericalError` 映射为带 `status` 属性的 `NativeError`，Python 层再转换为 `RFluxError`；状态码与 C ABI 保持一致。原生扩展在 CPython 3.12+ 使用 abi3 wheel，3.10/3.11 使用版本相关 wheel；该策略不属于 C ABI 兼容承诺。

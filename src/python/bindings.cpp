@@ -23,6 +23,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -30,11 +31,15 @@
 #include <vector>
 
 #include "internal/common.hpp"
+#include "rflux/rflux.h"
 #include "rflux/execution/almgren_chriss.hpp"
 #include "rflux/factorlab/backtest.hpp"
 #include "rflux/factorlab/evaluation.hpp"
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
+#include "rflux/percolab/network.hpp"
+#include "rflux/percolab/percolation.hpp"
+#include "rflux/portfoliolab/advice.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
 #include "rflux/portfoliolab/risk.hpp"
 #include "rflux/qflux/indicators.hpp"
@@ -43,6 +48,7 @@
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
 #include "rflux/regimelab/alignment.hpp"
+#include "rflux/regimelab/attribution.hpp"
 #include "rflux/regimelab/hmm.hpp"
 #include "rflux/regimelab/regime.hpp"
 #include "rflux/risk/tail_dependence.hpp"
@@ -606,7 +612,7 @@ py::array_t<double> factor_vwap_deviation(const DoubleArray& close,
 
 py::array_t<double> factor_ic(const DoubleArray& factor,
                               const DoubleArray& forward_returns,
-                              bool spearman) {
+                              bool spearman, std::size_t min_pairs) {
     require_2d(factor, "factor");
     require_2d(forward_returns, "forward_returns");
     if (factor.shape(0) != forward_returns.shape(0) ||
@@ -618,7 +624,7 @@ py::array_t<double> factor_ic(const DoubleArray& factor,
         return rflux::factorlab::information_coefficient(
             factor.data(), forward_returns.data(),
             static_cast<std::size_t>(factor.shape(0)),
-            static_cast<std::size_t>(factor.shape(1)), spearman);
+            static_cast<std::size_t>(factor.shape(1)), spearman, min_pairs);
     });
     return vector_to_array(result);
 }
@@ -776,6 +782,23 @@ py::tuple portfolio_risk(const DoubleArray& returns,
         result.diversification_ratio, result.gross_hhi);
 }
 
+py::array_t<std::int64_t> hrp_order(const DoubleArray& covariance) {
+    require_2d(covariance, "covariance");
+    if (covariance.shape(0) != covariance.shape(1)) {
+        throw rflux::InvalidArgument("covariance must be square");
+    }
+    const std::vector<std::size_t> order = run_released([&] {
+        return rflux::portfoliolab::quasi_diagonal_order(
+            covariance.data(), static_cast<std::size_t>(covariance.shape(0)));
+    });
+    std::vector<std::int64_t> converted(order.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        converted[i] = static_cast<std::int64_t>(order[i]);
+    }
+    return array_from(converted,
+                      {static_cast<py::ssize_t>(converted.size())});
+}
+
 py::array_t<double> hrp_weights(const DoubleArray& covariance) {
     require_2d(covariance, "covariance");
     if (covariance.shape(0) != covariance.shape(1)) {
@@ -842,6 +865,24 @@ py::tuple almgren_chriss(double quantity, std::size_t slices, double horizon,
     });
     return py::make_tuple(vector_to_array(plan.trades), plan.expected_cost,
                           plan.expected_variance, plan.kappa);
+}
+
+py::array_t<double> linear_predict(const DoubleArray& features,
+                                   const DoubleArray& coefficients,
+                                   double intercept) {
+    require_2d(features, "features");
+    require_1d(coefficients, "coefficients");
+    if (features.shape(1) != coefficients.shape(0)) {
+        throw rflux::InvalidArgument(
+            "features have the wrong number of columns");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::mllab::linear_predict(
+            features.data(), static_cast<std::size_t>(features.shape(0)),
+            static_cast<std::size_t>(features.shape(1)),
+            coefficients.data(), intercept);
+    });
+    return vector_to_array(result);
 }
 
 double cvar_loss(const DoubleArray& returns, double alpha) {
@@ -1082,12 +1123,948 @@ private:
     std::shared_ptr<rflux::regimelab::GaussianHMM> model_;
 };
 
+
+py::array_t<double> equal_weight_market_returns(const DoubleArray& returns) {
+    require_2d(returns, "returns");
+    const auto n_obs = static_cast<std::size_t>(returns.shape(0));
+    const auto n_assets = static_cast<std::size_t>(returns.shape(1));
+    std::vector<double> result = run_released([&] {
+        return rflux::qflux::equal_weight_market_returns(
+            returns.data(), n_obs, n_assets);
+    });
+    return vector_to_array(result);
+}
+
+py::tuple finite_stats(const DoubleArray& values) {
+    if (values.ndim() < 1 || values.ndim() > 2) {
+        throw rflux::InvalidArgument("values must be 1D or 2D");
+    }
+    const auto stats = run_released([&] {
+        return rflux::qflux::finite_stats(
+            values.data(), static_cast<std::size_t>(values.size()));
+    });
+    return py::make_tuple(stats.minimum, stats.maximum, stats.mean,
+                          stats.sum, stats.count);
+}
+
+py::array_t<double> finite_values(const DoubleArray& values) {
+    require_1d(values, "values");
+    std::vector<double> result = run_released([&] {
+        return rflux::qflux::finite_values(
+            values.data(), static_cast<std::size_t>(values.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+py::tuple last_finite(const DoubleArray& values) {
+    require_1d(values, "values");
+    bool found = false;
+    const double value = run_released([&] {
+        return rflux::qflux::last_finite(
+            values.data(), static_cast<std::size_t>(values.shape(0)), &found);
+    });
+    return py::make_tuple(value, found);
+}
+
+py::array_t<std::int64_t> top_k_indices(const DoubleArray& values,
+                                       std::size_t k, bool descending) {
+    require_1d(values, "values");
+    const std::vector<std::size_t> indices = run_released([&] {
+        return rflux::qflux::top_k_indices(
+            values.data(), static_cast<std::size_t>(values.shape(0)), k,
+            descending);
+    });
+    std::vector<std::int64_t> converted(indices.size());
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        converted[i] = static_cast<std::int64_t>(indices[i]);
+    }
+    return array_from(converted, {
+        static_cast<py::ssize_t>(converted.size())});
+}
+
+std::size_t argmax_index(const DoubleArray& values) {
+    require_1d(values, "values");
+    return run_released([&] {
+        return rflux::qflux::argmax_index(
+            values.data(), static_cast<std::size_t>(values.shape(0)));
+    });
+}
+
+std::int32_t max_i32(const py::array_t<std::int32_t>& values) {
+    if (values.ndim() != 1) {
+        throw rflux::InvalidArgument("values must be one-dimensional");
+    }
+    return run_released([&] {
+        return rflux::qflux::max_i32(
+            values.data(), static_cast<std::size_t>(values.shape(0)));
+    });
+}
+
+py::tuple complete_case_covariance(const DoubleArray& returns,
+                                   std::size_t ddof) {
+    require_2d(returns, "returns");
+    std::size_t complete = 0;
+    std::vector<double> covariance = run_released([&] {
+        return rflux::portfoliolab::complete_case_covariance(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            static_cast<std::size_t>(returns.shape(1)), ddof, &complete);
+    });
+    return py::make_tuple(
+        matrix_to_array(covariance, returns.shape(1), returns.shape(1)),
+        complete);
+}
+
+py::array_t<double> portfolio_series(const DoubleArray& returns,
+                                     const DoubleArray& weights) {
+    require_2d(returns, "returns");
+    require_1d(weights, "weights");
+    if (returns.shape(1) != weights.shape(0)) {
+        throw rflux::InvalidArgument("weights must have one entry per asset");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::portfoliolab::portfolio_series(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            static_cast<std::size_t>(returns.shape(1)), weights.data());
+    });
+    return vector_to_array(result);
+}
+
+py::tuple advice_signals(const DoubleArray& prices,
+                         const DoubleArray& returns) {
+    require_2d(prices, "prices");
+    require_2d(returns, "returns");
+    if (prices.shape(0) != returns.shape(0) ||
+        prices.shape(1) != returns.shape(1)) {
+        throw rflux::InvalidArgument(
+            "prices and returns must have equal shape");
+    }
+    const auto n_assets = static_cast<std::size_t>(prices.shape(1));
+    const rflux::portfoliolab::AdviceSignals signals = run_released([&] {
+        return rflux::portfoliolab::advice_signals(
+            prices.data(), returns.data(),
+            static_cast<std::size_t>(prices.shape(0)), n_assets);
+    });
+    std::vector<double> flat(n_assets * 7, 0.0);
+    for (std::size_t asset = 0; asset < n_assets; ++asset) {
+        const auto& row = signals.rows[asset];
+        flat[asset * 7 + 0] = row.last_price;
+        flat[asset * 7 + 1] = row.momentum_20;
+        flat[asset * 7 + 2] = row.momentum_60;
+        flat[asset * 7 + 3] = row.trend;
+        flat[asset * 7 + 4] = row.rsi_14;
+        flat[asset * 7 + 5] = row.daily_sigma;
+        flat[asset * 7 + 6] = row.reference_stop;
+    }
+    return py::make_tuple(
+        matrix_to_array(flat, static_cast<py::ssize_t>(n_assets), 7),
+        vector_to_array(signals.scores));
+}
+
+
+
+
+py::array_t<std::int32_t> row_argmax(const DoubleArray& values) {
+    require_2d(values, "values");
+    std::vector<std::int32_t> result = run_released([&] {
+        return rflux::qflux::row_argmax(
+            values.data(), static_cast<std::size_t>(values.shape(0)),
+            static_cast<std::size_t>(values.shape(1)));
+    });
+    return int_vector_to_array(result);
+}
+
+double conditional_mean(const DoubleArray& state_probs,
+                        const DoubleArray& means, std::size_t feature) {
+    require_1d(state_probs, "state_probs");
+    require_2d(means, "means");
+    if (state_probs.shape(0) != means.shape(0)) {
+        throw rflux::InvalidArgument(
+            "state_probs must have one entry per state");
+    }
+    return run_released([&] {
+        return rflux::regimelab::conditional_mean(
+            state_probs.data(), means.data(),
+            static_cast<std::size_t>(means.shape(0)),
+            static_cast<std::size_t>(means.shape(1)), feature);
+    });
+}
+
+py::tuple sticky_regime(const DoubleArray& probabilities,
+                        std::size_t min_duration, double entry_threshold,
+                        double exit_threshold) {
+    require_2d(probabilities, "probabilities");
+    const auto n_obs = static_cast<std::size_t>(probabilities.shape(0));
+    const auto n_states = static_cast<std::size_t>(probabilities.shape(1));
+    const auto result = run_released([&] {
+        return rflux::regimelab::sticky_regime(
+            probabilities.data(), n_obs, n_states, min_duration,
+            entry_threshold, exit_threshold);
+    });
+    return py::make_tuple(int_vector_to_array(result.labels),
+                          int_vector_to_array(result.switches));
+}
+
+py::dict align_parameters(const DoubleArray& reference_means,
+                          const DoubleArray& reference_variances,
+                          const DoubleArray& target_start_prob,
+                          const DoubleArray& target_transition,
+                          const DoubleArray& target_means,
+                          const DoubleArray& target_variances,
+                          double variance_weight) {
+    require_2d(reference_means, "reference_means");
+    require_2d(reference_variances, "reference_variances");
+    require_1d(target_start_prob, "target_start_prob");
+    require_2d(target_transition, "target_transition");
+    require_2d(target_means, "target_means");
+    require_2d(target_variances, "target_variances");
+    const auto n_states = static_cast<std::size_t>(reference_means.shape(0));
+    const auto n_features = static_cast<std::size_t>(reference_means.shape(1));
+    if (reference_variances.shape(0) != reference_means.shape(0) ||
+        reference_variances.shape(1) != reference_means.shape(1) ||
+        target_means.shape(0) != reference_means.shape(0) ||
+        target_means.shape(1) != reference_means.shape(1) ||
+        target_variances.shape(0) != reference_means.shape(0) ||
+        target_variances.shape(1) != reference_means.shape(1) ||
+        target_start_prob.shape(0) != reference_means.shape(0) ||
+        target_transition.shape(0) != reference_means.shape(0) ||
+        target_transition.shape(1) != reference_means.shape(0)) {
+        throw rflux::InvalidArgument(
+            "state parameter panels must have equal shape");
+    }
+    const auto result = run_released([&] {
+        return rflux::regimelab::align_parameters(
+            reference_means.data(), reference_variances.data(),
+            target_start_prob.data(), target_transition.data(),
+            target_means.data(), target_variances.data(), n_states,
+            n_features, variance_weight);
+    });
+    py::dict output;
+    output["order"] = int_vector_to_array(result.order);
+    output["start_prob"] = vector_to_array(result.start_prob);
+    output["transition"] = matrix_to_array(
+        result.transition, static_cast<py::ssize_t>(n_states),
+        static_cast<py::ssize_t>(n_states));
+    output["means"] = matrix_to_array(
+        result.means, static_cast<py::ssize_t>(n_states),
+        static_cast<py::ssize_t>(n_features));
+    output["variances"] = matrix_to_array(
+        result.variances, static_cast<py::ssize_t>(n_states),
+        static_cast<py::ssize_t>(n_features));
+    output["cost"] = result.cost;
+    return output;
+}
+
+py::dict regime_attribution(const DoubleArray& returns,
+                            const py::array_t<std::int32_t>& labels,
+                            double periods_per_year, double risk_free,
+                            double confidence) {
+    require_1d(returns, "returns");
+    if (labels.ndim() != 1 ||
+        labels.shape(0) != returns.shape(0)) {
+        throw rflux::InvalidArgument(
+            "labels must be one-dimensional with one entry per return");
+    }
+    const auto result = run_released([&] {
+        return rflux::regimelab::regime_attribution(
+            returns.data(), labels.data(),
+            static_cast<std::size_t>(returns.shape(0)), periods_per_year,
+            risk_free, confidence);
+    });
+    const auto count = static_cast<py::ssize_t>(result.state_count);
+    std::vector<std::int64_t> periods(result.state_count);
+    std::vector<std::int64_t> n_returns(result.state_count);
+    std::vector<double> period_share(result.state_count);
+    std::vector<double> mean_return(result.state_count);
+    std::vector<double> annualized_mean(result.state_count);
+    std::vector<double> annualized_volatility(result.state_count);
+    std::vector<double> sharpe(result.state_count);
+    std::vector<double> var(result.state_count);
+    std::vector<double> cvar(result.state_count);
+    std::vector<double> hit_rate(result.state_count);
+    std::vector<double> sum_return(result.state_count);
+    std::vector<double> share_of_total(result.state_count);
+    for (std::size_t state = 0; state < result.state_count; ++state) {
+        const auto& entry = result.states[state];
+        periods[state] = static_cast<std::int64_t>(entry.periods);
+        n_returns[state] = static_cast<std::int64_t>(entry.n_returns);
+        period_share[state] = entry.period_share;
+        mean_return[state] = entry.mean_return;
+        annualized_mean[state] = entry.annualized_mean_return;
+        annualized_volatility[state] = entry.annualized_volatility;
+        sharpe[state] = entry.sharpe;
+        var[state] = entry.var;
+        cvar[state] = entry.cvar;
+        hit_rate[state] = entry.hit_rate;
+        sum_return[state] = entry.sum_return;
+        share_of_total[state] = entry.share_of_total_sum;
+    }
+    std::vector<std::int64_t> counts(result.transition_counts.size());
+    for (std::size_t i = 0; i < result.transition_counts.size(); ++i) {
+        counts[i] = static_cast<std::int64_t>(result.transition_counts[i]);
+    }
+    py::dict output;
+    output["state_count"] = result.state_count;
+    output["labelled_observations"] = result.labelled_observations;
+    output["periods"] = array_from(periods, {count});
+    output["n_returns"] = array_from(n_returns, {count});
+    output["period_share"] = vector_to_array(period_share);
+    output["mean_return"] = vector_to_array(mean_return);
+    output["annualized_mean_return"] = vector_to_array(annualized_mean);
+    output["annualized_volatility"] = vector_to_array(annualized_volatility);
+    output["sharpe"] = vector_to_array(sharpe);
+    output["var"] = vector_to_array(var);
+    output["cvar"] = vector_to_array(cvar);
+    output["hit_rate"] = vector_to_array(hit_rate);
+    output["sum_return"] = vector_to_array(sum_return);
+    output["share_of_total_sum"] = vector_to_array(share_of_total);
+    output["transition_counts"] = array_from(counts, {count, count});
+    output["transition_probabilities"] = matrix_to_array(
+        result.transition_probabilities, count, count);
+    return output;
+}
+
+py::tuple advice_allocation(const DoubleArray& covariance,
+                            const DoubleArray& scores,
+                            const py::object& current_weights,
+                            const DoubleArray& market_returns,
+                            double periods_per_year, double max_weight,
+                            double target_volatility, double regime_scale) {
+    require_2d(covariance, "covariance");
+    require_1d(scores, "scores");
+    require_1d(market_returns, "market_returns");
+    if (covariance.shape(0) != covariance.shape(1) ||
+        covariance.shape(0) != scores.shape(0)) {
+        throw rflux::InvalidArgument(
+            "covariance must be square with one score per asset");
+    }
+    DoubleArray current;
+    const double* current_data = nullptr;
+    bool has_current = false;
+    if (!current_weights.is_none()) {
+        current = py::cast<DoubleArray>(current_weights);
+        require_1d(current, "current_weights");
+        if (current.shape(0) != covariance.shape(0)) {
+            throw rflux::InvalidArgument(
+                "current_weights must have one entry per asset");
+        }
+        current_data = current.data();
+        has_current = true;
+    }
+    const auto allocation = run_released([&] {
+        return rflux::portfoliolab::advice_allocation(
+            covariance.data(), scores.data(),
+            static_cast<std::size_t>(covariance.shape(0)), current_data,
+            has_current, market_returns.data(),
+            static_cast<std::size_t>(market_returns.shape(0)),
+            periods_per_year, max_weight, target_volatility, regime_scale);
+    });
+    return py::make_tuple(
+        vector_to_array(allocation.base_weights),
+        vector_to_array(allocation.current_weights),
+        vector_to_array(allocation.target_weights),
+        vector_to_array(allocation.deltas),
+        int_vector_to_array(allocation.actions),
+        allocation.market_annualized_volatility,
+        allocation.portfolio_annualized_volatility,
+        allocation.volatility_scale, allocation.exposure,
+        allocation.cash_weight, allocation.current_cash_weight,
+        allocation.turnover);
+}
+
+py::tuple advice_regime(const DoubleArray& filtered,
+                        const DoubleArray& forecast,
+                        const DoubleArray& means) {
+    require_1d(filtered, "filtered");
+    require_1d(forecast, "forecast");
+    require_1d(means, "means");
+    if (filtered.shape(0) != forecast.shape(0) ||
+        filtered.shape(0) != means.shape(0)) {
+        throw rflux::InvalidArgument(
+            "filtered, forecast and means must have equal lengths");
+    }
+    const auto regime = run_released([&] {
+        return rflux::portfoliolab::advice_regime(
+            filtered.data(), forecast.data(), means.data(),
+            static_cast<std::size_t>(filtered.shape(0)));
+    });
+    return py::make_tuple(regime.latest_state, regime.expected_next_return,
+                          regime.stress_probability, regime.regime_scale);
+}
+
+py::tuple advice_sizing(const DoubleArray& target_weights,
+                        const DoubleArray& last_prices,
+                        const DoubleArray& reference_stops,
+                        const py::object& portfolio_value,
+                        double risk_per_trade) {
+    require_1d(target_weights, "target_weights");
+    require_1d(last_prices, "last_prices");
+    require_1d(reference_stops, "reference_stops");
+    const auto n_assets = static_cast<std::size_t>(target_weights.shape(0));
+    if (last_prices.shape(0) != target_weights.shape(0) ||
+        reference_stops.shape(0) != target_weights.shape(0)) {
+        throw rflux::InvalidArgument(
+            "target_weights, last_prices and reference_stops must match");
+    }
+    double value = 0.0;
+    bool has_value = false;
+    if (!portfolio_value.is_none()) {
+        value = py::cast<double>(portfolio_value);
+        has_value = true;
+    }
+    const auto sizing = run_released([&] {
+        return rflux::portfoliolab::advice_sizing(
+            target_weights.data(), last_prices.data(),
+            reference_stops.data(), n_assets, value, has_value,
+            risk_per_trade);
+    });
+    std::vector<double> notional(n_assets, std::numeric_limits<double>::quiet_NaN());
+    std::vector<double> stop_distance(n_assets, std::numeric_limits<double>::quiet_NaN());
+    std::vector<std::int64_t> target_shares(n_assets, -1);
+    std::vector<std::int64_t> risk_shares(n_assets, -1);
+    std::vector<std::int64_t> recommended(n_assets, -1);
+    for (std::size_t asset = 0; asset < n_assets; ++asset) {
+        const auto& row = sizing[asset];
+        if (row.has_notional) notional[asset] = row.target_notional;
+        if (row.has_stop_distance) stop_distance[asset] = row.stop_distance_pct;
+        if (row.has_target_shares) target_shares[asset] = row.target_shares;
+        if (row.has_risk_limited_shares) {
+            risk_shares[asset] = row.risk_limited_shares;
+        }
+        if (row.has_recommended_shares) {
+            recommended[asset] = row.recommended_shares;
+        }
+    }
+    return py::make_tuple(
+        vector_to_array(notional), vector_to_array(stop_distance),
+        array_from(target_shares, {static_cast<py::ssize_t>(n_assets)}),
+        array_from(risk_shares, {static_cast<py::ssize_t>(n_assets)}),
+        array_from(recommended, {static_cast<py::ssize_t>(n_assets)}));
+}
+
+
+py::array_t<double> correlation_to_distance(const DoubleArray& correlation) {
+    require_2d(correlation, "correlation");
+    if (correlation.shape(0) != correlation.shape(1)) {
+        throw rflux::InvalidArgument("correlation must be square");
+    }
+    const auto n = static_cast<std::size_t>(correlation.shape(0));
+    std::vector<double> result = run_released([&] {
+        return rflux::percolab::correlation_to_distance(
+            correlation.data(), n);
+    });
+    return matrix_to_array(result, correlation.shape(0), correlation.shape(0));
+}
+
+py::tuple connected_components(const DoubleArray& adjacency,
+                               double threshold) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    const auto n = static_cast<std::size_t>(adjacency.shape(0));
+    const auto result = run_released([&] {
+        return rflux::percolab::connected_components(
+            adjacency.data(), n, threshold);
+    });
+    const std::vector<std::size_t> sizes = rflux::percolab::component_sizes(
+        result.labels.data(), n, result.n_components);
+    return py::make_tuple(int_vector_to_array(result.labels),
+                          result.n_components, result.largest_size,
+                          array_from(sizes, {static_cast<py::ssize_t>(sizes.size())}));
+}
+
+py::array_t<double> network_strength(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::percolab::strength(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> centrality(const DoubleArray& adjacency,
+                               std::size_t kind) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1) || kind > 1) {
+        throw rflux::InvalidArgument(
+            "adjacency must be square and kind must be 0 or 1");
+    }
+    std::vector<double> result = run_released([&] {
+        if (kind == 0) {
+            return rflux::percolab::strength(
+                adjacency.data(),
+                static_cast<std::size_t>(adjacency.shape(0)));
+        }
+        return rflux::percolab::eigenvector_centrality(
+            adjacency.data(),
+            static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> clustering(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::percolab::clustering_coefficients(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return vector_to_array(result);
+}
+
+double transitivity(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    return run_released([&] {
+        return rflux::percolab::transitivity(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+}
+
+py::tuple path_statistics(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::path_statistics(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return py::make_tuple(result.efficiency, result.average_path_length,
+                          result.diameter, result.n_reachable_pairs,
+                          result.connected);
+}
+
+py::array_t<std::int32_t> core_numbers(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<std::int32_t> result = run_released([&] {
+        return rflux::percolab::core_numbers(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return int_vector_to_array(result);
+}
+
+double assortativity(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    return run_released([&] {
+        return rflux::percolab::degree_assortativity(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+}
+
+double modularity(const DoubleArray& adjacency,
+                  const py::array_t<std::int32_t>& labels) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1) ||
+        labels.ndim() != 1 || labels.shape(0) != adjacency.shape(0)) {
+        throw rflux::InvalidArgument(
+            "adjacency must be square and labels must have one entry per node");
+    }
+    const auto n = static_cast<std::size_t>(adjacency.shape(0));
+    std::map<std::int32_t, std::int32_t> mapping;
+    std::vector<std::int32_t> contiguous(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::int32_t value = labels.data()[i];
+        if (value < 0) {
+            throw rflux::InvalidArgument("labels must be non-negative");
+        }
+        auto [iterator, inserted] =
+            mapping.emplace(value, static_cast<std::int32_t>(mapping.size()));
+        contiguous[i] = iterator->second;
+    }
+    return run_released([&] {
+        return rflux::percolab::modularity(
+            adjacency.data(), n, contiguous.data(), mapping.size());
+    });
+}
+
+py::array_t<double> pagerank(const DoubleArray& adjacency, double damping,
+                             std::size_t max_iter, double tol) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::percolab::pagerank(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            damping, max_iter, tol);
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<double> betweenness(const DoubleArray& adjacency,
+                                bool normalized) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<double> result = run_released([&] {
+        return rflux::percolab::betweenness_centrality(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            normalized);
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<std::uint32_t> bridges(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    const auto n = static_cast<std::size_t>(adjacency.shape(0));
+    std::vector<rflux::percolab::BridgeEdge> edges = run_released([&] {
+        return rflux::percolab::bridges(adjacency.data(), n);
+    });
+    std::vector<std::uint32_t> flat(edges.size() * 2);
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        flat[i * 2] = edges[i].u;
+        flat[i * 2 + 1] = edges[i].v;
+    }
+    return array_from(flat, {static_cast<py::ssize_t>(edges.size()), 2});
+}
+
+py::array_t<std::int32_t> articulation_points(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<std::int32_t> result = run_released([&] {
+        return rflux::percolab::articulation_points(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return int_vector_to_array(result);
+}
+
+py::array_t<std::int32_t> truss_numbers(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    std::vector<std::int32_t> result = run_released([&] {
+        return rflux::percolab::truss_numbers(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    return array_from(result,
+                      {adjacency.shape(0), adjacency.shape(0)});
+}
+
+py::tuple minimum_spanning_tree(const DoubleArray& distance) {
+    require_2d(distance, "distance");
+    if (distance.shape(0) != distance.shape(1)) {
+        throw rflux::InvalidArgument("distance must be square");
+    }
+    const auto edges = run_released([&] {
+        return rflux::percolab::minimum_spanning_tree(
+            distance.data(), static_cast<std::size_t>(distance.shape(0)));
+    });
+    std::vector<std::uint32_t> u(edges.size());
+    std::vector<std::uint32_t> v(edges.size());
+    std::vector<double> weight(edges.size());
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        u[i] = edges[i].u;
+        v[i] = edges[i].v;
+        weight[i] = edges[i].weight;
+    }
+    const auto count = static_cast<py::ssize_t>(edges.size());
+    return py::make_tuple(array_from(u, {count}), array_from(v, {count}),
+                          vector_to_array(weight));
+}
+
+py::tuple mst_clusters(const DoubleArray& distance, double threshold) {
+    require_2d(distance, "distance");
+    if (distance.shape(0) != distance.shape(1)) {
+        throw rflux::InvalidArgument("distance must be square");
+    }
+    const auto n = static_cast<std::size_t>(distance.shape(0));
+    const auto result = run_released([&] {
+        return rflux::percolab::mst_clusters(distance.data(), n, threshold);
+    });
+    const std::vector<std::size_t> sizes = rflux::percolab::component_sizes(
+        result.labels.data(), n, result.n_components);
+    return py::make_tuple(int_vector_to_array(result.labels),
+                          result.n_components, result.largest_size,
+                          array_from(sizes, {static_cast<py::ssize_t>(sizes.size())}));
+}
+
+py::tuple percolation_scan(const DoubleArray& adjacency,
+                           const DoubleArray& probabilities, bool site,
+                           const py::object& edge_weights,
+                           const py::object& node_weights,
+                           std::size_t repetitions, std::uint64_t seed) {
+    require_2d(adjacency, "adjacency");
+    require_1d(probabilities, "probabilities");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    rflux::percolab::OccupationWeights weights;
+    DoubleArray edge;
+    DoubleArray node;
+    if (!edge_weights.is_none()) {
+        edge = py::cast<DoubleArray>(edge_weights);
+        require_2d(edge, "edge_weights");
+        if (edge.shape(0) != adjacency.shape(0) ||
+            edge.shape(1) != adjacency.shape(1)) {
+            throw rflux::InvalidArgument(
+                "edge_weights must have the same shape as adjacency");
+        }
+        weights.edge = edge.data();
+    }
+    if (!node_weights.is_none()) {
+        node = py::cast<DoubleArray>(node_weights);
+        require_1d(node, "node_weights");
+        if (node.shape(0) != adjacency.shape(0)) {
+            throw rflux::InvalidArgument(
+                "node_weights must have one entry per node");
+        }
+        weights.node = node.data();
+    }
+    const auto points = run_released([&] {
+        return rflux::percolab::percolation_scan(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            site ? rflux::percolab::PercolationKind::site
+                 : rflux::percolab::PercolationKind::bond,
+            weights, probabilities.data(),
+            static_cast<std::size_t>(probabilities.shape(0)), repetitions,
+            seed);
+    });
+    std::vector<double> mean(points.size());
+    std::vector<double> stddev(points.size());
+    std::vector<double> susceptibility(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        mean[i] = points[i].giant_mean;
+        stddev[i] = points[i].giant_std;
+        susceptibility[i] = points[i].susceptibility;
+    }
+    return py::make_tuple(vector_to_array(mean), vector_to_array(stddev),
+                          vector_to_array(susceptibility));
+}
+
+py::array_t<double> cluster_size_distribution(
+    const DoubleArray& adjacency, double probability, bool site,
+    const py::object& edge_weights, const py::object& node_weights,
+    std::size_t repetitions, std::uint64_t seed) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    rflux::percolab::OccupationWeights weights;
+    DoubleArray edge;
+    DoubleArray node;
+    if (!edge_weights.is_none()) {
+        edge = py::cast<DoubleArray>(edge_weights);
+        require_2d(edge, "edge_weights");
+        if (edge.shape(0) != adjacency.shape(0) ||
+            edge.shape(1) != adjacency.shape(1)) {
+            throw rflux::InvalidArgument(
+                "edge_weights must have the same shape as adjacency");
+        }
+        weights.edge = edge.data();
+    }
+    if (!node_weights.is_none()) {
+        node = py::cast<DoubleArray>(node_weights);
+        require_1d(node, "node_weights");
+        if (node.shape(0) != adjacency.shape(0)) {
+            throw rflux::InvalidArgument(
+                "node_weights must have one entry per node");
+        }
+        weights.node = node.data();
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::cluster_size_distribution(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            site ? rflux::percolab::PercolationKind::site
+                 : rflux::percolab::PercolationKind::bond,
+            weights, probability, repetitions, seed);
+    });
+    return vector_to_array(result);
+}
+
+py::array_t<std::uint32_t> removal_order(const DoubleArray& adjacency,
+                                         std::size_t strategy) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1) || strategy > 4) {
+        throw rflux::InvalidArgument(
+            "adjacency must be square and strategy must be in 0..4");
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::removal_order(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            static_cast<rflux::percolab::RemovalStrategy>(strategy));
+    });
+    return array_from(result, {static_cast<py::ssize_t>(result.size())});
+}
+
+py::tuple targeted_removal(const DoubleArray& adjacency,
+                           const py::array_t<std::uint32_t>& order,
+                           std::size_t checkpoints) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1) ||
+        order.ndim() != 1 || order.shape(0) != adjacency.shape(0)) {
+        throw rflux::InvalidArgument(
+            "adjacency must be square and order must have one entry per node");
+    }
+    const auto n = static_cast<std::size_t>(adjacency.shape(0));
+    const auto points = run_released([&] {
+        return rflux::percolab::targeted_removal(
+            adjacency.data(), n, order.data(), checkpoints);
+    });
+    const auto count = static_cast<py::ssize_t>(points.size());
+    std::vector<std::int64_t> removed(points.size());
+    std::vector<double> giant(points.size());
+    std::vector<double> susceptibility(points.size());
+    std::vector<std::int64_t> n_components(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        removed[i] = static_cast<std::int64_t>(points[i].removed);
+        giant[i] = points[i].giant_fraction;
+        susceptibility[i] = points[i].finite_susceptibility;
+        n_components[i] = static_cast<std::int64_t>(points[i].n_components);
+    }
+    return py::make_tuple(array_from(removed, {count}),
+                          vector_to_array(giant),
+                          vector_to_array(susceptibility),
+                          array_from(n_components, {count}));
+}
+
+py::tuple core_percolation(const DoubleArray& adjacency) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::core_percolation(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)));
+    });
+    const auto count = static_cast<py::ssize_t>(result.k.size());
+    return py::make_tuple(array_from(result.k, {count}),
+                          vector_to_array(result.fraction),
+                          array_from(result.n_nodes, {count}));
+}
+
+py::tuple risk_diffusion(const DoubleArray& adjacency,
+                         const py::object& seeds, double beta, double gamma,
+                         std::size_t steps, std::size_t repetitions,
+                         std::uint64_t seed) {
+    require_2d(adjacency, "adjacency");
+    if (adjacency.shape(0) != adjacency.shape(1)) {
+        throw rflux::InvalidArgument("adjacency must be square");
+    }
+    py::array_t<std::uint32_t> seed_array;
+    const std::uint32_t* seed_data = nullptr;
+    std::size_t seed_count = 0;
+    if (!seeds.is_none()) {
+        seed_array = py::cast<py::array_t<std::uint32_t>>(seeds);
+        if (seed_array.ndim() != 1) {
+            throw rflux::InvalidArgument("seeds must be one-dimensional");
+        }
+        seed_data = seed_array.data();
+        seed_count = static_cast<std::size_t>(seed_array.shape(0));
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::risk_diffusion(
+            adjacency.data(), static_cast<std::size_t>(adjacency.shape(0)),
+            seed_data, seed_count, beta, gamma, steps, repetitions, seed);
+    });
+    return py::make_tuple(vector_to_array(result.mean_affected),
+                          vector_to_array(result.infection_frequency));
+}
+
+py::tuple correlation_adjacency(const DoubleArray& correlation,
+                                double threshold, bool weighted) {
+    require_2d(correlation, "correlation");
+    if (correlation.shape(0) != correlation.shape(1)) {
+        throw rflux::InvalidArgument("correlation must be square");
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::correlation_adjacency(
+            correlation.data(),
+            static_cast<std::size_t>(correlation.shape(0)), threshold,
+            weighted);
+    });
+    return py::make_tuple(
+        matrix_to_array(result.adjacency, correlation.shape(0),
+                        correlation.shape(0)),
+        result.n_edges, result.density);
+}
+
+py::tuple percolation_summary(const DoubleArray& probabilities,
+                              const DoubleArray& giant_mean,
+                              const DoubleArray& susceptibility) {
+    require_1d(probabilities, "probabilities");
+    require_1d(giant_mean, "giant_mean");
+    require_1d(susceptibility, "susceptibility");
+    if (probabilities.shape(0) != giant_mean.shape(0) ||
+        probabilities.shape(0) != susceptibility.shape(0)) {
+        throw rflux::InvalidArgument("scan arrays must have equal lengths");
+    }
+    const auto result = run_released([&] {
+        return rflux::percolab::percolation_summary(
+            probabilities.data(), giant_mean.data(), susceptibility.data(),
+            static_cast<std::size_t>(probabilities.shape(0)));
+    });
+    return py::make_tuple(result.critical_probability, result.p_half_giant,
+                          result.max_susceptibility, result.giant_area);
+}
+
+py::tuple volatility_regime(const DoubleArray& returns,
+                            std::size_t vol_window, std::size_t lookback,
+                            double low_q, double high_q) {
+    require_1d(returns, "returns");
+    const auto result = run_released([&] {
+        return rflux::regimelab::volatility_regime(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            vol_window, lookback, low_q, high_q);
+    });
+    return py::make_tuple(vector_to_array(result.volatility),
+                          int_vector_to_array(result.labels));
+}
+
+py::tuple trend_regime(const DoubleArray& prices, std::size_t fast_window,
+                       std::size_t slow_window, double threshold) {
+    require_1d(prices, "prices");
+    const auto result = run_released([&] {
+        return rflux::regimelab::trend_regime(
+            prices.data(), static_cast<std::size_t>(prices.shape(0)),
+            fast_window, slow_window, threshold);
+    });
+    return py::make_tuple(vector_to_array(result.fast_ma),
+                          vector_to_array(result.slow_ma),
+                          int_vector_to_array(result.labels));
+}
+
+py::array_t<std::int32_t> composite_regime(
+    const py::array_t<std::int32_t>& volatility_labels,
+    const py::array_t<std::int32_t>& trend_labels) {
+    if (volatility_labels.ndim() != 1 || trend_labels.ndim() != 1 ||
+        volatility_labels.shape(0) != trend_labels.shape(0)) {
+        throw rflux::InvalidArgument(
+            "labels must be one-dimensional with equal lengths");
+    }
+    return int_vector_to_array(run_released([&] {
+        return rflux::regimelab::composite_regime(
+            volatility_labels.data(), trend_labels.data(),
+            static_cast<std::size_t>(volatility_labels.shape(0)));
+    }));
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_native, module) {
     module.doc() = "rflux native C++ bridge (pybind11, zero-copy, GIL-released)";
     module.attr("__version__") = RFLUX_VERSION_STRING;
-    module.attr("ABI_VERSION") = 1;
+    module.attr("ABI_VERSION") = py::int_(RFLUX_ABI_VERSION);
     module.attr("STABLE_ABI") = static_cast<bool>(RFLUX_NATIVE_STABLE_ABI != 0);
     module.attr("GIL_RELEASED") = true;
 
@@ -1142,6 +2119,113 @@ PYBIND11_MODULE(_native, module) {
                py::arg("periods") = 0);
     module.def("neutralize", &neutralize_values, py::arg("values"),
                py::arg("groups"), py::arg("group_count"));
+    module.def("equal_weight_market_returns", &equal_weight_market_returns,
+               py::arg("returns"));
+    module.def("finite_stats", &finite_stats, py::arg("values"));
+    module.def("finite_values", &finite_values, py::arg("values"));
+    module.def("last_finite", &last_finite, py::arg("values"));
+    module.def("top_k_indices", &top_k_indices, py::arg("values"),
+               py::arg("k"), py::arg("descending") = true);
+    module.def("argmax_index", &argmax_index, py::arg("values"));
+    module.def("max_i32", &max_i32, py::arg("values"));
+    module.def("complete_case_covariance", &complete_case_covariance,
+               py::arg("returns"), py::arg("ddof") = 1);
+    module.def("portfolio_series", &portfolio_series, py::arg("returns"),
+               py::arg("weights"));
+    module.def("row_argmax", &row_argmax, py::arg("values"));
+    module.def("conditional_mean", &conditional_mean,
+               py::arg("state_probs"), py::arg("means"),
+               py::arg("feature") = 0);
+    module.def("sticky_regime", &sticky_regime,
+               py::arg("probabilities"), py::arg("min_duration") = 5,
+               py::arg("entry_threshold") = 0.6,
+               py::arg("exit_threshold") = 0.4);
+    module.def("align_parameters", &align_parameters,
+               py::arg("reference_means"), py::arg("reference_variances"),
+               py::arg("target_start_prob"), py::arg("target_transition"),
+               py::arg("target_means"), py::arg("target_variances"),
+               py::arg("variance_weight") = 1.0);
+    module.def("correlation_to_distance", &correlation_to_distance,
+               py::arg("correlation"));
+    module.def("connected_components", &connected_components,
+               py::arg("adjacency"), py::arg("threshold"));
+    module.def("network_strength", &network_strength, py::arg("adjacency"));
+    module.def("centrality", &centrality, py::arg("adjacency"),
+               py::arg("kind"));
+    module.def("clustering", &clustering, py::arg("adjacency"));
+    module.def("transitivity", &transitivity, py::arg("adjacency"));
+    module.def("path_statistics", &path_statistics, py::arg("adjacency"));
+    module.def("core_numbers", &core_numbers, py::arg("adjacency"));
+    module.def("assortativity", &assortativity, py::arg("adjacency"));
+    module.def("modularity", &modularity, py::arg("adjacency"),
+               py::arg("labels"));
+    module.def("pagerank", &pagerank, py::arg("adjacency"),
+               py::arg("damping") = 0.85, py::arg("max_iter") = 100,
+               py::arg("tol") = 1e-8);
+    module.def("betweenness", &betweenness, py::arg("adjacency"),
+               py::arg("normalized") = true);
+    module.def("bridges", &bridges, py::arg("adjacency"));
+    module.def("articulation_points", &articulation_points,
+               py::arg("adjacency"));
+    module.def("truss_numbers", &truss_numbers, py::arg("adjacency"));
+    module.def("minimum_spanning_tree", &minimum_spanning_tree,
+               py::arg("distance"));
+    module.def("mst_clusters", &mst_clusters, py::arg("distance"),
+               py::arg("threshold"));
+    module.def("percolation_scan", &percolation_scan, py::arg("adjacency"),
+               py::arg("probabilities"), py::arg("site") = false,
+               py::arg("edge_weights") = py::none(),
+               py::arg("node_weights") = py::none(),
+               py::arg("repetitions") = 100, py::arg("seed") = 42);
+    module.def("cluster_size_distribution", &cluster_size_distribution,
+               py::arg("adjacency"), py::arg("probability"),
+               py::arg("site") = false,
+               py::arg("edge_weights") = py::none(),
+               py::arg("node_weights") = py::none(),
+               py::arg("repetitions") = 100, py::arg("seed") = 42);
+    module.def("removal_order", &removal_order, py::arg("adjacency"),
+               py::arg("strategy"));
+    module.def("targeted_removal", &targeted_removal,
+               py::arg("adjacency"), py::arg("order"),
+               py::arg("checkpoints") = 10);
+    module.def("core_percolation", &core_percolation, py::arg("adjacency"));
+    module.def("risk_diffusion", &risk_diffusion, py::arg("adjacency"),
+               py::arg("seeds") = py::none(), py::arg("beta") = 0.3,
+               py::arg("gamma") = 0.1, py::arg("steps") = 30,
+               py::arg("repetitions") = 100, py::arg("seed") = 42);
+    module.def("correlation_adjacency", &correlation_adjacency,
+               py::arg("correlation"), py::arg("threshold"),
+               py::arg("weighted") = true);
+    module.def("percolation_summary", &percolation_summary,
+               py::arg("probabilities"), py::arg("giant_mean"),
+               py::arg("susceptibility"));
+    module.def("volatility_regime", &volatility_regime, py::arg("returns"),
+               py::arg("vol_window") = 20, py::arg("lookback") = 252,
+               py::arg("low_q") = 0.25, py::arg("high_q") = 0.75);
+    module.def("trend_regime", &trend_regime, py::arg("prices"),
+               py::arg("fast_window") = 20, py::arg("slow_window") = 60,
+               py::arg("threshold") = 0.0);
+    module.def("composite_regime", &composite_regime,
+               py::arg("volatility_labels"), py::arg("trend_labels"));
+    module.def("regime_attribution", &regime_attribution,
+               py::arg("returns"), py::arg("labels"),
+               py::arg("periods_per_year") = 252.0,
+               py::arg("risk_free") = 0.0,
+               py::arg("confidence") = 0.95);
+    module.def("advice_signals", &advice_signals, py::arg("prices"),
+               py::arg("returns"));
+    module.def("advice_allocation", &advice_allocation,
+               py::arg("covariance"), py::arg("scores"),
+               py::arg("current_weights") = py::none(),
+               py::arg("market_returns"), py::arg("periods_per_year"),
+               py::arg("max_weight"), py::arg("target_volatility"),
+               py::arg("regime_scale"));
+    module.def("advice_regime", &advice_regime, py::arg("filtered"),
+               py::arg("forecast"), py::arg("means"));
+    module.def("advice_sizing", &advice_sizing, py::arg("target_weights"),
+               py::arg("last_prices"), py::arg("reference_stops"),
+               py::arg("portfolio_value") = py::none(),
+               py::arg("risk_per_trade") = 0.005);
     module.def("factor_momentum", &factor_momentum, py::arg("close"),
                py::arg("window"));
     module.def("factor_volume_reversal", &factor_volume_reversal,
@@ -1149,7 +2233,8 @@ PYBIND11_MODULE(_native, module) {
     module.def("factor_vwap_deviation", &factor_vwap_deviation,
                py::arg("close"), py::arg("volume"), py::arg("window"));
     module.def("factor_ic", &factor_ic, py::arg("factor"),
-               py::arg("forward_returns"), py::arg("spearman") = false);
+               py::arg("forward_returns"), py::arg("spearman") = false,
+               py::arg("min_pairs") = 2);
     module.def("factor_turnover", &factor_turnover, py::arg("weights"));
     module.def("factor_amihud", &factor_amihud, py::arg("close"),
                py::arg("volume"), py::arg("window"), py::arg("scale") = 1e6);
@@ -1169,6 +2254,7 @@ PYBIND11_MODULE(_native, module) {
     module.def("tail_dependence", &tail_dependence, py::arg("returns"),
                py::arg("q") = 0.05, py::arg("upper") = false);
     module.def("hrp_weights", &hrp_weights, py::arg("covariance"));
+    module.def("hrp_order", &hrp_order, py::arg("covariance"));
     module.def("portfolio_risk", &portfolio_risk, py::arg("returns"),
                py::arg("weights"), py::arg("ddof") = 1,
                py::arg("periods_per_year") = 252.0);
@@ -1186,6 +2272,9 @@ PYBIND11_MODULE(_native, module) {
                py::arg("target"), py::arg("epsilon") = 1.35,
                py::arg("max_iter") = 100, py::arg("tol") = 1e-8,
                py::arg("fit_intercept") = true);
+    module.def("linear_predict", &linear_predict,
+               py::arg("features"), py::arg("coefficients"),
+               py::arg("intercept") = 0.0);
     module.def("cvar_loss", &cvar_loss, py::arg("returns"),
                py::arg("alpha") = 0.95);
     module.def("graph_smooth", &graph_smooth, py::arg("signal"),

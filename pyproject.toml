@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "rflux"
-version = "0.8.0"
+version = "0.9.0"
 description = "Native C++17 quantitative engine with a stable ABI, abi3 wheels, Gaussian HMMs and correlation-network tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -100,7 +100,6 @@ sdist.include = [
   "scripts/*.sh",
   "python/rflux/*.py",
   "python/rflux/py.typed",
-  "python/rflux/_lib/.gitkeep",
   "/README.md",
   "/README_cn.md",
   "/CHANGELOG.md",
@@ -117,9 +116,6 @@ sdist.exclude = [
   "build/**",
   "dist/**",
   ".venv/**",
-  "python/rflux/_lib/*.so",
-  "python/rflux/_lib/*.dylib",
-  "python/rflux/_lib/*.dll",
   "python/rflux/_native*.so",
   "python/rflux/_native*.dylib",
   "python/rflux/_native*.pyd",

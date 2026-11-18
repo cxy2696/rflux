@@ -1,13 +1,11 @@
 import copy
-import ctypes
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
 
-from rflux import regimelab
-from rflux._ffi import HMMOptions, RFluxError, check, get_lib
+from rflux import RFluxError, regimelab
 
 
 def make_observations(seed=4, n=500):
@@ -30,19 +28,6 @@ def _known_parameters():
 
 
 class TestGaussianHMM(unittest.TestCase):
-    def test_options_layout_matches_native(self):
-        options = HMMOptions()
-        check(
-            get_lib().rflux_hmm_options_init(
-                ctypes.byref(options), ctypes.sizeof(options)
-            ),
-            "rflux_hmm_options_init",
-        )
-        self.assertEqual(int(options.struct_size), ctypes.sizeof(options))
-        self.assertEqual(int(options.max_iter), 200)
-        self.assertEqual(int(options.n_init), 3)
-        self.assertEqual(options.sort_states, 1)
-
     def test_fit_decode_forecast_and_roundtrip(self):
         observations = make_observations()
         with regimelab.GaussianHMM(2, 1) as model:

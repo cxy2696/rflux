@@ -38,6 +38,27 @@ struct PathStats {
 /* sqrt(2 * (1 - corr)); useful as input to minimum_spanning_tree(). */
 std::vector<double> correlation_to_distance(const double* corr, std::size_t n);
 
+struct CorrelationAdjacency {
+    std::vector<double> adjacency;
+    std::size_t n_edges = 0;
+    double density = 0.0;
+};
+
+/*
+ * Threshold a correlation matrix into a symmetric non-negative adjacency
+ * matrix.  Cells with correlation >= threshold become max(correlation, 0)
+ * (weighted) or 1; the result is symmetrised and the diagonal is zero.
+ */
+[[nodiscard]] CorrelationAdjacency correlation_adjacency(
+    const double* correlation, std::size_t n, double threshold,
+    bool weighted);
+
+/*
+ * Sizes of the components labelled 0..n_components-1.
+ */
+[[nodiscard]] std::vector<std::size_t> component_sizes(
+    const std::int32_t* labels, std::size_t n, std::size_t n_components);
+
 /* Strength = sum of off-diagonal non-negative adjacency weights. */
 std::vector<double> strength(const double* weights, std::size_t n);
 

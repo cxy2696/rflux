@@ -5,12 +5,12 @@
 
 **English** · [中文](README_cn.md)
 
-rflux is a C++17 + Python quantitative research library. The calculation core
-is C++; a stable C ABI and a pybind11 extension expose it to Python. Data
-adapters and command-line tools live in the Python layer; the backtest
-kernels run in the C++ core.
+rflux is a C++17 + Python quantitative research library. Every algorithm and
+computation runs in the C++ core. A stable C ABI serves C/C++ callers and a
+pybind11 extension serves Python; the Python layer is limited to input
+validation, the data adapters and report/CLI formatting.
 
-Current version: `0.8.0`. C ABI version: `1`.
+Current version: `0.9.0`. C ABI version: `1`.
 
 ## Install
 
@@ -95,8 +95,9 @@ a proposal; it does not forecast returns or provide personalised advice.
   normalised to one long OHLCV contract, with symbol normalisation, validation,
   SQLite cache and retries.
 - **C ABI**: factor, backtest, HMM-alignment, HRP, Almgren-Chriss, Huber,
-  percolation and pre-trade risk kernels are callable from C and from the
-  Python ctypes fallback.
+  percolation and pre-trade risk kernels are callable from C and C++.
+- **Python bridge**: the compiled pybind11 extension is required; it carries
+  the algorithm, backtest, graph, report and HMM kernels.
 
 ## Data example
 
@@ -121,8 +122,9 @@ ctest --preset dev --output-on-failure
 
 CMake enables interprocedural optimization (IPO/LTO) for Release and
 RelWithDebInfo builds when the toolchain supports it. Add
-`-DRFLUX_ENABLE_IPO=OFF` to disable it. Set `RFLUX_DISABLE_NATIVE=1` to force
-the ctypes C ABI path.
+`-DRFLUX_ENABLE_IPO=OFF` to disable it. The Python package imports the
+compiled extension directly; `make native` or an editable install builds it
+for a source checkout. There is no pure-Python execution path.
 
 ## Documentation
 

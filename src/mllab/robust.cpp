@@ -9,6 +9,32 @@
 
 namespace rflux::mllab {
 
+std::vector<double> linear_predict(const double* features,
+                                   std::size_t n_obs,
+                                   std::size_t n_features,
+                                   const double* coefficients,
+                                   double intercept) {
+    rflux::detail::require_pointer(features, "features must not be NULL");
+    rflux::detail::require_pointer(coefficients,
+                                   "coefficients must not be NULL");
+    rflux::detail::require(n_obs > 0, "n_obs must be positive");
+    rflux::detail::require(n_features > 0, "n_features must be positive");
+    rflux::detail::checked_mul(n_obs, n_features,
+                               "feature dimensions overflow");
+    std::vector<double> result(n_obs, 0.0);
+    for (std::size_t row = 0; row < n_obs; ++row) {
+        long double value = static_cast<long double>(intercept);
+        for (std::size_t feature = 0; feature < n_features; ++feature) {
+            value +=
+                static_cast<long double>(
+                    features[row * n_features + feature]) *
+                static_cast<long double>(coefficients[feature]);
+        }
+        result[row] = static_cast<double>(value);
+    }
+    return result;
+}
+
 double cvar_loss(const double* returns, std::size_t n, double alpha) {
     rflux::detail::require_pointer(returns, "returns must not be NULL");
     rflux::detail::require(n > 0, "returns must not be empty");

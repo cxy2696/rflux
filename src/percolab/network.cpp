@@ -1,5 +1,7 @@
 #include "rflux/percolab/network.hpp"
 
+#include "rflux/percolab/percolation.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -248,6 +250,78 @@ std::vector<double> correlation_to_distance(const double* corr, std::size_t n) {
     return out;
 }
 
+
+CorrelationAdjacency correlation_adjacency(const double* correlation,
+                                           std::size_t n, double threshold,
+                                           bool weighted) {
+    rflux::detail::require_pointer(correlation,
+                                   "correlation must not be NULL");
+    rflux::detail::require(n > 0, "n must be positive");
+    rflux::detail::checked_mul(n, n, "matrix dimensions overflow");
+    rflux::detail::require(std::isfinite(threshold) && threshold > 0.0 &&
+                               threshold <= 1.0,
+                           "threshold must be in (0, 1]");
+    for (std::size_t i = 0; i < n * n; ++i) {
+        if (!std::isfinite(correlation[i])) {
+            throw rflux::NonFinite(
+                "correlation matrix contains a non-finite value");
+        }
+    }
+    CorrelationAdjacency result;
+    result.adjacency.assign(n * n, 0.0);
+    for (std::size_t row = 0; row < n; ++row) {
+        for (std::size_t column = 0; column < n; ++column) {
+            if (row == column) continue;
+            const double value = correlation[row * n + column];
+            if (value >= threshold) {
+                result.adjacency[row * n + column] =
+                    weighted ? std::max(value, 0.0) : 1.0;
+            }
+        }
+    }
+    for (std::size_t row = 0; row < n; ++row) {
+        for (std::size_t column = row + 1; column < n; ++column) {
+            const double value =
+                0.5 * (result.adjacency[row * n + column] +
+                       result.adjacency[column * n + row]);
+            result.adjacency[row * n + column] = value;
+            result.adjacency[column * n + row] = value;
+        }
+        result.adjacency[row * n + row] = 0.0;
+    }
+    for (std::size_t row = 0; row < n; ++row) {
+        for (std::size_t column = row + 1; column < n; ++column) {
+            if (result.adjacency[row * n + column] > 0.0) {
+                ++result.n_edges;
+            }
+        }
+    }
+    result.density =
+        n > 1 ? 2.0 * static_cast<double>(result.n_edges) /
+                    (static_cast<double>(n) * static_cast<double>(n - 1))
+              : 0.0;
+    return result;
+}
+
+std::vector<std::size_t> component_sizes(const std::int32_t* labels,
+                                         std::size_t n,
+                                         std::size_t n_components) {
+    rflux::detail::require_pointer(labels, "labels must not be NULL");
+    rflux::detail::require(n > 0, "n must be positive");
+    rflux::detail::require(n_components > 0,
+                           "n_components must be positive");
+    std::vector<std::size_t> sizes(n_components, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (labels[i] < 0 ||
+            static_cast<std::size_t>(labels[i]) >= n_components) {
+            throw rflux::InvalidArgument(
+                "labels must be in the component range");
+        }
+        ++sizes[static_cast<std::size_t>(labels[i])];
+    }
+    return sizes;
+}
+
 std::vector<double> strength(const double* weights, std::size_t n) {
     require_adjacency(weights, n, "weights");
     std::vector<double> out(n, 0.0);
@@ -429,6 +503,77 @@ PathStats path_statistics(const double* weights, std::size_t n) {
             static_cast<double>(2.0L * inverse_sum / ordered_pairs);
     } else {
         result.efficiency = 0.0;
+    }
+    return result;
+}
+
+
+std::vector<std::uint32_t> removal_order(const double* adjacency,
+                                         std::size_t n,
+                                         RemovalStrategy strategy) {
+    rflux::detail::require_pointer(adjacency, "adjacency must not be NULL");
+    rflux::detail::require(n > 0, "n must be positive");
+    rflux::detail::checked_mul(n, n, "matrix dimensions overflow");
+    std::vector<double> scores(n, 0.0);
+    switch (strategy) {
+        case RemovalStrategy::strength:
+            scores = strength(adjacency, n);
+            break;
+        case RemovalStrategy::degree: {
+            for (std::size_t row = 0; row < n; ++row) {
+                std::size_t degree = 0;
+                for (std::size_t column = 0; column < n; ++column) {
+                    if (row != column && adjacency[row * n + column] > 0.0) {
+                        ++degree;
+                    }
+                }
+                scores[row] = static_cast<double>(degree);
+            }
+            break;
+        }
+        case RemovalStrategy::eigenvector:
+            scores = eigenvector_centrality(adjacency, n);
+            break;
+        case RemovalStrategy::betweenness:
+            scores = betweenness_centrality(adjacency, n, false);
+            break;
+        case RemovalStrategy::core: {
+            const std::vector<std::int32_t> core = core_numbers(adjacency, n);
+            for (std::size_t i = 0; i < n; ++i) {
+                scores[i] = -static_cast<double>(core[i]);
+            }
+            break;
+        }
+    }
+    std::vector<std::size_t> order(n);
+    for (std::size_t i = 0; i < n; ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::size_t left, std::size_t right) {
+                         return scores[left] > scores[right];
+                     });
+    std::vector<std::uint32_t> result(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        result[i] = static_cast<std::uint32_t>(order[i]);
+    }
+    return result;
+}
+
+CoreCurve core_percolation(const double* adjacency, std::size_t n) {
+    rflux::detail::require_pointer(adjacency, "adjacency must not be NULL");
+    rflux::detail::require(n > 0, "n must be positive");
+    const std::vector<std::int32_t> core = core_numbers(adjacency, n);
+    std::int32_t maximum = 0;
+    for (std::int32_t value : core) maximum = std::max(maximum, value);
+    CoreCurve result;
+    for (std::int32_t k = 1; k <= maximum; ++k) {
+        std::int64_t count = 0;
+        for (std::int32_t value : core) {
+            if (value >= k) ++count;
+        }
+        result.k.push_back(static_cast<std::int64_t>(k));
+        result.n_nodes.push_back(count);
+        result.fraction.push_back(
+            static_cast<double>(count) / static_cast<double>(n));
     }
     return result;
 }

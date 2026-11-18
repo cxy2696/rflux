@@ -39,7 +39,6 @@ if [[ -z "$PYTHON" ]]; then
 fi
 
 export PATH="$ROOT/.venv/bin:$PATH"
-export PYTHONPATH="$ROOT/python"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$ROOT/artifacts/validation/$STAMP"
 mkdir -p "$OUT"
@@ -82,6 +81,7 @@ fi
 # ---------------------------------------------------------------------------
 # 0. environment
 # ---------------------------------------------------------------------------
+run_step "native install" "$PYTHON" -m pip install -e . --no-deps
 {
   echo "repository: $ROOT"
   echo "commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -117,10 +117,9 @@ run_step "cmake build (dev)" cmake --build --preset dev
 run_step "ctest (dev)" ctest --preset dev --output-on-failure
 
 # ---------------------------------------------------------------------------
-# 2. Python test suite, native bridge and ctypes fallback
+# 2. Python test suite
 # ---------------------------------------------------------------------------
-run_step "pytest (native bridge)" "$PYTHON" -m pytest tests/python -q
-run_step "pytest (ctypes fallback)" env RFLUX_DISABLE_NATIVE=1 "$PYTHON" -m pytest tests/python -q
+run_step "pytest" "$PYTHON" -m pytest tests/python -q
 run_step "algorithm matrix and timings" make algo-check
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(rflux VERSION 0.8.0 LANGUAGES C CXX)
+project(rflux VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -55,6 +55,7 @@ set(RFLUX_CORE_SOURCES
     src/regimelab/hmm.cpp
     src/regimelab/regime.cpp
     src/regimelab/alignment.cpp
+    src/regimelab/attribution.cpp
     src/percolab/percolation.cpp
     src/percolab/network.cpp
     src/percolab/detector.cpp
@@ -67,6 +68,7 @@ set(RFLUX_CORE_SOURCES
     src/factorlab/factory.cpp
     src/portfoliolab/hrp.cpp
     src/portfoliolab/risk.cpp
+    src/portfoliolab/advice.cpp
     src/portfoliolab/factory.cpp
     src/execution/almgren_chriss.cpp
     src/execution/microstructure.cpp
@@ -233,11 +235,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 if(RFLUX_PYTHON_PACKAGE)
-    # A wheel owns only the importable payload.  The C ABI shared library is
-    # shipped beside the Python package so ctypes remains a supported fallback.
-    install(TARGETS rflux
-        LIBRARY DESTINATION rflux/_lib
-        RUNTIME DESTINATION rflux/_lib)
+    # A wheel owns only the importable extension; the C ABI library is a
+    # separate C/C++ artifact installed by the normal CMake path.
     if(RFLUX_BUILD_PYTHON)
         install(TARGETS rflux_native
             LIBRARY DESTINATION rflux

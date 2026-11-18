@@ -109,4 +109,11 @@ private:
     double bic_ = 0.0;
 };
 
+/* Expected emission mean sum_k P(k) * means[k, feature] / sum_k P(k). */
+[[nodiscard]] double conditional_mean(const double* state_probs,
+                                      const double* means,
+                                      std::size_t n_states,
+                                      std::size_t n_features,
+                                      std::size_t feature);
+
 }  // namespace rflux::regimelab

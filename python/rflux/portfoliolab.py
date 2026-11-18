@@ -1,7 +1,6 @@
 """Portfolio construction and rebalancing.
 
-HRP, NCO, risk parity and rebalance gating are implemented in C++.  Python
-wrappers use the native extension when available and the C ABI otherwise.
+HRP, NCO, risk parity and rebalance gating are implemented in the C++ core.
 """
 
 from __future__ import annotations
@@ -10,9 +9,8 @@ from typing import Any
 
 import numpy as np
 
-from ._common import as_f64_2d, as_finite_float, double_ptr, empty_f64
-from ._ffi import c_size_p, check, get_lib
-from ._native_backend import native_module, native_or
+from ._common import as_f64_2d, as_finite_float
+from ._native_backend import native_api as native_module
 
 __all__ = [
     "hrp_weights",
@@ -39,100 +37,36 @@ def _covariance(values: Any) -> np.ndarray:
 
 def hrp_weights(covariance: Any) -> np.ndarray:
     """Long-only hierarchical risk parity weights summing to one."""
-    matrix = _covariance(covariance)
-    def fallback() -> np.ndarray:
-        out = empty_f64(matrix.shape[0])
-        check(
-            get_lib().rflux_hrp_weights(
-                double_ptr(matrix), matrix.shape[0], double_ptr(out)
-            ),
-            "rflux_hrp_weights",
-        )
-        return out
-
-    return native_or(
-        native_module,
-        "rflux_hrp_weights",
-        lambda: native_module.hrp_weights(matrix),
-        fallback,
-    )
+    return native_module.hrp_weights(_covariance(covariance))
 
 
 def quasi_diagonal_order(covariance: Any) -> np.ndarray:
     """Leaf order used by the HRP recursion."""
-    matrix = _covariance(covariance)
-    n = matrix.shape[0]
-    order = np.empty(n, dtype=np.uintp)
-    check(
-        get_lib().rflux_hrp_order(
-            double_ptr(matrix), n, order.ctypes.data_as(c_size_p)
-        ),
-        "rflux_hrp_order",
+    return np.asarray(
+        native_module.hrp_order(_covariance(covariance)), dtype=np.int64
     )
-    return order.astype(np.int64, copy=False)
 
 
 def nco_weights(
     covariance: Any, *, distance_threshold: float = 0.5
 ) -> np.ndarray:
-    """Nested clustered risk parity, implemented in C++.
-
-    Assets are grouped by single-linkage correlation distance, each group is
-    HRP-allocated, and groups receive inverse cluster-variance budgets.
-    """
+    """Nested clustered risk parity, implemented in C++."""
     matrix = _covariance(covariance)
     threshold = as_finite_float(distance_threshold, "distance_threshold")
     if threshold < 0.0:
         raise ValueError("distance_threshold must be non-negative")
-    n = matrix.shape[0]
-    def fallback() -> np.ndarray:
-        out = empty_f64(n)
-        check(
-            get_lib().rflux_nco_weights(
-                double_ptr(matrix), n, float(threshold), double_ptr(out)
-            ),
-            "rflux_nco_weights",
-        )
-        return out
-
-    return native_or(
-        native_module,
-        "rflux_nco_weights",
-        lambda: native_module.nco_weights(matrix, float(threshold)),
-        fallback,
-    )
+    return native_module.nco_weights(matrix, float(threshold))
 
 
 def risk_parity_weights(covariance: Any) -> np.ndarray:
     """Diagonal inverse-variance allocation, implemented in C++."""
-    matrix = _covariance(covariance)
-    n = matrix.shape[0]
-    def fallback() -> np.ndarray:
-        out = empty_f64(n)
-        check(
-            get_lib().rflux_risk_parity_weights(
-                double_ptr(matrix), n, double_ptr(out)
-            ),
-            "rflux_risk_parity_weights",
-        )
-        return out
-
-    return native_or(
-        native_module,
-        "rflux_risk_parity_weights",
-        lambda: native_module.risk_parity_weights(matrix),
-        fallback,
-    )
+    return native_module.risk_parity_weights(_covariance(covariance))
 
 
 def rebalance_targets(
     current: Any, target: Any, *, threshold: float = 0.05
 ) -> np.ndarray:
-    """Gate each portfolio row independently, implemented in C++.
-
-    A row switches from current to target when its maximum absolute drift
-    reaches ``threshold``.
-    """
+    """Gate each portfolio row independently, implemented in C++."""
     current_array = np.asarray(current, dtype=np.float64)
     target_array = np.asarray(target, dtype=np.float64)
     vector_output = current_array.ndim == 1
@@ -148,30 +82,9 @@ def rebalance_targets(
     threshold = as_finite_float(threshold, "threshold")
     if threshold < 0.0:
         raise ValueError("threshold must be non-negative")
-    current_array = np.ascontiguousarray(current_array)
-    target_array = np.ascontiguousarray(target_array)
-    n_rows, n_assets = current_array.shape
-    def fallback() -> np.ndarray:
-        out = empty_f64(n_rows * n_assets)
-        check(
-            get_lib().rflux_rebalance_targets(
-                double_ptr(current_array),
-                double_ptr(target_array),
-                n_rows,
-                n_assets,
-                float(threshold),
-                double_ptr(out),
-            ),
-            "rflux_rebalance_targets",
-        )
-        return out.reshape(n_rows, n_assets)
-
-    result = native_or(
-        native_module,
-        "rflux_rebalance_targets",
-        lambda: native_module.rebalance_targets(
-            current_array, target_array, float(threshold)
-        ),
-        fallback,
+    result = native_module.rebalance_targets(
+        np.ascontiguousarray(current_array),
+        np.ascontiguousarray(target_array),
+        float(threshold),
     )
     return result[0] if vector_output else result

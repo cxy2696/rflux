@@ -2,7 +2,8 @@
 # intentionally small and is used for local tests and examples.
 #
 #   make            shared library, static C++ core, examples
-#   make check      C ABI, C++ core, Python, version and docs checks
+#   make check      C ABI, C++ core, native Python, version and docs checks
+#   make native     build/install the pybind11 extension (editable)
 #   make examples   build C and C++ example programs
 #   make clean
 
@@ -46,7 +47,7 @@ RPATH := -Wl,-rpath,$(abspath $(BUILD))
 EXAMPLES := $(BUILD)/example_c_basic $(BUILD)/example_cpp_research
 TESTS    := $(BUILD)/test_capi
 
-.PHONY: all libs shared examples check c-test python-test python-lib algo-check version-check docs-check dup-check native wheel clean
+.PHONY: all libs shared examples check c-test python-test algo-check version-check docs-check dup-check native wheel clean
 all: libs examples
 
 libs: $(SHARED_LIB) $(CORE_LIB)
@@ -83,19 +84,11 @@ examples: $(EXAMPLES)
 c-test: $(BUILD)/test_capi
 	$(BUILD)/test_capi
 
-python-test: $(SHARED_LIB)
-	RFLUX_LIBRARY=$(SHARED_LIB_ABS) PYTHONPATH=python $(PYTHON) -m unittest discover -s tests/python -p 'test_*.py' -v
+python-test: native
+	$(PYTHON) -m unittest discover -s tests/python -p 'test_*.py'
 
-# Prefer the installed package (and its native extension); the script adds
-# python/ itself when rflux is not importable.
-algo-check: $(SHARED_LIB)
-	RFLUX_LIBRARY=$(SHARED_LIB_ABS) $(PYTHON) scripts/verify_algorithms.py --label native
-	RFLUX_DISABLE_NATIVE=1 RFLUX_LIBRARY=$(SHARED_LIB_ABS) $(PYTHON) scripts/verify_algorithms.py --label ctypes-fallback
-
-python-lib: $(SHARED_LIB)
-	@mkdir -p python/rflux/_lib
-	cp $(SHARED_LIB) python/rflux/_lib/
-	@echo "copied $(SHARED_LIB) -> python/rflux/_lib/"
+algo-check: native
+	$(PYTHON) scripts/verify_algorithms.py
 
 native:
 	$(PYTHON) -m pip install -e . --no-deps

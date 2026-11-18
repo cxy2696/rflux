@@ -151,10 +151,10 @@ print(rflux.percolab.modularity(net.adjacency, sectors))
 `rflux risk` 从价格 CSV 计算收益并调用 `portfolio_risk`：
 
 ```bash
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 0.2,0.2,0.2,0.2,0.2
 
-PYTHONPATH=python python -m rflux risk examples/data/sample_prices.csv \
+python -m rflux risk examples/data/sample_prices.csv \
   --weights 1,-1,0,0,0 --format json
 ```
 

@@ -62,6 +62,17 @@ class TestTradeAdvice(unittest.TestCase):
         self.assertTrue(all("reason" in item for item in actions))
         self.assertEqual(report["input"]["current_weights_source"], "provided")
 
+    def test_cap_is_respected_when_hrp_concentrates(self):
+        prices = self._high_vol_prices(21, n=300)
+        report = advice.trade_advice(
+            prices, names=["A", "B", "C"], include_hmm=False,
+            max_weight=0.35, target_volatility=10.0,
+        )
+        target = np.asarray(report["allocation"]["target_weights"])
+        base = np.asarray(report["allocation"]["base_weights"])
+        self.assertLessEqual(float(target.max()), 0.35 + 1e-12)
+        self.assertLessEqual(float(base.max()), 0.35 + 1e-12)
+
     def test_invalid_cap_is_rejected(self):
         with self.assertRaises(ValueError):
             advice.trade_advice(

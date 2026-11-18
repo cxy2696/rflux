@@ -1,33 +1,39 @@
-"""High-level, JSON-friendly analysis for a price panel."""
+"""High-level, JSON-friendly analysis for a price panel.
+
+The statistics, network and HMM kernels run in C++; this module validates the
+panel, drives the optional sections and assembles the report.
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, fields
 from typing import Any, Sequence
 
-import numpy as np
-
 from . import metrics, percolab, qflux, regimelab
 from ._common import (
     as_f64_panel,
     as_size,
     asset_names as _asset_names,
-    equal_weight_market_returns,
     jsonable,
     package_metadata,
 )
+from ._native_backend import native_api as native_module, native_call
 
 
 _SUMMARY_FIELDS = tuple(field.name for field in fields(metrics.PerformanceMetrics))
 
 
-def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[str, Any]:
-    values = np.asarray(returns, dtype=np.float64)
-    finite = values[np.isfinite(values)]
+def _summary(
+    values: Any, periods_per_year: float, risk_free: float
+) -> dict[str, Any]:
     result: dict[str, Any] = {field: None for field in _SUMMARY_FIELDS}
-    result["n_periods"] = int(finite.size)
-    result["elapsed_periods"] = int(values.size)
-    if finite.size < 2:
+    count = int(native_call(
+        native_module, "finite_stats",
+        lambda: native_module.finite_stats(values),
+    )[4])
+    result["n_periods"] = count
+    result["elapsed_periods"] = len(values)
+    if count < 2:
         return result
     stats = metrics.performance_summary(
         values,
@@ -36,6 +42,13 @@ def _summary(returns: Any, periods_per_year: float, risk_free: float) -> dict[st
     )
     result.update(asdict(stats))
     return result
+
+
+def _rsi_last(prices: Any) -> float:
+    try:
+        return float(qflux.rsi(prices, 14)[-1])
+    except Exception:
+        return float("nan")
 
 
 def analyze_prices(
@@ -55,15 +68,9 @@ def analyze_prices(
 ) -> dict[str, Any]:
     """Summarize a price panel without pandas.
 
-    Parameters are intentionally explicit. Prices are level series with shape
-    ``(observations, assets)``; a 1D array is treated as one asset. The return
-    value contains plain Python values and can be passed directly to
-    ``json.dumps`` after replacing NaN with None, which this function already
-    does.
-
-    Optional HMM and network steps are reported under their own keys. Failures
-    in those sections are listed under ``errors`` and do not hide the basic
-    return statistics.
+    Prices are level series with shape ``(observations, assets)``; a 1D array
+    is treated as one asset.  Optional HMM and network failures are reported
+    under ``errors`` and do not hide the basic return statistics.
     """
     panel = as_f64_panel(prices, "prices", min_rows=2)
     n_obs, n_assets = panel.shape
@@ -79,21 +86,21 @@ def analyze_prices(
         raise ValueError("network_threshold must be in (0, 1]")
 
     returns = qflux.returns_panel(panel)
-
-    market_returns = equal_weight_market_returns(returns)
+    market_returns = native_call(
+        native_module, "equal_weight_market_returns",
+        lambda: native_module.equal_weight_market_returns(returns),
+    )
 
     asset_stats: dict[str, Any] = {}
     for column, name in enumerate(asset_names):
-        finite_prices = panel[np.isfinite(panel[:, column]), column]
+        column_prices = panel[:, column]
         item = _summary(returns[:, column], periods_per_year, risk_free)
-        item["last_price"] = (
-            float(finite_prices[-1]) if finite_prices.size else None
+        last_price, found = native_call(
+            native_module, "last_finite",
+            lambda: native_module.last_finite(column_prices),
         )
-        try:
-            rsi_value = float(qflux.rsi(panel[:, column], 14)[-1])
-        except Exception:
-            rsi_value = float("nan")
-        item["rsi_14"] = rsi_value
+        item["last_price"] = float(last_price) if found else None
+        item["rsi_14"] = _rsi_last(column_prices)
         asset_stats[name] = item
 
     errors: list[str] = []
@@ -114,17 +121,20 @@ def analyze_prices(
     }
 
     correlation = qflux.correlation_matrix(returns)
-    finite_corr = correlation[np.isfinite(correlation)]
+    corr_min, corr_max, corr_mean, _, corr_count = native_call(
+        native_module, "finite_stats",
+        lambda: native_module.finite_stats(correlation),
+    )
     report["correlation"] = {
-        "minimum": float(finite_corr.min()) if finite_corr.size else None,
-        "maximum": float(finite_corr.max()) if finite_corr.size else None,
-        "mean": float(finite_corr.mean()) if finite_corr.size else None,
+        "minimum": float(corr_min) if corr_count else None,
+        "maximum": float(corr_max) if corr_count else None,
+        "mean": float(corr_mean) if corr_count else None,
     }
     if include_correlation_matrix:
         report["correlation"]["matrix"] = correlation.tolist()
 
     if include_network and n_assets >= 2:
-        if finite_corr.size != n_assets * n_assets:
+        if corr_count != n_assets * n_assets:
             errors.append(
                 "network skipped: correlation matrix contains undefined entries"
             )
@@ -133,7 +143,16 @@ def analyze_prices(
                 network = percolab.network_from_correlation(
                     correlation, network_threshold
                 )
-                order = np.argsort(network.eigenvector)[::-1]
+                order = native_call(
+                    native_module, "top_k_indices",
+                    lambda: native_module.top_k_indices(
+                        network.eigenvector, min(5, n_assets), True
+                    ),
+                )
+                mst_sum = float(native_call(
+                    native_module, "finite_stats",
+                    lambda: native_module.finite_stats(network.mst.weight),
+                )[3])
                 report["network"] = {
                     "threshold": float(network_threshold),
                     "edges": int(network.n_edges),
@@ -150,20 +169,23 @@ def analyze_prices(
                     "diameter": int(network.path_stats.diameter),
                     "connected": bool(network.path_stats.connected),
                     "max_core": int(network.max_core),
-                    "mst_total_weight": float(network.mst.weight.sum()),
+                    "mst_total_weight": mst_sum,
                     "top_eigenvector": [
                         {
                             "asset": asset_names[int(index)],
                             "value": float(network.eigenvector[int(index)]),
                         }
-                        for index in order[: min(5, n_assets)]
+                        for index in order
                     ],
                 }
             except Exception as exc:
                 errors.append(f"network skipped: {exc}")
 
     if include_hmm:
-        hmm_values = market_returns[np.isfinite(market_returns)]
+        hmm_values = native_call(
+            native_module, "finite_values",
+            lambda: native_module.finite_values(market_returns),
+        )
         if hmm_values.size < max(2, hmm_states):
             errors.append("HMM skipped: not enough finite market returns")
         else:
@@ -176,6 +198,12 @@ def analyze_prices(
                     seed=seed,
                     horizon=5,
                 )
+                latest = native_call(
+                    native_module, "argmax_index",
+                    lambda: native_module.argmax_index(
+                        snapshot.latest_filtered
+                    ),
+                )
                 report["hmm"] = {
                     "states": snapshot.n_states,
                     "iterations": snapshot.iterations,
@@ -183,7 +211,7 @@ def analyze_prices(
                     "log_likelihood": snapshot.log_likelihood,
                     "aic": snapshot.aic,
                     "bic": snapshot.bic,
-                    "latest_state": int(np.argmax(snapshot.latest_filtered)),
+                    "latest_state": int(latest),
                     "latest_filtered": snapshot.latest_filtered.tolist(),
                     "forecast_5": snapshot.forecast.tolist(),
                     "transition": snapshot.transition.tolist(),
