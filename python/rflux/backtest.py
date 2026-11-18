@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from . import qflux
+from . import factorlab
 from ._common import as_f64_1d, as_f64_2d, as_positive_float, as_size
 from .metrics import PerformanceMetrics, performance_summary
 
@@ -122,30 +122,20 @@ def quantile_portfolio_returns(
 def factor_ic(
     factor: Any, forward_returns_: Any, *, method: str = "spearman"
 ) -> np.ndarray:
-    """Cross-sectional information coefficient for each period.
+    """Cross-sectional information coefficient per period, computed in C++.
 
-    ``spearman`` ranks both sides first; ``pearson`` uses raw values.  Periods
-    with fewer than three valid pairs are NaN.
+    Periods with fewer than three valid pairs are NaN.
     """
     factor_array, forward_array = _validate_panels(factor, forward_returns_)
     normalized = str(method).lower()
     if normalized not in {"spearman", "pearson"}:
         raise ValueError("method must be 'spearman' or 'pearson'")
-    ic = np.full(factor_array.shape[0], np.nan)
-    for t in range(factor_array.shape[0]):
-        valid = np.isfinite(factor_array[t]) & np.isfinite(forward_array[t])
-        if np.count_nonzero(valid) < 3:
-            continue
-        if normalized == "spearman":
-            x = qflux.rank(factor_array[t, valid])
-            y = qflux.rank(forward_array[t, valid])
-        else:
-            x = factor_array[t, valid]
-            y = forward_array[t, valid]
-        value = qflux.pearson(x, y)
-        if np.isfinite(value):
-            ic[t] = value
-    return ic
+    values = factorlab.information_coefficient(
+        factor_array, forward_array, method=normalized
+    )
+    valid = np.isfinite(factor_array) & np.isfinite(forward_array)
+    values[np.sum(valid, axis=1) < 3] = np.nan
+    return values
 
 
 def summarize_ic(ic: Any) -> ICSummary:

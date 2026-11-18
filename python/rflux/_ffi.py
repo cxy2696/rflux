@@ -180,6 +180,11 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, double, double, c_double_p])
     bind("rflux_var_cvar", ctypes.c_int,
          [c_double_p, size_t, double, c_double_p, c_double_p])
+    bind("rflux_performance_summary", ctypes.c_int,
+         [c_double_p, size_t, double, double, double, size_t, c_size_p,
+          c_size_p, c_double_p])
+    bind("rflux_equity_curve", ctypes.c_int,
+         [c_double_p, size_t, double, c_double_p])
 
     # qflux cross-sectional ranking
     bind("rflux_rank", ctypes.c_int, [c_double_p, size_t, c_double_p])
@@ -316,6 +321,10 @@ def _configure(lib: ctypes.CDLL) -> None:
          [c_double_p, size_t, c_double_p])
     bind("rflux_hrp_order", ctypes.c_int,
          [c_double_p, size_t, c_size_p])
+    bind("rflux_portfolio_risk", ctypes.c_int,
+         [c_double_p, size_t, size_t, c_double_p, size_t, double,
+          c_double_p, c_double_p, c_double_p, c_double_p, c_double_p,
+          c_size_p, c_double_p, c_double_p, c_double_p])
     bind("rflux_risk_parity_weights", ctypes.c_int,
          [c_double_p, size_t, c_double_p])
     bind("rflux_nco_weights", ctypes.c_int,

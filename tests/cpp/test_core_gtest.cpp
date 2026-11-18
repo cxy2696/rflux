@@ -20,12 +20,14 @@
 #include "rflux/regimelab/detector.hpp"
 #include "rflux/regimelab/factory.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
+#include "rflux/portfoliolab/risk.hpp"
 #include "rflux/portfoliolab/factory.hpp"
 #include "rflux/percolab/detector.hpp"
 #include "rflux/percolab/percolation.hpp"
 #include "rflux/percolab/factory.hpp"
 #include "rflux/factorlab/factory.hpp"
 #include "rflux/qflux/indicators.hpp"
+#include "rflux/qflux/performance.hpp"
 #include "rflux/qflux/ranking.hpp"
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
@@ -75,6 +77,23 @@ void expect_correlation_matrix_matches_pearson(
             EXPECT_NEAR(matrix[a * n_assets + b], expected, 1e-12);
         }
     }
+}
+
+TEST(QfluxStatsGTest, PerformanceSummary) {
+    const double returns[5] = {0.01, 0.02, -0.005, 0.0, 0.015};
+    const auto summary =
+        rflux::qflux::performance_summary(returns, 5, 252.0, 0.0, 0.95);
+    EXPECT_EQ(summary.n_periods, 5u);
+    EXPECT_EQ(summary.elapsed_periods, 5u);
+    EXPECT_NEAR(summary.total_return, 0.040424735, 1e-6);
+    EXPECT_TRUE(std::isfinite(summary.annualized_volatility));
+    EXPECT_LE(summary.max_drawdown, 0.0);
+    EXPECT_GE(summary.hit_rate, 0.0);
+    EXPECT_LE(summary.hit_rate, 1.0);
+    const double curve_returns[2] = {0.1, -0.1};
+    const auto curve = rflux::qflux::equity_curve(curve_returns, 2, 1.0);
+    EXPECT_NEAR(curve[0], 1.1, 1e-12);
+    EXPECT_NEAR(curve[1], 0.99, 1e-12);
 }
 
 TEST(QfluxStatsGTest, DescribeRankingAndTailRisk) {
@@ -297,6 +316,20 @@ TEST(RiskGTest, TailDependenceIsSymmetric) {
     EXPECT_NEAR(lower[1], lower[2], 1e-12);
     EXPECT_GE(lower[1], 0.0);
     EXPECT_LE(lower[1], 1.0);
+}
+
+TEST(PortfolioLabGTest, PortfolioRiskAndEulerContributions) {
+    const double returns[6] = {0.01, 0.02, 0.02, 0.04, 0.03, 0.06};
+    const double weights[2] = {0.5, 0.5};
+    const auto risk = rflux::portfoliolab::portfolio_risk(
+        returns, 3, 2, weights, 1, 252.0);
+    EXPECT_EQ(risk.complete_observations, 3u);
+    EXPECT_NEAR(risk.portfolio_returns[0], 0.015, 1e-12);
+    EXPECT_NEAR(risk.portfolio_returns[2], 0.045, 1e-12);
+    EXPECT_GT(risk.annualized_volatility, 0.0);
+    EXPECT_NEAR(risk.component_volatility[0] + risk.component_volatility[1],
+                risk.annualized_volatility, 1e-12);
+    EXPECT_NEAR(risk.gross_hhi, 0.5, 1e-12);
 }
 
 TEST(PortfolioLabGTest, HrpWeightsAreValid) {

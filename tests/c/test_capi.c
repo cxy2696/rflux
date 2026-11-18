@@ -824,6 +824,23 @@ static int test_algorithms(void) {
         CHECK(approx(gated[3], 0.3, 1e-12));
     }
     {
+        const double returns[6] = {0.01, 0.02, 0.02, 0.04, 0.03, 0.06};
+        const double weights[2] = {0.5, 0.5};
+        double covariance[4], asset_vol[2], component[2], percent[2];
+        double portfolio_returns[3], annualized, diversification, hhi;
+        size_t complete;
+        CHECK(rflux_portfolio_risk(
+                  returns, 3, 2, weights, 1, 252.0, covariance, asset_vol,
+                  component, percent, portfolio_returns, &complete,
+                  &annualized, &diversification, &hhi) == RFLUX_OK);
+        CHECK(complete == 3);
+        CHECK(approx(portfolio_returns[0], 0.015, 1e-12));
+        CHECK(approx(portfolio_returns[2], 0.045, 1e-12));
+        CHECK(annualized > 0.0);
+        CHECK(approx(component[0] + component[1], annualized, 1e-12));
+        CHECK(approx(hhi, 0.5, 1e-12));
+    }
+    {
         double trades[10], cost, variance, kappa;
         CHECK(rflux_almgren_chriss_plan(100.0, 10, 1.0, 0.01, 0.001, 0.02,
                                         0.0, trades, &cost, &variance,
@@ -850,6 +867,23 @@ static int test_algorithms(void) {
         double cvar;
         CHECK(rflux_cvar_loss(returns, 4, 0.95, &cvar) == RFLUX_OK);
         CHECK(approx(cvar, 0.05, 1e-12));
+    }
+    {
+        const double returns[5] = {0.01, 0.02, -0.005, 0.0, 0.015};
+        size_t n_periods, elapsed;
+        double summary[10];
+        CHECK(rflux_performance_summary(returns, 5, 252.0, 0.0, 0.95, 0,
+                                        &n_periods, &elapsed, summary) ==
+              RFLUX_OK);
+        CHECK(n_periods == 5 && elapsed == 5);
+        CHECK(approx(summary[0], 0.040424735, 1e-6));
+        CHECK(isfinite(summary[0]));
+        CHECK(isfinite(summary[3]));
+        const double curve_returns[2] = {0.1, -0.1};
+        double curve[2];
+        CHECK(rflux_equity_curve(curve_returns, 2, 1.0, curve) == RFLUX_OK);
+        CHECK(approx(curve[0], 1.1, 1e-12));
+        CHECK(approx(curve[1], 0.99, 1e-12));
         const double signal[3] = {1, 0, 1};
         const double adjacency[9] = {0, 1, 1, 1, 0, 1, 1, 1, 0};
         double smooth[3];

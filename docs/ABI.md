@@ -149,12 +149,15 @@ void rflux_clear_error(void);
 | `rflux_factor_turnover` | `n_obs` one-way turnover values |
 | `rflux_hrp_weights` | n_assets, long-only and summing to one |
 | `rflux_hrp_order` | n_assets `size_t` leaf order |
+| `rflux_portfolio_risk` | covariance, asset/component risk, returns and portfolio scalars |
 | `rflux_risk_parity_weights` | n_assets inverse-variance weights |
 | `rflux_nco_weights` | n_assets clustered risk-parity weights |
 | `rflux_rebalance_targets` | n_rows * n_assets gated weights |
 | `rflux_tail_dependence` | n_assets x n_assets symmetric matrix |
 | `rflux_almgren_chriss_plan` | trades of length `slices`; cost/variance/kappa are either all provided or all omitted |
 | `rflux_huber_regression` | coefficients length `n_features`; intercept, scale, iterations, converged |
+| `rflux_equity_curve` | compounded equity length `n` |
+| `rflux_performance_summary` | counts plus ten summary values |
 | `rflux_cvar_loss` | one scalar |
 | `rflux_graph_smooth` | signal length `n` |
 | `rflux_order_book_metrics` | four arrays of length `n` |

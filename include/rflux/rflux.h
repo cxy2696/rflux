@@ -274,6 +274,17 @@ RFLUX_API rflux_status rflux_sortino(const double* returns, size_t n,
 RFLUX_API rflux_status rflux_var_cvar(const double* returns, size_t n,
                                       double confidence, double* var,
                                       double* cvar);
+/* Compounded equity curve.  Finite returns are compounded; NaN gaps are
+ * flat.  out has n entries; finite returns must be greater than -1. */
+RFLUX_API rflux_status rflux_equity_curve(const double* returns, size_t n,
+                                          double initial, double* out);
+/* Annualized performance summary.  metrics has 10 doubles:
+ * total, annualized, volatility, sharpe, sortino, max_drawdown, calmar,
+ * var, cvar, hit_rate.  periods=0 uses n. */
+RFLUX_API rflux_status rflux_performance_summary(
+    const double* returns, size_t n, double periods_per_year,
+    double risk_free, double confidence, size_t periods, size_t* n_periods,
+    size_t* elapsed_periods, double* metrics);
 
 /* ------------------------------------------------------------------------- */
 /* qflux: cross-sectional ranking and factor preprocessing                   */
@@ -840,6 +851,16 @@ RFLUX_API rflux_status rflux_nco_weights(const double* covariance,
 RFLUX_API rflux_status rflux_rebalance_targets(
     const double* current, const double* target, size_t n_rows,
     size_t n_assets, double threshold, double* out);
+
+/* Complete-case sample covariance and Euler portfolio risk. */
+RFLUX_API rflux_status rflux_portfolio_risk(
+    const double* returns, size_t n_obs, size_t n_assets,
+    const double* weights, size_t ddof, double periods_per_year,
+    double* covariance, double* asset_volatility,
+    double* component_volatility, double* percent_contribution,
+    double* portfolio_returns, size_t* complete_observations,
+    double* annualized_volatility, double* diversification_ratio,
+    double* gross_hhi);
 
 /* Almgren-Chriss liquidation.  trades has `slices` entries and sums to
  * quantity.  The three scalar outputs are optional only as a group; pass all

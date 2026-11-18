@@ -35,7 +35,9 @@
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
+#include "rflux/portfoliolab/risk.hpp"
 #include "rflux/qflux/indicators.hpp"
+#include "rflux/qflux/performance.hpp"
 #include "rflux/qflux/ranking.hpp"
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
@@ -480,6 +482,36 @@ double sortino_value(const DoubleArray& values, double periods_per_year,
                        risk_free);
 }
 
+py::array_t<double> equity_curve(const DoubleArray& returns,
+                                  double initial) {
+    require_1d(returns, "returns");
+    std::vector<double> result = run_released([&] {
+        return rflux::qflux::equity_curve(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            initial);
+    });
+    return vector_to_array(result);
+}
+
+py::tuple performance_summary(const DoubleArray& returns,
+                             double periods_per_year, double risk_free,
+                             double confidence, std::size_t periods) {
+    require_1d(returns, "returns");
+    const auto summary = run_released([&] {
+        return rflux::qflux::performance_summary(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            periods_per_year, risk_free, confidence, periods);
+    });
+    std::vector<double> values = {
+        summary.total_return,          summary.annualized_return,
+        summary.annualized_volatility, summary.sharpe,
+        summary.sortino,               summary.max_drawdown,
+        summary.calmar,                summary.var,
+        summary.cvar,                  summary.hit_rate};
+    return py::make_tuple(summary.n_periods, summary.elapsed_periods,
+                          vector_to_array(values));
+}
+
 py::tuple var_cvar_value(const DoubleArray& values, double confidence) {
     require_1d(values, "returns");
     const auto n = static_cast<std::size_t>(values.shape(0));
@@ -616,6 +648,32 @@ py::array_t<double> tail_dependence(const DoubleArray& returns, double q,
             static_cast<std::size_t>(returns.shape(1)), q, upper);
     });
     return matrix_to_array(result, returns.shape(1), returns.shape(1));
+}
+
+py::tuple portfolio_risk(const DoubleArray& returns,
+                        const DoubleArray& weights, std::size_t ddof,
+                        double periods_per_year) {
+    require_2d(returns, "returns");
+    require_1d(weights, "weights");
+    if (returns.shape(1) != weights.shape(0)) {
+        throw rflux::InvalidArgument(
+            "weights must have one entry per asset");
+    }
+    const auto result = run_released([&] {
+        return rflux::portfoliolab::portfolio_risk(
+            returns.data(), static_cast<std::size_t>(returns.shape(0)),
+            static_cast<std::size_t>(returns.shape(1)), weights.data(), ddof,
+            periods_per_year);
+    });
+    return py::make_tuple(
+        matrix_to_array(result.covariance, returns.shape(1),
+                        returns.shape(1)),
+        vector_to_array(result.asset_volatility),
+        vector_to_array(result.component_volatility),
+        vector_to_array(result.percent_contribution),
+        vector_to_array(result.portfolio_returns),
+        result.complete_observations, result.annualized_volatility,
+        result.diversification_ratio, result.gross_hhi);
 }
 
 py::array_t<double> hrp_weights(const DoubleArray& covariance) {
@@ -976,6 +1034,12 @@ PYBIND11_MODULE(_native, module) {
                py::arg("risk_free") = 0.0);
     module.def("var_cvar", &var_cvar_value, py::arg("returns"),
                py::arg("confidence") = 0.95);
+    module.def("equity_curve", &equity_curve, py::arg("returns"),
+               py::arg("initial") = 1.0);
+    module.def("performance_summary", &performance_summary, py::arg("returns"),
+               py::arg("periods_per_year") = 252.0,
+               py::arg("risk_free") = 0.0, py::arg("confidence") = 0.95,
+               py::arg("periods") = 0);
     module.def("neutralize", &neutralize_values, py::arg("values"),
                py::arg("groups"), py::arg("group_count"));
     module.def("factor_momentum", &factor_momentum, py::arg("close"),
@@ -992,6 +1056,9 @@ PYBIND11_MODULE(_native, module) {
     module.def("tail_dependence", &tail_dependence, py::arg("returns"),
                py::arg("q") = 0.05, py::arg("upper") = false);
     module.def("hrp_weights", &hrp_weights, py::arg("covariance"));
+    module.def("portfolio_risk", &portfolio_risk, py::arg("returns"),
+               py::arg("weights"), py::arg("ddof") = 1,
+               py::arg("periods_per_year") = 252.0);
     module.def("risk_parity_weights", &risk_parity_weights,
                py::arg("covariance"));
     module.def("nco_weights", &nco_weights, py::arg("covariance"),

@@ -15,6 +15,7 @@
 #include "rflux/percolab/detector.hpp"
 #include "rflux/percolab/percolation.hpp"
 #include "rflux/qflux/indicators.hpp"
+#include "rflux/qflux/performance.hpp"
 #include "rflux/qflux/ranking.hpp"
 #include "rflux/qflux/stats.hpp"
 #include "rflux/qflux/window.hpp"
@@ -25,6 +26,7 @@
 #include "rflux/factorlab/factors.hpp"
 #include "rflux/mllab/huber.hpp"
 #include "rflux/portfoliolab/hrp.hpp"
+#include "rflux/portfoliolab/risk.hpp"
 #include "rflux/risk/pretrade.hpp"
 #include "rflux/risk/tail_dependence.hpp"
 
@@ -462,6 +464,35 @@ rflux_status rflux_sortino(const double* returns, size_t n,
                            double* out) {
     return guarded_scalar("rflux_sortino", out, "out", [&] {
         return rflux::qflux::sortino(returns, n, periods_per_year, risk_free);
+    });
+}
+
+rflux_status rflux_equity_curve(const double* returns, size_t n,
+                                double initial, double* out) {
+    return guarded_vector("rflux_equity_curve", out, "out", [&] {
+        return rflux::qflux::equity_curve(returns, n, initial);
+    });
+}
+
+rflux_status rflux_performance_summary(
+    const double* returns, size_t n, double periods_per_year, double risk_free,
+    double confidence, size_t periods, size_t* n_periods,
+    size_t* elapsed_periods, double* metrics) {
+    return api_guard("rflux_performance_summary", [&] {
+        require_output(n_periods, "n_periods");
+        require_output(elapsed_periods, "elapsed_periods");
+        require_output(metrics, "metrics");
+        const auto summary = rflux::qflux::performance_summary(
+            returns, n, periods_per_year, risk_free, confidence, periods);
+        *n_periods = summary.n_periods;
+        *elapsed_periods = summary.elapsed_periods;
+        const double values[10] = {
+            summary.total_return,          summary.annualized_return,
+            summary.annualized_volatility, summary.sharpe,
+            summary.sortino,               summary.max_drawdown,
+            summary.calmar,                summary.var,
+            summary.cvar,                  summary.hit_rate};
+        std::copy(values, values + 10, metrics);
     });
 }
 
@@ -1159,6 +1190,43 @@ rflux_status rflux_rebalance_targets(const double* current,
     return guarded_vector("rflux_rebalance_targets", out, "out", [&] {
         return rflux::portfoliolab::rebalance_targets(
             current, target, n_rows, n_assets, threshold);
+    });
+}
+
+rflux_status rflux_portfolio_risk(
+    const double* returns, size_t n_obs, size_t n_assets,
+    const double* weights, size_t ddof, double periods_per_year,
+    double* covariance, double* asset_volatility,
+    double* component_volatility, double* percent_contribution,
+    double* portfolio_returns, size_t* complete_observations,
+    double* annualized_volatility, double* diversification_ratio,
+    double* gross_hhi) {
+    return api_guard("rflux_portfolio_risk", [&] {
+        require_output(covariance, "covariance");
+        require_output(asset_volatility, "asset_volatility");
+        require_output(component_volatility, "component_volatility");
+        require_output(percent_contribution, "percent_contribution");
+        require_output(portfolio_returns, "portfolio_returns");
+        require_output(complete_observations, "complete_observations");
+        require_output(annualized_volatility, "annualized_volatility");
+        require_output(diversification_ratio, "diversification_ratio");
+        require_output(gross_hhi, "gross_hhi");
+        const auto result = rflux::portfoliolab::portfolio_risk(
+            returns, n_obs, n_assets, weights, ddof, periods_per_year);
+        std::copy(result.covariance.begin(), result.covariance.end(),
+                  covariance);
+        std::copy(result.asset_volatility.begin(),
+                  result.asset_volatility.end(), asset_volatility);
+        std::copy(result.component_volatility.begin(),
+                  result.component_volatility.end(), component_volatility);
+        std::copy(result.percent_contribution.begin(),
+                  result.percent_contribution.end(), percent_contribution);
+        std::copy(result.portfolio_returns.begin(),
+                  result.portfolio_returns.end(), portfolio_returns);
+        *complete_observations = result.complete_observations;
+        *annualized_volatility = result.annualized_volatility;
+        *diversification_ratio = result.diversification_ratio;
+        *gross_hhi = result.gross_hhi;
     });
 }
 

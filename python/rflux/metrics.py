@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,12 +10,16 @@ import numpy as np
 
 from . import qflux
 from ._common import (
+    double_ptr,
+    empty_f64,
     as_f64_1d,
     as_finite_float,
     as_open_unit_float,
     as_positive_float,
     as_size,
 )
+from ._ffi import check, get_lib
+from ._native_backend import native_module, native_or
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,17 +56,28 @@ def _validated_options(
 
 
 def equity_curve(returns_: Any, initial: float = 1.0) -> np.ndarray:
-    """Compounded equity curve; finite returns are compounded, NaN gaps are flat.
-
-    Returns must be strictly greater than -1 for every finite observation;
-    otherwise the compounded path is not a valid capital curve.
-    """
+    """Compounded equity curve, implemented in C++; NaN gaps are flat."""
     data = as_f64_1d(returns_, "returns")
     finite = data[np.isfinite(data)]
     if finite.size and np.any(finite <= -1.0):
         raise ValueError("returns must be greater than -1 for compounding")
-    values = np.where(np.isfinite(data), 1.0 + data, 1.0)
-    return float(initial) * np.cumprod(values)
+    initial = as_finite_float(initial, "initial")
+    def fallback() -> np.ndarray:
+        out = empty_f64(data.size)
+        check(
+            get_lib().rflux_equity_curve(
+                double_ptr(data), data.size, float(initial), double_ptr(out)
+            ),
+            "rflux_equity_curve",
+        )
+        return out
+
+    return native_or(
+        native_module,
+        "rflux_equity_curve",
+        lambda: native_module.equity_curve(data, float(initial)),
+        fallback,
+    )
 
 
 def performance_summary(
@@ -72,18 +88,11 @@ def performance_summary(
     confidence: float = 0.95,
     periods: int | None = None,
 ) -> PerformanceMetrics:
-    """Annualized performance and tail-risk summary of periodic returns.
+    """Annualized performance and tail-risk summary, implemented in C++.
 
-    Returns are arithmetic periodic returns (not percentages). ``risk_free`` is
-    an annual rate and ``confidence`` is the historical VaR/CVaR confidence.
-    NaN returns are excluded from the statistics, while ``periods`` controls the
-    elapsed time used for annualising the geometric return.  By default the full
-    input length is used, so internal NaN gaps do not shorten the horizon.  Pass
-    ``periods=finite_count`` to annualise over observed periods instead.
-
-    Portfolio returns may be below -100% (for example a levered long-short
-    book).  In that case total_return is still reported, while annualized
-    return and Calmar are NaN once cumulative equity is non-positive.
+    Returns are arithmetic periodic returns.  ``risk_free`` is annual and
+    ``confidence`` selects the historical VaR/CVaR level.  NaN returns are
+    excluded from statistics; ``periods`` controls the annualisation horizon.
     """
     data = as_f64_1d(returns_, "returns")
     finite = data[np.isfinite(data)]
@@ -93,53 +102,49 @@ def performance_summary(
         periods_per_year, risk_free, confidence
     )
     assert confidence is not None
-    elapsed = (
-        int(data.size)
-        if periods is None
-        else as_size(periods, "periods")
-    )
-    if elapsed <= 0:
+    elapsed = 0 if periods is None else as_size(periods, "periods")
+    if periods is not None and elapsed <= 0:
         raise ValueError("periods must be positive")
+    n = data.size
 
-    growth = 1.0 + finite
-    total_return = float(np.prod(growth) - 1.0)
-    if growth.min() <= 0.0 or 1.0 + total_return <= 0.0:
-        annualized_return = float("nan")
-    else:
-        annualized_return = float(
-            (1.0 + total_return) ** (periods_per_year / elapsed) - 1.0
+    def fallback() -> tuple[int, int, np.ndarray]:
+        n_periods = ctypes.c_size_t()
+        elapsed_periods = ctypes.c_size_t()
+        values = empty_f64(10)
+        check(
+            get_lib().rflux_performance_summary(
+                double_ptr(data), n, float(periods_per_year),
+                float(risk_free), float(confidence), elapsed,
+                ctypes.byref(n_periods), ctypes.byref(elapsed_periods),
+                double_ptr(values)
+            ),
+            "rflux_performance_summary",
         )
+        return int(n_periods.value), int(elapsed_periods.value), values
 
-    annualized_volatility = float(
-        np.std(finite, ddof=1) * np.sqrt(periods_per_year)
+    n_periods, elapsed_periods, values = native_or(
+        native_module,
+        "rflux_performance_summary",
+        lambda: native_module.performance_summary(
+            data, float(periods_per_year), float(risk_free),
+            float(confidence), elapsed
+        ),
+        fallback,
     )
-    equity = np.concatenate(([1.0], np.cumprod(growth)))
-    drawdowns = qflux.drawdown(equity)[1:]
-    finite_drawdowns = drawdowns[np.isfinite(drawdowns)]
-    max_drawdown = (
-        float(finite_drawdowns.min()) if finite_drawdowns.size else float("nan")
-    )
-    if np.isfinite(annualized_return) and max_drawdown < 0.0:
-        calmar = annualized_return / abs(max_drawdown)
-    else:
-        calmar = float("nan")
-    tail = qflux.var_cvar(finite, confidence)
-    sharpe = qflux.sharpe(finite, periods_per_year, risk_free)
-    sortino = qflux.sortino(finite, periods_per_year, risk_free)
     return PerformanceMetrics(
-        n_periods=int(finite.size),
-        elapsed_periods=int(elapsed),
-        total_return=total_return,
-        annualized_return=annualized_return,
-        annualized_volatility=annualized_volatility,
-        sharpe=float(sharpe),
-        sortino=float(sortino),
-        max_drawdown=max_drawdown,
-        calmar=float(calmar),
-        var=float(tail.var),
-        cvar=float(tail.cvar),
+        n_periods=int(n_periods),
+        elapsed_periods=int(elapsed_periods),
+        total_return=float(values[0]),
+        annualized_return=float(values[1]),
+        annualized_volatility=float(values[2]),
+        sharpe=float(values[3]),
+        sortino=float(values[4]),
+        max_drawdown=float(values[5]),
+        calmar=float(values[6]),
+        var=float(values[7]),
+        cvar=float(values[8]),
         confidence=float(confidence),
-        hit_rate=float(np.mean(finite > 0.0)),
+        hit_rate=float(values[9]),
     )
 
 

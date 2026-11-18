@@ -129,6 +129,7 @@ void rflux_clear_error(void);
 | `rflux_factor_momentum` / `rflux_factor_volume_reversal` / `rflux_factor_vwap_deviation` / `rflux_factor_amihud` | `n_obs * n_assets`，行主序 |
 | `rflux_factor_ic` | `n_obs` 个 Pearson/Spearman IC |
 | `rflux_factor_turnover` | `n_obs` 个单边换手率 |
+| `rflux_portfolio_risk` | 协方差、资产/成分风险、组合收益与标量 |
 | `rflux_hrp_weights` | n_assets，long-only，和为 1 |
 | `rflux_hrp_order` | n_assets 个 `size_t` 叶序 |
 | `rflux_risk_parity_weights` | n_assets 逆方差权重 |
@@ -137,6 +138,8 @@ void rflux_clear_error(void);
 | `rflux_tail_dependence` | n_assets x n_assets 对称矩阵 |
 | `rflux_almgren_chriss_plan` | trades 长度 `slices`；cost/variance/kappa 可选但必须成组传入 |
 | `rflux_huber_regression` | coefficients 长度 `n_features`；intercept、scale、iterations、converged |
+| `rflux_equity_curve` | 长度 `n` 的权益曲线 |
+| `rflux_performance_summary` | 计数与 10 个摘要值 |
 | `rflux_cvar_loss` | 1 个标量 |
 | `rflux_graph_smooth` | 长度 `n` 的信号 |
 | `rflux_order_book_metrics` | 4 个长度 `n` 的数组 |

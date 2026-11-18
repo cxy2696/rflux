@@ -8,6 +8,7 @@ rest of the package.  The formulas and assumptions are documented in
 
 from __future__ import annotations
 
+import ctypes
 import math
 from dataclasses import asdict
 from typing import Any, Sequence
@@ -16,14 +17,17 @@ import numpy as np
 
 from . import metrics, qflux
 from ._common import (
+    double_ptr,
+    empty_f64,
     as_f64_1d,
     as_f64_panel,
     as_i32_1d,
     as_size,
     asset_names as _asset_names,
-    complete_case_covariance,
 )
+from ._ffi import check, get_lib
 from ._json import jsonable
+from ._native_backend import native_module, native_or
 from ._version import __version__
 
 
@@ -37,17 +41,10 @@ def portfolio_risk(
     confidence: float = 0.95,
     ddof: int = 1,
 ) -> dict[str, Any]:
-    """Risk summary and Euler volatility contributions for a return panel.
+    """Risk summary and Euler volatility contributions, computed in C++.
 
-    ``returns`` has shape ``(observations, assets)`` and contains periodic
-    arithmetic returns.  Rows with any missing return are removed before the
-    covariance is estimated, so every asset uses the same sample.  Weights are
-    exposures per unit of capital; they may be long-short and need not sum to
-    one.  The portfolio return is ``returns_complete @ weights``.
-
-    The covariance uses ``ddof`` (default 1).  The volatility contributions
-    satisfy ``sum(component_volatility) == annualized_volatility`` whenever
-    portfolio volatility is positive.
+    Complete rows are used for the sample covariance.  Weights are exposures
+    and may be long-short.
     """
     panel = as_f64_panel(returns, "returns", min_rows=2)
     n_assets = panel.shape[1]
@@ -64,59 +61,78 @@ def portfolio_risk(
     )
     assert confidence is not None
     ddof = as_size(ddof, "ddof", minimum=1)
-
-    covariance, complete = complete_case_covariance(panel, ddof=ddof)
-    complete_n = int(complete.shape[0])
-    if complete_n <= ddof:
+    n_obs = panel.shape[0]
+    if int(np.isfinite(panel).all(axis=1).sum()) <= ddof:
         raise ValueError(
             "not enough complete return rows for the requested covariance"
         )
     asset_names = _asset_names(names, n_assets)
-    portfolio_returns = complete @ weight_array
-    portfolio_variance = float(weight_array @ covariance @ weight_array)
-    if portfolio_variance < 0.0 and portfolio_variance > -1e-18:
-        portfolio_variance = 0.0
-    if portfolio_variance < 0.0:
-        raise ValueError("portfolio covariance produced a negative variance")
-    annualized_volatility = math.sqrt(portfolio_variance * periods_per_year)
 
-    asset_variance = np.diag(covariance)
-    asset_volatility = np.sqrt(np.maximum(asset_variance, 0.0) * periods_per_year)
-    contributions: list[float | None]
-    percentages: list[float | None]
-    if annualized_volatility > 0.0:
-        marginal = covariance @ weight_array / math.sqrt(portfolio_variance)
-        component = weight_array * marginal * math.sqrt(periods_per_year)
-        contributions = [float(value) for value in component]
-        percentages = [float(value / annualized_volatility) for value in component]
-    else:
-        contributions = [None] * n_assets
-        percentages = [None] * n_assets
+    def fallback() -> tuple[np.ndarray, ...]:
+        covariance = empty_f64(n_assets * n_assets)
+        asset_volatility = empty_f64(n_assets)
+        component = empty_f64(n_assets)
+        percentages = empty_f64(n_assets)
+        portfolio_returns = empty_f64(n_obs)
+        complete = ctypes.c_size_t()
+        annualized = ctypes.c_double()
+        diversification = ctypes.c_double()
+        gross_hhi = ctypes.c_double()
+        check(
+            get_lib().rflux_portfolio_risk(
+                double_ptr(panel), n_obs, n_assets, double_ptr(weight_array),
+                ddof, float(periods_per_year), double_ptr(covariance),
+                double_ptr(asset_volatility), double_ptr(component),
+                double_ptr(percentages), double_ptr(portfolio_returns),
+                ctypes.byref(complete), ctypes.byref(annualized),
+                ctypes.byref(diversification), ctypes.byref(gross_hhi)
+            ),
+            "rflux_portfolio_risk",
+        )
+        return (
+            covariance.reshape(n_assets, n_assets),
+            asset_volatility,
+            component,
+            percentages,
+            portfolio_returns[: int(complete.value)],
+            int(complete.value),
+            float(annualized.value),
+            float(diversification.value),
+            float(gross_hhi.value),
+        )
 
+    (covariance, asset_volatility, contributions, percentages,
+     portfolio_returns, complete_n, annualized_volatility,
+     diversification, gross_hhi) = native_or(
+        native_module,
+        "rflux_portfolio_risk",
+        lambda: native_module.portfolio_risk(
+            panel, weight_array, ddof, float(periods_per_year)
+        ),
+        fallback,
+    )
     summary = metrics.performance_summary(
         portfolio_returns,
         periods_per_year=periods_per_year,
         risk_free=risk_free,
         confidence=confidence,
     )
-    diversification = (
-        float(np.abs(weight_array) @ asset_volatility / annualized_volatility)
-        if annualized_volatility > 0.0
-        else None
-    )
-    gross_hhi = float(np.sum((weight_array / gross) ** 2))
     asset_risk = {
         name: {
             "weight": float(weight),
             "annualized_volatility": float(volatility),
-            "component_volatility": contributions[index],
-            "percent_contribution": percentages[index],
+            "component_volatility": (
+                None if not np.isfinite(component) else float(component)
+            ),
+            "percent_contribution": (
+                None if not np.isfinite(percent) else float(percent)
+            ),
         }
-        for index, (name, weight, volatility) in enumerate(
-            zip(asset_names, weight_array, asset_volatility)
+        for name, weight, volatility, component, percent in zip(
+            asset_names, weight_array, asset_volatility, contributions,
+            percentages
         )
     }
-
     report = {
         "package": {"version": __version__},
         "method": {
@@ -130,20 +146,23 @@ def portfolio_risk(
             "contribution": "Euler volatility contribution",
         },
         "input": {
-            "observations": int(panel.shape[0]),
-            "complete_observations": complete_n,
-            "dropped_observations": int(panel.shape[0] - complete_n),
+            "observations": int(n_obs),
+            "complete_observations": int(complete_n),
+            "dropped_observations": int(n_obs - complete_n),
             "asset_names": asset_names,
             "weights": [float(value) for value in weight_array],
             "gross_exposure": gross,
             "net_exposure": float(weight_array.sum()),
-            "gross_hhi": gross_hhi,
+            "gross_hhi": float(gross_hhi),
         },
         "covariance": covariance.tolist(),
         "asset_risk": asset_risk,
         "portfolio": {
-            "annualized_volatility": annualized_volatility,
-            "diversification_ratio": diversification,
+            "annualized_volatility": float(annualized_volatility),
+            "diversification_ratio": (
+                None if not np.isfinite(diversification)
+                else float(diversification)
+            ),
             "metrics": asdict(summary),
         },
     }

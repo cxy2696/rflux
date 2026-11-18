@@ -56,7 +56,8 @@ existing signatures, layouts and result semantics are unchanged.
   `tests/` at 5 lines/40 tokens; only the bilingual documentation mirrors
   repeat. Added an optional `make dup-check` target.
 - Python layer: factor IC/turnover, NCO weights, risk parity, rebalance gating,
-  tail dependence, CVaR, graph smoothing and order-book metrics now run in C++
+  tail dependence, CVaR, graph smoothing, order-book metrics, performance
+  summaries, equity curves and portfolio risk now run in C++
   (`portfoliolab/hrp.cpp`, `risk/tail_dependence.cpp`) with additive C ABI
   functions and pybind11 entry points. The Python wrappers keep the ctypes
   fallback and dispatch through `native_or`.

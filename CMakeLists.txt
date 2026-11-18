@@ -51,6 +51,7 @@ set(RFLUX_CORE_SOURCES
     src/qflux/indicators.cpp
     src/qflux/stats.cpp
     src/qflux/ranking.cpp
+    src/qflux/performance.cpp
     src/regimelab/hmm.cpp
     src/regimelab/regime.cpp
     src/percolab/percolation.cpp
@@ -63,6 +64,7 @@ set(RFLUX_CORE_SOURCES
     src/factorlab/evaluation.cpp
     src/factorlab/factory.cpp
     src/portfoliolab/hrp.cpp
+    src/portfoliolab/risk.cpp
     src/portfoliolab/factory.cpp
     src/execution/almgren_chriss.cpp
     src/execution/microstructure.cpp
