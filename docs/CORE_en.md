@@ -2,7 +2,7 @@
 
 **English** · [中文](CORE_cn.md)
 
-The 0.7 C++ layer follows three design rules:
+The C++ layer follows three design rules:
 
 1. **No Eigen in the public boundary.** The C ABI and pybind11 take plain
    contiguous buffers. Eigen would add a large header dependency, alignment rules
@@ -146,13 +146,11 @@ Pass `-DRFLUX_ENABLE_IPO=OFF` to compare builds or to avoid long link times.
 
 ## C ABI coverage
 
-The 0.7 kernels are reachable from C: factor panels/IC/turnover, HRP/NCO and
-risk-parity weights, portfolio risk, rebalance gating, performance summaries,
-tail dependence, CVaR, graph smoothing, order-book metrics, Almgren-Chriss
-plans, Huber regression, site-percolation analysis and threshold, and the
-pre-trade gate.  Python uses those C functions when the
-pybind11 extension is unavailable instead of keeping a second NumPy
-implementation.
+The public kernels are reachable from C: factor panels/IC/turnover, backtests,
+HRP/NCO and risk-parity weights, portfolio risk, rebalance gating, performance
+summaries, tail dependence, CVaR, graph smoothing, order-book metrics,
+Almgren-Chriss plans, Huber regression, site-percolation analysis and
+threshold, HMM state matching and the pre-trade gate.
 
 ## Shared code
 

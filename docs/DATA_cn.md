@@ -2,7 +2,7 @@
 
 [English](DATA_en.md) · **中文**
 
-0.7 的数据层把三种异构数据源统一为一个长表 OHLCV 契约。使用前安装
+数据层把三种异构数据源统一为一个长表 OHLCV 契约。使用前安装
 `pandas` 和对应 provider SDK：`pip install "rflux[all]"`，或 `rflux[akshare]`
 等窄依赖；只要 pandas 可安装 `rflux[data]`。策略代码只依赖
 `rflux.data`，不直接依赖 provider SDK。
@@ -58,9 +58,8 @@ loader = data.DataLoaderFactory.create("csv", root="./data/daily")
 frame = loader.load(["600519.SH", "AAPL.US"], start="2024-01-01", end="2024-12-31")
 ```
 
-同时提供 `LocalCsvAdapter`、`AkShareAdapter`、`YFinanceAdapter`、
- 别名，方便按 Adapter Pattern 命名。通过
-`DataLoaderFactory.register("ccxt", MyLoader)` 可以增加新数据源，策略代码不变。
+通过 `DataLoaderFactory.register("ccxt", MyLoader)` 可以增加新数据源，
+策略代码不变。
 
 ## 本地 CSV
 
@@ -83,9 +82,6 @@ close = data.pivot_ohlcv(frame, "close")
 panels = data.pivot_ohlcv_panel(frame)  # open/high/low/close/volume
 returns = close.pct_change()
 ```
-
-旧接口 `data.load_csv`、`load_akshare`、`load_yfinance` 继续返回
-宽表收盘价，供现有 `analyze`/`risk` CLI 和示例使用。
 
 ## 缓存
 

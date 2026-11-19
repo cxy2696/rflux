@@ -2,10 +2,10 @@
 
 **English** · [中文](ALGORITHMS_cn.md)
 
-rflux 0.7 adds a C++ algorithm layer on top of the numerical core. Every
-algorithm has a typed interface, a documented input/output contract and a
-native implementation. The Python layer validates inputs and assembles
-reports; it does not compute algorithm results.
+The C++ algorithm layer sits on top of the numerical core. Every algorithm has
+a typed interface, a documented input/output contract and a native
+implementation. The Python layer validates inputs and assembles reports; it does
+not compute algorithm results.
 
 ## Extension contracts
 

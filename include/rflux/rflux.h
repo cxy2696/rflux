@@ -815,8 +815,8 @@ RFLUX_API rflux_status rflux_risk_diffusion(const double* adjacency, size_t n,
                                             double* infection_frequency);
 
 /*
- * Algorithm kernels added in 0.7.  All buffers are caller-owned, row-major and
- * contiguous; no allocation is returned through the C ABI.
+ * Algorithm kernels.  All buffers are caller-owned, row-major and contiguous;
+ * no allocation is returned through the C ABI.
  */
 
 /* Factor panels: close/volume are n_obs x n_assets row-major.  out has the

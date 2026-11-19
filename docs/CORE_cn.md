@@ -2,7 +2,7 @@
 
 [English](CORE_en.md) · **中文**
 
-0.7 的 C++ 扩展层遵循三项设计规则：
+C++ 扩展层遵循三项设计规则：
 
 1. **公共边界不引入 Eigen。** C ABI 和 pybind11 接收连续缓冲区；Eigen 会增加
    头文件依赖、对齐规则和 ABI/生命周期问题。核心使用 `MarketSnapshotView`、
@@ -126,7 +126,10 @@ Release 和 RelWithDebInfo 默认开启，Debug 和 sanitizer 构建自动跳过
 
 ## C ABI 覆盖
 
-0.7 的核心算法都有 C ABI 入口：因子面板/IC/换手率、HRP/NCO 与风险平价权重、组合风险、调仓门控、绩效摘要、尾部相依、CVaR、图平滑、盘口指标、Almgren-Chriss 计划、Huber 回归、site percolation 分析和阈值、下单前风控。Python 在原生扩展不可用时使用这些 C 函数，不再维护第二套 NumPy 算法实现。
+公开算法都有 C ABI 入口：因子面板/IC/换手率、回测、HRP/NCO 与风险平价
+权重、组合风险、调仓门控、绩效摘要、尾部相依、CVaR、图平滑、盘口指标、
+Almgren-Chriss 计划、Huber 回归、site percolation 分析和阈值、HMM 状态匹配
+以及下单前风控。
 
 ## 共享代码
 

@@ -2,7 +2,7 @@
 
 **English** · [中文](DATA_cn.md)
 
-The 0.7 data layer turns three heterogeneous providers into one long OHLCV
+The data layer turns three heterogeneous providers into one long OHLCV
 contract.  Install pandas and the provider SDKs with `pip install
 "rflux[all]"`, or a narrower extra such as `rflux[akshare]`; pandas alone is
 available through `rflux[data]`.  Strategies import `rflux.data`, not provider SDKs.
@@ -62,10 +62,8 @@ loader = data.DataLoaderFactory.create("csv", root="./data/daily")
 frame = loader.load(["600519.SH", "AAPL.US"], start="2024-01-01", end="2024-12-31")
 ```
 
-The adapter aliases `LocalCsvAdapter`, `AkShareAdapter`, `YFinanceAdapter` and
- are provided for code that follows the Adapter Pattern naming.
-`DataLoaderFactory.register("ccxt", MyLoader)` adds a new source without touching
-strategy code.
+`DataLoaderFactory.register("ccxt", MyLoader)` adds a new source without
+touching strategy code.
 
 ## Local CSV
 
@@ -89,9 +87,6 @@ close = data.pivot_ohlcv(frame, "close")
 panels = data.pivot_ohlcv_panel(frame)  # open/high/low/close/volume
 returns = close.pct_change()
 ```
-
-The legacy `data.load_csv`, `load_akshare` and `load_yfinance` helpers continue to return wide close panels for the existing `analyze`/`risk`
-CLI and examples.
 
 ## Cache
 

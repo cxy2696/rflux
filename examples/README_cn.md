@@ -44,10 +44,10 @@ python examples/python_factor_screen.py
 ```python
 from rflux import data
 
-close = data.load_yfinance(
-    ["AAPL", "MSFT", "NVDA", "AMZN"], start="2021-01-01"
+frame = data.load_ohlcv(
+    "yfinance", ["AAPL", "MSFT", "NVDA", "AMZN"], start="2021-01-01"
 )
-prices = close.ffill().to_numpy()
+prices = data.pivot_ohlcv(frame, "close").ffill().to_numpy()
 ```
 
 ## 2. HMM 市场状态识别与跨窗口对齐
@@ -114,7 +114,8 @@ python examples/python_real_data.py \
 
 ```bash
 python examples/python_real_data.py \
-  --source csv --path my_prices.csv --date-column date
+  --source csv --path my_prices.csv --date-column date \
+  --symbols AAPL MSFT
 ```
 
 适配器只负责下载、日期索引和列名归一化。复权、停牌、点时成分股和生存偏差由使用者处理。远程供应商接口可能变化；脚本把空响应和 schema 错误转成 `DataSourceError`。
@@ -150,7 +151,7 @@ C 用户只需要 `include/rflux/rflux.h`；C++ 用户可包含 `include/rflux/r
 | [python_factor_screen.py](python_factor_screen.py) | 选股因子、行业中性和多空回测 | `qflux.winsorize/zscore/neutralize`, `backtest.factor_ic/long_short_backtest` |
 | [python_hmm_walkforward.py](python_hmm_walkforward.py) | HMM 滚动拟合、OOS 评分、状态对齐 | `regimelab.fit_hmm/score/match_states/align_labels` |
 | [python_end_to_end.py](python_end_to_end.py) | 状态 + 网络 + 渗流 + 回测 | `regimelab`, `percolab`, `backtest` |
-| [python_real_data.py](python_real_data.py) | akshare/yfinance/自定义 CSV | `data.load_yfinance/load_akshare/load_csv/to_returns` |
+| [python_real_data.py](python_real_data.py) | akshare/yfinance/长表 CSV | `data.DataLoaderFactory`、`load_ohlcv`、`pivot_ohlcv` |
 | [python_applications.py](python_applications.py) | 组合风险贡献和 regime 归因 | `portfolio_risk`, `regime_attribution` |
 | [c_basic.c](c_basic.c) | C ABI 最小调用 | `rflux_sma`, `rflux_rsi`, `rflux_graph_components` |
 | [cpp_research.cpp](cpp_research.cpp) | C++ 研究管线 | `rflux::qflux`, `rflux::regimelab`, `rflux::percolab` |

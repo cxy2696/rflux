@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example with akshare, yfinance or a custom CSV.
+"""Example with akshare, yfinance or a long local CSV.
 
 Install the optional dependencies, for example:
 
@@ -12,10 +12,13 @@ Install the optional dependencies, for example:
         --source akshare --symbols 600519.SH 000001.SZ --start 2021-01-01
 
     python examples/python_real_data.py \
-        --source csv --path my_prices.csv --date-column date
+        --source csv --path my_prices.csv --date-column date \
+        --symbols AAPL MSFT
 
-This script downloads data only when explicitly run.  It is not part of the
-test suite and makes no claim about the profitability of any signal.
+The CSV must be the canonical long form with ``symbol``, ``date``,
+``open/high/low/close/volume`` columns.  This script downloads data only when
+explicitly run.  It is not part of the test suite and makes no claim about the
+profitability of any signal.
 """
 
 from __future__ import annotations
@@ -30,11 +33,10 @@ from rflux import data, metrics, percolab, qflux, regimelab
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--source", choices=["akshare", "yfinance", "csv"],
-        required=True,
+        "--source", choices=["akshare", "yfinance", "csv"], required=True
     )
-    parser.add_argument("--symbols", nargs="+", default=None)
-    parser.add_argument("--path", default=None, help="CSV path for --source csv")
+    parser.add_argument("--symbols", nargs="+", required=True)
+    parser.add_argument("--path", default=None, help="long CSV path for csv")
     parser.add_argument("--date-column", default="date")
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", default=None)
@@ -44,20 +46,15 @@ def main() -> None:
     if args.source == "csv":
         if not args.path:
             parser.error("--path is required with --source csv")
-        prices = data.load_csv(args.path, date_column=args.date_column)
+        loader = data.LocalCsvLoader(
+            path=args.path, date_column=args.date_column
+        )
     else:
-        if not args.symbols:
-            parser.error("--symbols is required for provider sources")
-        if args.source == "akshare":
-            prices = data.load_akshare(
-                args.symbols, start=args.start, end=args.end
-            )
-        else:
-            prices = data.load_yfinance(
-                args.symbols, start=args.start, end=args.end
-            )
-    returns = data.to_returns(prices, method="simple", fill_method="ffill")
-    print("price panel:", prices.shape, prices.index.min(), prices.index.max())
+        loader = data.DataLoaderFactory.create(args.source)
+    frame = loader.load(args.symbols, start=args.start, end=args.end)
+    close = data.pivot_ohlcv(frame, "close").ffill()
+    returns = close.pct_change()
+    print("price panel:", close.shape, close.index.min(), close.index.max())
 
     market = returns.mean(axis=1).dropna()
     print("market performance:", metrics.performance_summary(market.to_numpy()))

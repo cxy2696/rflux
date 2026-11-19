@@ -1,14 +1,8 @@
-import importlib.util
-import sys
-import tempfile
-import types
 import unittest
-from pathlib import Path
-from unittest import mock
 
 import numpy as np
 
-from rflux import backtest, data, metrics
+from rflux import backtest, metrics
 from rflux import RFluxError
 
 
@@ -143,105 +137,6 @@ class TestMetricsAndBacktest(unittest.TestCase):
             backtest.long_short_backtest(
                 np.zeros((2, 2)), np.zeros((2, 2)), n_quantiles=1
             )
-
-
-class TestDataTools(unittest.TestCase):
-    def test_numpy_returns_without_pandas(self):
-        prices = np.array([100.0, 110.0, 121.0])
-        result = data.to_returns(prices)
-        self.assertIsInstance(result, np.ndarray)
-        self.assertAlmostEqual(result[1], 0.1)
-        if importlib.util.find_spec("pandas") is not None:
-            import pandas as pd
-            frame = pd.DataFrame({"A": [100.0, 110.0, 121.0]})
-            frame_result = data.to_returns(frame)
-            self.assertAlmostEqual(float(frame_result["A"].iloc[1]), 0.1)
-
-    def test_csv_adapter(self):
-        if importlib.util.find_spec("pandas") is None:
-            with self.assertRaises(data.MissingDependencyError):
-                data.load_csv("unused.csv")
-            return
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "prices.csv"
-            path.write_text(
-                "date,AAA,BBB\n2024-01-01,100,50\n2024-01-02,110,55\n",
-                encoding="utf-8",
-            )
-            frame = data.load_csv(path, date_column="date")
-            self.assertEqual(frame.shape, (2, 2))
-            self.assertAlmostEqual(float(frame.iloc[1, 0]), 110.0)
-            with self.assertRaises(KeyError):
-                data.load_csv(
-                    path, date_column="date", columns=["missing"]
-                )
-            duplicate_path = Path(directory) / "duplicates.csv"
-            duplicate_path.write_text(
-                "date,AAA\n2024-01-01,100\n2024-01-02,110\n"
-                "2024-01-02,111\n2024-01-03,121\n",
-                encoding="utf-8",
-            )
-            deduplicated = data.load_csv(duplicate_path, date_column="date")
-            self.assertTrue(deduplicated.index.is_unique)
-            self.assertAlmostEqual(float(deduplicated.iloc[1, 0]), 111.0)
-            routed = data.load_prices(
-                "csv", path=path, date_column="date", columns=["AAA"]
-            )
-            self.assertEqual(list(routed.columns), ["AAA"])
-
-    def test_optional_provider_errors_are_helpful(self):
-        if importlib.util.find_spec("pandas") is None:
-            with self.assertRaises(data.MissingDependencyError):
-                data.load_akshare(["000001"])
-            with self.assertRaises(data.MissingDependencyError):
-                data.load_yfinance(["AAPL"])
-            return
-        if importlib.util.find_spec("akshare") is None:
-            with self.assertRaises(data.MissingDependencyError):
-                data.load_akshare(["000001"])
-        if importlib.util.find_spec("yfinance") is None:
-            with self.assertRaises(data.MissingDependencyError):
-                data.load_yfinance(["AAPL"])
-    def test_provider_schema_normalization_with_mocks(self):
-        if importlib.util.find_spec("pandas") is None:
-            self.skipTest("pandas is not installed")
-        import pandas as pd
-
-        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
-        yf_frame = pd.DataFrame(
-            {
-                ("Close", "AAPL"): [100.0, 101.0],
-                ("Close", "MSFT"): [200.0, 201.0],
-                ("Open", "AAPL"): [99.0, 100.0],
-                ("Open", "MSFT"): [199.0, 200.0],
-            },
-            index=dates,
-        )
-        yf_frame.columns = pd.MultiIndex.from_tuples(yf_frame.columns)
-        fake_yf = types.ModuleType("yfinance")
-        fake_yf.download = lambda *args, **kwargs: yf_frame
-        with mock.patch.dict(sys.modules, {"yfinance": fake_yf}):
-            prices = data.load_yfinance(["AAPL", "MSFT"], start="2024-01-01")
-        self.assertEqual(list(prices.columns), ["AAPL", "MSFT"])
-        self.assertAlmostEqual(float(prices.iloc[-1, 0]), 101.0)
-
-        ak_frame = pd.DataFrame(
-            {
-                "日期": ["2024-01-02", "2024-01-03"],
-                "收盘": ["10.5", "10.7"],
-            }
-        )
-        fake_ak = types.ModuleType("akshare")
-        fake_ak.stock_zh_a_hist = lambda *args, **kwargs: ak_frame
-        with mock.patch.dict(sys.modules, {"akshare": fake_ak}):
-            akshare_prices = data.load_akshare(
-                ["000001"], start="2024-01-01", end="2024-01-31"
-            )
-        self.assertEqual(list(akshare_prices.columns), ["000001"])
-        self.assertAlmostEqual(float(akshare_prices.iloc[-1, 0]), 10.7)
-        with mock.patch.dict(sys.modules, {"akshare": fake_ak}):
-            with self.assertRaises(data.DataSourceError):
-                data.load_akshare(["000001"], price_column="成交量")
 
 
 

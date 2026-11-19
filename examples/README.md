@@ -48,8 +48,10 @@ pipeline:
 ```python
 from rflux import data
 
-close = data.load_yfinance(["AAPL", "MSFT", "NVDA", "AMZN"], start="2021-01-01")
-prices = close.ffill().to_numpy()
+frame = data.load_ohlcv(
+    "yfinance", ["AAPL", "MSFT", "NVDA", "AMZN"], start="2021-01-01"
+)
+prices = data.pivot_ohlcv(frame, "close").ffill().to_numpy()
 ```
 
 ## 2. HMM walk-forward
@@ -115,7 +117,8 @@ Custom CSV:
 
 ```bash
 python examples/python_real_data.py \
-  --source csv --path my_prices.csv --date-column date
+  --source csv --path my_prices.csv --date-column date \
+  --symbols AAPL MSFT
 ```
 
 Adapters download data, set the date index and normalise column names.
@@ -159,7 +162,7 @@ C users only need `include/rflux/rflux.h`; C++ users can include
 | [python_factor_screen.py](python_factor_screen.py) | factor screen, neutralisation, backtest | `qflux`, `backtest` |
 | [python_hmm_walkforward.py](python_hmm_walkforward.py) | rolling HMM, OOS score, state alignment | `regimelab` |
 | [python_end_to_end.py](python_end_to_end.py) | regime + network + percolation + backtest | `regimelab`, `percolab`, `backtest` |
-| [python_real_data.py](python_real_data.py) | AKShare/yfinance/custom CSV | `data` |
+| [python_real_data.py](python_real_data.py) | AKShare/yfinance/long CSV | `data.DataLoaderFactory`, `load_ohlcv`, `pivot_ohlcv` |
 | [python_applications.py](python_applications.py) | portfolio risk + regime attribution | `portfolio_risk`, `regime_attribution` |
 | [c_basic.c](c_basic.c) | minimal C ABI | `rflux_sma`, `rflux_rsi`, `rflux_graph_components` |
 | [cpp_research.cpp](cpp_research.cpp) | C++ research pipeline | `rflux::qflux`, `rflux::regimelab`, `rflux::percolab` |

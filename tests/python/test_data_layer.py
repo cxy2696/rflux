@@ -104,13 +104,12 @@ class TestUnifiedDataLayer(unittest.TestCase):
             with self.assertRaises(data.ContractError):
                 data.LocalCsvLoader(root).load(["600519.SH"])
 
-    def test_factory_and_aliases(self):
+    def test_factory(self):
         self.assertEqual(
             data.DataLoaderFactory.create("csv", root=".").source_name, "csv"
         )
         with self.assertRaises(ValueError):
             data.DataLoaderFactory.create("unknown")
-        self.assertIs(data.LocalCsvAdapter, data.LocalCsvLoader)
         self.assertIn("akshare", data.DataLoaderFactory.available())
 
     def test_akshare_adapter(self):

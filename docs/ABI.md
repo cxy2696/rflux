@@ -36,14 +36,13 @@ Version rules:
   extending an ABI-v1 options struct requires a new ABI version.
 - A release may add optional functions without forcing old clients to
   recompile.
-- `0.9.0` uses ABI `1`. The new C++ algorithm interfaces, Python data layer and
-  native bridge are additive.
-- Factors, HRP/NCO, tail dependence, Almgren-Chriss, Huber, site-percolation
-  detection and the pre-trade gate have C entry points; all new symbols are
+- The current library uses ABI `1`.  Factors, HRP/NCO, tail dependence,
+  Almgren-Chriss, Huber, site-percolation detection, the pre-trade gate, the
+  backtest kernels and HMM state matching have C entry points; all symbols are
   additive.
-- `0.9.0` adds the research report kernels (advice, regime attribution, sticky regimes, graph construction and summaries) through pybind11; the C ABI gains no breaking change.  `0.8.0` adds `rflux_factor_forward_returns`, `rflux_factor_quantile_returns`,
-  `rflux_factor_long_short`, `rflux_factor_ic_summary` and
-  `rflux_regime_match_states`; existing symbols and layouts are unchanged.
+- Research report kernels (advice, regime attribution, sticky regimes and graph
+  construction/summaries) are exposed through pybind11 only and add no C
+  symbols.
 
 ## 2. Status codes and exceptions
 
@@ -145,7 +144,7 @@ void rflux_clear_error(void);
 | `rflux_composite_regime` | n |
 | `rflux_regime_match_states` | K `int32_t` state ids |
 
-### Algorithm layer (0.7 and later)
+### Algorithm layer
 
 | Function | Output |
 | --- | --- |
